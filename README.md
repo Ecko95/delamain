@@ -53,6 +53,11 @@ Dashboard keys:
 - `r`: refresh
 - `q`: quit
 
+The `WT` column shows whether a peer is running in the main checkout, a linked
+worktree, or an unknown/non-git directory. Active peers that share the same
+checkout are marked `shared`; active peers on the same branch across multiple
+worktrees are marked `branch`.
+
 ## tmux Status Line
 
 Add a compact status indicator:
@@ -125,6 +130,11 @@ export CODEX_PEERS_HOME=/tmp/codex-peers-test
 - `failed`: peer exited non-zero or could not start
 - `frozen`: runner/Codex process vanished or heartbeat is stale
 - `killed`: killed by dashboard, CLI, or MCP tool
+
+Peer records include git worktree metadata when the peer was spawned:
+`worktreePath`, `gitDir`, `gitCommonDir`, and `isLinkedWorktree`. Use these
+fields from `codex-peers status <peer-id>` or MCP `peer_status` to confirm a
+peer is running in an independent linked worktree.
 
 Peers are instructed to emit:
 

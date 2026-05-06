@@ -4,7 +4,7 @@ import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
-import { gitBranch, gitRoot } from "./git.js";
+import { gitBranch, gitRoot, gitWorktreeInfo } from "./git.js";
 import { promptsDir, runsDir } from "./paths.js";
 import { getPeer, readState, updatePeer, upsertPeer } from "./store.js";
 import { killPid, killProcessGroup, pidAlive } from "./processes.js";
@@ -24,6 +24,7 @@ const DEFAULT_WAIT_LOG_LINES = 80;
 export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
   const repo = resolve(options.repo);
   const root = gitRoot(repo) || repo;
+  const worktree = gitWorktreeInfo(root);
   const id = randomUUID().slice(0, 8);
   const logPath = join(runsDir(), `${new Date().toISOString().replace(/[:.]/g, "-")}-${id}.log`);
   const promptFile = join(promptsDir(), `${id}.txt`);
@@ -36,6 +37,10 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
     name: options.name,
     repo: root,
     branch: gitBranch(root),
+    worktreePath: worktree.worktreePath,
+    gitDir: worktree.gitDir,
+    gitCommonDir: worktree.gitCommonDir,
+    isLinkedWorktree: worktree.isLinkedWorktree,
     task: firstLine(options.prompt),
     status: "starting",
     startedAt: now(),
@@ -239,20 +244,21 @@ function spawnRunner(args: {
 }
 
 function reconciledPeer(peer: PeerRecord): PeerRecord {
-  if (!isActive(peer)) {
-    return peer;
+  const enriched = withWorktreeInfo(peer);
+  if (!isActive(enriched)) {
+    return enriched;
   }
-  const runnerAlive = pidAlive(peer.runnerPid);
-  const codexAlive = pidAlive(peer.codexPid);
+  const runnerAlive = pidAlive(enriched.runnerPid);
+  const codexAlive = pidAlive(enriched.codexPid);
   if (!runnerAlive && !codexAlive) {
-    return { ...peer, status: "frozen", lastEvent: "runner/codex pid no longer alive" };
+    return { ...enriched, status: "frozen", lastEvent: "runner/codex pid no longer alive" };
   }
-  const heartbeatAge = peer.lastHeartbeatAt ? Date.now() - Date.parse(peer.lastHeartbeatAt) : Number.POSITIVE_INFINITY;
+  const heartbeatAge = enriched.lastHeartbeatAt ? Date.now() - Date.parse(enriched.lastHeartbeatAt) : Number.POSITIVE_INFINITY;
   const frozenAfter = Number(process.env.CODEX_PEERS_FROZEN_AFTER_MS || 120_000);
   if (heartbeatAge > frozenAfter) {
-    return { ...peer, status: "frozen", lastEvent: `heartbeat stale ${Math.round(heartbeatAge / 1000)}s` };
+    return { ...enriched, status: "frozen", lastEvent: `heartbeat stale ${Math.round(heartbeatAge / 1000)}s` };
   }
-  return peer;
+  return enriched;
 }
 
 function isActive(peer: PeerRecord): boolean {
@@ -274,6 +280,22 @@ function safeReadPeerLog(peerId: string, lines: number): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function withWorktreeInfo(peer: PeerRecord): PeerRecord {
+  if (peer.worktreePath && peer.gitDir && peer.gitCommonDir && typeof peer.isLinkedWorktree === "boolean") {
+    return peer;
+  }
+
+  const worktree = gitWorktreeInfo(peer.repo);
+  return {
+    ...peer,
+    branch: peer.branch || gitBranch(peer.repo),
+    worktreePath: peer.worktreePath || worktree.worktreePath,
+    gitDir: peer.gitDir || worktree.gitDir,
+    gitCommonDir: peer.gitCommonDir || worktree.gitCommonDir,
+    isLinkedWorktree: peer.isLinkedWorktree ?? worktree.isLinkedWorktree,
+  };
 }
 
 function firstLine(prompt: string): string {

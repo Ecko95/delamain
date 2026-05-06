@@ -82,6 +82,7 @@ function render(peers: PeerRecord[], state: DashboardState): string {
   const height = stdout.rows || 40;
   const rows: string[] = [];
   const counts = countByStatus(peers);
+  const worktrees = analyzeWorktrees(peers);
   rows.push(`${c("bold")}Codex Peers Dashboard${c("reset")} ${c("dim")}${new Date().toLocaleString()}${c("reset")}`);
   rows.push(
     [
@@ -93,13 +94,16 @@ function render(peers: PeerRecord[], state: DashboardState): string {
       badge("killed", counts.killed || 0),
     ].join("  "),
   );
+  for (const warning of worktrees.warnings) {
+    rows.push(`${c("yellow")}${warning}${c("reset")}`);
+  }
   rows.push("");
-  rows.push(fit(" #  ID        STATUS    REPO                                  BRANCH        PID       ELAPSED  LAST EVENT", width));
+  rows.push(fit(" #  ID        STATUS    REPO                              BRANCH      WT       PID       ELAPSED  LAST EVENT", width));
   rows.push(c("gray") + "─".repeat(Math.min(width, 140)) + c("reset"));
 
   const maxPeerRows = Math.max(0, height - 10);
   peers.slice(0, maxPeerRows).forEach((peer, index) => {
-    rows.push(renderPeerRow(peer, index + 1, width));
+    rows.push(renderPeerRow(peer, index + 1, width, worktrees.risks.get(peer.id)));
   });
   if (peers.length > maxPeerRows) {
     rows.push(c("dim") + `… ${peers.length - maxPeerRows} more peers hidden by terminal height` + c("reset"));
@@ -117,25 +121,106 @@ function render(peers: PeerRecord[], state: DashboardState): string {
   return `${rows.join("\n")}\n`;
 }
 
-function renderPeerRow(peer: PeerRecord, index: number, width: number): string {
-  const repo = truncateMiddle(peer.repo, 36);
-  const branch = truncate(peer.branch || "-", 12);
+function renderPeerRow(peer: PeerRecord, index: number, width: number, risk?: WorktreeRisk): string {
+  const repo = truncateMiddle(peer.worktreePath || peer.repo, 32);
+  const branch = truncate(peer.branch || "-", 10);
+  const worktree = worktreeLabel(peer, risk);
   const pid = String(peer.codexPid || peer.runnerPid || "-").padEnd(9);
   const elapsed = duration(peer.startedAt, peer.finishedAt).padEnd(8);
-  const event = truncate(peer.question || peer.lastEvent || "-", Math.max(12, width - 101));
+  const event = truncate(peer.question || peer.lastEvent || "-", Math.max(12, width - 108));
   return fit(
     [
       String(index).padStart(2),
       peer.id.padEnd(8),
       colorStatus(peer.status).padEnd(18),
-      repo.padEnd(37),
-      branch.padEnd(13),
+      repo.padEnd(33),
+      branch.padEnd(11),
+      worktree.padEnd(8),
       pid,
       elapsed,
       event,
     ].join("  "),
     width,
   );
+}
+
+type WorktreeRisk = "shared-checkout" | "shared-branch";
+
+type WorktreeAnalysis = {
+  risks: Map<string, WorktreeRisk>;
+  warnings: string[];
+};
+
+function analyzeWorktrees(peers: PeerRecord[]): WorktreeAnalysis {
+  const active = peers.filter(isActive);
+  const risks = new Map<string, WorktreeRisk>();
+  const warnings: string[] = [];
+
+  for (const group of groupedBy(active, (peer) => peer.worktreePath || peer.repo)) {
+    if (group.length <= 1) {
+      continue;
+    }
+    for (const peer of group) {
+      risks.set(peer.id, "shared-checkout");
+    }
+    warnings.push(
+      `shared checkout: ${group.map((peer) => peer.id).join(", ")} all use ${truncateMiddle(group[0].worktreePath || group[0].repo, 72)}`,
+    );
+  }
+
+  for (const group of groupedBy(
+    active.filter((peer) => peer.branch && peer.gitCommonDir),
+    (peer) => `${peer.gitCommonDir || peer.repo}::${peer.branch}`,
+  )) {
+    const paths = new Set(group.map((peer) => peer.worktreePath || peer.repo));
+    if (group.length <= 1 || paths.size <= 1) {
+      continue;
+    }
+    for (const peer of group) {
+      if (!risks.has(peer.id)) {
+        risks.set(peer.id, "shared-branch");
+      }
+    }
+    warnings.push(
+      `same branch: ${group.map((peer) => peer.id).join(", ")} are on ${group[0].branch} across ${paths.size} worktrees`,
+    );
+  }
+
+  return { risks, warnings: warnings.slice(0, 3) };
+}
+
+function groupedBy<T>(items: T[], keyFor: (item: T) => string | undefined): T[][] {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const key = keyFor(item);
+    if (!key) {
+      continue;
+    }
+    const group = groups.get(key) || [];
+    group.push(item);
+    groups.set(key, group);
+  }
+  return Array.from(groups.values());
+}
+
+function isActive(peer: PeerRecord): boolean {
+  return peer.status === "starting" || peer.status === "working";
+}
+
+function worktreeLabel(peer: PeerRecord, risk?: WorktreeRisk): string {
+  if (risk === "shared-checkout") {
+    return `${c("red")}shared${c("reset")}`;
+  }
+  if (risk === "shared-branch") {
+    return `${c("yellow")}branch${c("reset")}`;
+  }
+  if (peer.isLinkedWorktree === true) {
+    return `${c("green")}linked${c("reset")}`;
+  }
+  if (peer.gitCommonDir) {
+    return `${c("cyan")}main${c("reset")}`;
+  }
+  return `${c("dim")}unknown${c("reset")}`;
 }
 
 function handleKillInput(

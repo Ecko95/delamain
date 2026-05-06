@@ -13,6 +13,10 @@ export type PeerRecord = {
   name?: string;
   repo: string;
   branch?: string;
+  worktreePath?: string;
+  gitDir?: string;
+  gitCommonDir?: string;
+  isLinkedWorktree?: boolean;
   task: string;
   status: PeerStatus;
   runnerPid?: number;
