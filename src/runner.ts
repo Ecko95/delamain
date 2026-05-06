@@ -116,7 +116,7 @@ export async function runPeer(argv: string[]): Promise<void> {
       const status = finalQuestion ? "waiting" : code === 0 ? "done" : "failed";
       updatePeer(args.peerId, (peer) => ({
         ...peer,
-        status,
+        status: peer.status === "killed" ? "killed" : status,
         exitCode: code,
         signal,
         question: finalQuestion,
@@ -147,7 +147,7 @@ export async function runPeer(argv: string[]): Promise<void> {
     updatePeer(args.peerId, (peer) => ({
       ...peer,
       threadId: parsed.threadId || peer.threadId,
-      status: parsed.waitingQuestion ? "waiting" : peer.status === "starting" ? "working" : peer.status,
+      status: peer.status === "killed" ? "killed" : parsed.waitingQuestion ? "waiting" : peer.status === "starting" ? "working" : peer.status,
       question: parsed.waitingQuestion || peer.question,
       updatedAt: now(),
       lastHeartbeatAt: now(),
