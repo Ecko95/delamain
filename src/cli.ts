@@ -8,7 +8,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       const prompt = flagString(args, "prompt") || readStdin();
       const repo = flagString(args, "repo");
       if (!repo || !prompt) {
-        throw new Error("Usage: codex-peers spawn --repo <path> --prompt <task> [--name <name>] [--yolo]");
+        throw new Error("Usage: codex-peers spawn --repo <git-repo> --prompt <task> [--name <name>] [--yolo]");
       }
       console.log(JSON.stringify(spawnPeer({
         repo,
@@ -106,7 +106,7 @@ Commands:
   server                         Start the MCP server over stdio
   dashboard                      Run the live terminal dashboard
   tmux-status                    Print one tmux status-line summary
-  spawn --repo <path> --prompt <task> [--yolo]
+  spawn --repo <git-repo> --prompt <task> [--yolo]
   resume <peer-id> --prompt <message> [--yolo]
   list
   status <peer-id>
@@ -122,5 +122,11 @@ tmux status-line:
 Aliases:
   --yolo is accepted as shorthand for Codex's
   --dangerously-bypass-approvals-and-sandbox
+
+Spawn behavior:
+  New peers require a Git repository with origin/main. Each peer runs on a
+  codex-peer/<id> branch in a linked worktree under CODEX_PEERS_HOME, then
+  successful work is committed if needed, merged with origin/main, and pushed
+  to origin/main.
 `);
 }

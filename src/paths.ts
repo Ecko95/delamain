@@ -16,3 +16,7 @@ export function runsDir(): string {
 export function promptsDir(): string {
   return join(peersHome(), "prompts");
 }
+
+export function worktreesDir(): string {
+  return join(peersHome(), "worktrees");
+}

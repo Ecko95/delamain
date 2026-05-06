@@ -2,6 +2,7 @@ import { createWriteStream, mkdirSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname } from "node:path";
 import { parseCodexJsonLine, parseWaitingQuestion, trim } from "./codexEvents.js";
+import { integratePeerWorktree } from "./git.js";
 import { updatePeer } from "./store.js";
 
 type RunnerArgs = {
@@ -10,6 +11,7 @@ type RunnerArgs = {
   promptFile: string;
   logPath: string;
   resumeThread?: string;
+  targetBranch?: string;
   model?: string;
   sandbox?: string;
   yolo?: boolean;
@@ -113,7 +115,33 @@ export async function runPeer(argv: string[]): Promise<void> {
       }
 
       const finalQuestion = question || parseWaitingQuestion(collectedText);
-      const status = finalQuestion ? "waiting" : code === 0 ? "done" : "failed";
+      let status: "waiting" | "done" | "failed" = finalQuestion ? "waiting" : code === 0 ? "done" : "failed";
+      let integrationStatus: "skipped" | "pushed" | "failed" | undefined;
+      let integrationError: string | undefined;
+      let integrationEvent: string | undefined;
+
+      if (status === "done") {
+        updatePeer(args.peerId, (peer) => ({
+          ...peer,
+          updatedAt: now(),
+          lastHeartbeatAt: now(),
+          lastEvent: `codex exited code=${code}; integrating peer worktree`,
+        }));
+        append(log, `[codex-peers] integrating peer worktree with origin/${args.targetBranch || "main"}\n`);
+        try {
+          const integrated = integratePeerWorktree(args.repo, args.peerId, args.targetBranch || "main");
+          integrationStatus = integrated.status;
+          integrationEvent = integrated.message;
+          append(log, `[codex-peers] ${integrated.message}\n`);
+        } catch (error) {
+          status = "failed";
+          integrationStatus = "failed";
+          integrationError = error instanceof Error ? error.message : String(error);
+          integrationEvent = "integration failed";
+          append(log, `[codex-peers] integration failed: ${integrationError}\n`);
+        }
+      }
+
       updatePeer(args.peerId, (peer) => ({
         ...peer,
         status: peer.status === "killed" ? "killed" : status,
@@ -124,7 +152,10 @@ export async function runPeer(argv: string[]): Promise<void> {
         finishedAt: now(),
         lastHeartbeatAt: now(),
         updatedAt: now(),
-        lastEvent: status === "waiting" ? "waiting for orchestrator input" : `codex exited code=${code}`,
+        error: integrationError || peer.error,
+        integrationStatus: integrationStatus || peer.integrationStatus,
+        integrationError,
+        lastEvent: status === "waiting" ? "waiting for orchestrator input" : integrationEvent || `codex exited code=${code}`,
       }));
       append(log, `[codex-peers] exited code=${code} signal=${signal ?? ""}\n`);
       log.end();
@@ -181,6 +212,7 @@ Repository: ${repo}
 
 Operational contract:
 - Work only on the requested task unless the orchestrator explicitly broadens scope.
+- You are running in an isolated linked worktree. Do not push, merge main, or switch branches; the peer supervisor integrates successful work into origin/main.
 - If you need input from the orchestrator and cannot proceed, make your final answer start with:
   CODEX_PEERS_STATUS: WAITING
   QUESTION: <one concise question>
@@ -221,6 +253,7 @@ function parseArgs(argv: string[]): RunnerArgs {
     promptFile,
     logPath,
     resumeThread: stringValue(values, "resume-thread"),
+    targetBranch: stringValue(values, "target-branch"),
     model: stringValue(values, "model"),
     sandbox: stringValue(values, "sandbox"),
     yolo: Boolean(values.yolo),

@@ -6,6 +6,8 @@ The package provides:
 
 - an MCP server with tools for spawning, listing, resuming, logging, and killing Codex peers
 - detached peer runners backed by `codex exec --json`
+- automatic linked worktree isolation for every new peer
+- automatic successful-run integration: commit remaining peer edits, merge `origin/main`, then push `HEAD:main`
 - a tmux/Warp-friendly live dashboard
 - a one-line tmux status segment
 
@@ -80,6 +82,10 @@ Manual spawn:
 codex-peers spawn --repo /path/to/repo --prompt "Review the auth routes and report risks."
 ```
 
+The repo must be a Git repository with `origin/main`. Each new peer runs on a
+fresh `codex-peer/<id>` branch in a linked worktree under
+`~/.codex-peers/worktrees/`, not in the checkout passed with `--repo`.
+
 Run with Codex's bypass flag:
 
 ```bash
@@ -107,6 +113,15 @@ codex-peers resume <peer-id> --prompt "Use option B and continue." --yolo
 
 For MCP-driven orchestration, `wait_for_peer` blocks until a peer reaches a terminal status, and `spawn_peer_and_wait` combines spawn plus wait in one tool call. Both accept `timeout_ms`, `poll_interval_ms`, and `log_lines`; timeout returns a structured result without killing the peer.
 
+When a peer exits successfully, the runner integrates that worktree by:
+
+1. committing any remaining uncommitted edits
+2. fetching and merging `origin/main` into the peer branch
+3. pushing the merged peer branch with `git push origin HEAD:main`
+
+If the merge or push fails, the peer is marked `failed` and its linked worktree
+is left in place for inspection.
+
 ## State
 
 State and logs live under:
@@ -132,9 +147,11 @@ export CODEX_PEERS_HOME=/tmp/codex-peers-test
 - `killed`: killed by dashboard, CLI, or MCP tool
 
 Peer records include git worktree metadata when the peer was spawned:
-`worktreePath`, `gitDir`, `gitCommonDir`, and `isLinkedWorktree`. Use these
-fields from `codex-peers status <peer-id>` or MCP `peer_status` to confirm a
-peer is running in an independent linked worktree.
+`sourceRepo`, `worktreePath`, `worktreeBranch`, `gitDir`, `gitCommonDir`,
+`isLinkedWorktree`, and `integrationStatus`. Use these fields from
+`codex-peers status <peer-id>` or MCP `peer_status` to confirm a peer is
+running in an independent linked worktree and whether it pushed to
+`origin/main`.
 
 Peers are instructed to emit:
 

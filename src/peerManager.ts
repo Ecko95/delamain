@@ -4,7 +4,7 @@ import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
-import { gitBranch, gitRoot, gitWorktreeInfo } from "./git.js";
+import { createPeerWorktree, gitBranch, gitWorktreeInfo } from "./git.js";
 import { promptsDir, runsDir } from "./paths.js";
 import { getPeer, readState, updatePeer, upsertPeer } from "./store.js";
 import { killPid, killProcessGroup, pidAlive } from "./processes.js";
@@ -23,9 +23,10 @@ const DEFAULT_WAIT_LOG_LINES = 80;
 
 export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
   const repo = resolve(options.repo);
-  const root = gitRoot(repo) || repo;
-  const worktree = gitWorktreeInfo(root);
   const id = randomUUID().slice(0, 8);
+  const isolated = createPeerWorktree(repo, id);
+  const root = isolated.worktreePath;
+  const worktree = isolated.info;
   const logPath = join(runsDir(), `${new Date().toISOString().replace(/[:.]/g, "-")}-${id}.log`);
   const promptFile = join(promptsDir(), `${id}.txt`);
   mkdirSync(dirname(logPath), { recursive: true });
@@ -36,18 +37,23 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
     id,
     name: options.name,
     repo: root,
+    sourceRepo: isolated.sourceRepo,
     branch: gitBranch(root),
+    baseBranch: isolated.baseBranch,
+    baseRef: isolated.baseRef,
+    worktreeBranch: isolated.branch,
     worktreePath: worktree.worktreePath,
     gitDir: worktree.gitDir,
     gitCommonDir: worktree.gitCommonDir,
     isLinkedWorktree: worktree.isLinkedWorktree,
     task: firstLine(options.prompt),
     status: "starting",
+    integrationStatus: "pending",
     startedAt: now(),
     updatedAt: now(),
     lastHeartbeatAt: now(),
     logPath,
-    lastEvent: "queued",
+    lastEvent: `queued in ${isolated.branch}`,
   };
   upsertPeer(peer);
 
@@ -56,6 +62,7 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
     repo: root,
     promptFile,
     logPath,
+    targetBranch: peer.baseBranch,
     model: options.model,
     sandbox: options.sandbox,
     yolo: options.yolo,
@@ -103,6 +110,7 @@ export function resumePeer(options: ResumePeerOptions): PeerRecord {
     promptFile,
     logPath: peer.logPath,
     resumeThread: peer.threadId,
+    targetBranch: peer.baseBranch,
     model: options.model,
     yolo: options.yolo,
   });
@@ -205,6 +213,7 @@ function spawnRunner(args: {
   promptFile: string;
   logPath: string;
   resumeThread?: string;
+  targetBranch?: string;
   model?: string;
   sandbox?: string;
   yolo?: boolean;
@@ -224,6 +233,9 @@ function spawnRunner(args: {
   ];
   if (args.resumeThread) {
     runnerArgs.push("--resume-thread", args.resumeThread);
+  }
+  if (args.targetBranch) {
+    runnerArgs.push("--target-branch", args.targetBranch);
   }
   if (args.model) {
     runnerArgs.push("--model", args.model);

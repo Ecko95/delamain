@@ -8,11 +8,17 @@ export type PeerStatus =
   | "frozen"
   | "killed";
 
+export type PeerIntegrationStatus = "pending" | "skipped" | "pushed" | "failed";
+
 export type PeerRecord = {
   id: string;
   name?: string;
   repo: string;
+  sourceRepo?: string;
   branch?: string;
+  baseBranch?: string;
+  baseRef?: string;
+  worktreeBranch?: string;
   worktreePath?: string;
   gitDir?: string;
   gitCommonDir?: string;
@@ -33,6 +39,8 @@ export type PeerRecord = {
   lastEvent?: string;
   finalResult?: string;
   question?: string;
+  integrationStatus?: PeerIntegrationStatus;
+  integrationError?: string;
 };
 
 export type PeerState = {

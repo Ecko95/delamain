@@ -12,11 +12,12 @@ import {
 const TOOLS = [
   {
     name: "spawn_peer",
-    description: "Spawn a supervised headless Codex peer in another repository.",
+    description:
+      "Spawn a supervised headless Codex peer in an isolated linked worktree, then integrate successful changes into origin/main.",
     inputSchema: {
       type: "object",
       properties: {
-        repo: { type: "string", description: "Absolute or relative path to the repository." },
+        repo: { type: "string", description: "Absolute or relative path to a Git repository with origin/main." },
         prompt: { type: "string", description: "Task prompt for the peer." },
         name: { type: "string", description: "Optional display name for the peer." },
         model: { type: "string", description: "Optional Codex model override." },
@@ -108,11 +109,11 @@ const TOOLS = [
   {
     name: "spawn_peer_and_wait",
     description:
-      "Spawn a supervised headless Codex peer, then block until it reaches a terminal status or timeout_ms elapses.",
+      "Spawn a supervised headless Codex peer in an isolated linked worktree, then block until it reaches a terminal status or timeout_ms elapses.",
     inputSchema: {
       type: "object",
       properties: {
-        repo: { type: "string", description: "Absolute or relative path to the repository." },
+        repo: { type: "string", description: "Absolute or relative path to a Git repository with origin/main." },
         prompt: { type: "string", description: "Task prompt for the peer." },
         name: { type: "string", description: "Optional display name for the peer." },
         model: { type: "string", description: "Optional Codex model override." },
@@ -194,7 +195,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<unknown> {
           version: "0.1.0",
         },
         instructions:
-          "Use this MCP server to spawn and supervise headless Codex peers across repositories. Use list_peers and read_peer_log to monitor progress; use send_peer_reply when a peer reports CODEX_PEERS_STATUS: WAITING.",
+          "Use this MCP server to spawn and supervise headless Codex peers across repositories. New peers run in isolated linked worktrees and successful changes are merged with origin/main before pushing to origin/main. Use list_peers and read_peer_log to monitor progress; use send_peer_reply when a peer reports CODEX_PEERS_STATUS: WAITING.",
       };
     case "notifications/initialized":
       return undefined;
