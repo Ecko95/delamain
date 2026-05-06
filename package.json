@@ -1,0 +1,33 @@
+{
+  "name": "codex-mcp-peers-server",
+  "version": "0.1.0",
+  "description": "MCP server and tmux-friendly dashboard for supervising headless Codex peers across repositories.",
+  "type": "module",
+  "private": false,
+  "bin": {
+    "codex-peers": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "dev": "tsx src/index.ts",
+    "server": "node dist/index.js server",
+    "dashboard": "node dist/index.js dashboard",
+    "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "codex",
+    "mcp",
+    "tmux",
+    "agents"
+  ],
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^25.0.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
