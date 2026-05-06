@@ -52,3 +52,19 @@ export type ResumePeerOptions = {
   model?: string;
   yolo?: boolean;
 };
+
+export type WaitPeerOptions = {
+  peerId: string;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  logLines?: number;
+};
+
+export type WaitPeerResult = {
+  peer: PeerRecord;
+  timedOut: boolean;
+  elapsedMs: number;
+  logTail?: string;
+};
+
+export type SpawnPeerAndWaitOptions = SpawnPeerOptions & Omit<WaitPeerOptions, "peerId">;

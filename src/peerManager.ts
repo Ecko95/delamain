@@ -3,11 +3,23 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
 import { gitBranch, gitRoot } from "./git.js";
 import { promptsDir, runsDir } from "./paths.js";
 import { getPeer, readState, updatePeer, upsertPeer } from "./store.js";
 import { killPid, killProcessGroup, pidAlive } from "./processes.js";
-import type { PeerRecord, ResumePeerOptions, SpawnPeerOptions } from "./types.js";
+import type {
+  PeerRecord,
+  ResumePeerOptions,
+  SpawnPeerAndWaitOptions,
+  SpawnPeerOptions,
+  WaitPeerOptions,
+  WaitPeerResult,
+} from "./types.js";
+
+const DEFAULT_WAIT_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_WAIT_POLL_INTERVAL_MS = 2000;
+const DEFAULT_WAIT_LOG_LINES = 80;
 
 export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
   const repo = resolve(options.repo);
@@ -52,6 +64,16 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
   }));
 
   return getPeer(id) || peer;
+}
+
+export async function spawnPeerAndWait(options: SpawnPeerAndWaitOptions): Promise<WaitPeerResult> {
+  const peer = spawnPeer(options);
+  return waitForPeer({
+    peerId: peer.id,
+    timeoutMs: options.timeoutMs,
+    pollIntervalMs: options.pollIntervalMs,
+    logLines: options.logLines,
+  });
 }
 
 export function resumePeer(options: ResumePeerOptions): PeerRecord {
@@ -106,6 +128,37 @@ export function peerStatus(peerId: string): PeerRecord {
     throw new Error(`Unknown peer: ${peerId}`);
   }
   return reconciledPeer(peer);
+}
+
+export async function waitForPeer(options: WaitPeerOptions): Promise<WaitPeerResult> {
+  const startedAt = Date.now();
+  const timeoutMs = positiveNumber(options.timeoutMs, DEFAULT_WAIT_TIMEOUT_MS);
+  const pollIntervalMs = positiveNumber(options.pollIntervalMs, DEFAULT_WAIT_POLL_INTERVAL_MS);
+  const logLines = clampLogLines(options.logLines);
+  let peer = peerStatus(options.peerId);
+
+  while (isActive(peer)) {
+    const elapsedMs = Date.now() - startedAt;
+    const remainingMs = timeoutMs - elapsedMs;
+    if (remainingMs <= 0) {
+      return {
+        peer,
+        timedOut: true,
+        elapsedMs,
+        logTail: logLines > 0 ? safeReadPeerLog(peer.id, logLines) : undefined,
+      };
+    }
+
+    await delay(Math.min(pollIntervalMs, remainingMs));
+    peer = peerStatus(options.peerId);
+  }
+
+  return {
+    peer,
+    timedOut: false,
+    elapsedMs: Date.now() - startedAt,
+    logTail: logLines > 0 ? safeReadPeerLog(peer.id, logLines) : undefined,
+  };
 }
 
 export function readPeerLog(peerId: string, lines = 120): string {
@@ -204,6 +257,23 @@ function reconciledPeer(peer: PeerRecord): PeerRecord {
 
 function isActive(peer: PeerRecord): boolean {
   return peer.status === "starting" || peer.status === "working";
+}
+
+function positiveNumber(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function clampLogLines(value: number | undefined): number {
+  const lines = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : DEFAULT_WAIT_LOG_LINES;
+  return Math.min(Math.max(lines, 0), 500);
+}
+
+function safeReadPeerLog(peerId: string, lines: number): string | undefined {
+  try {
+    return readPeerLog(peerId, lines);
+  } catch {
+    return undefined;
+  }
 }
 
 function firstLine(prompt: string): string {

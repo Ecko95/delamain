@@ -25,7 +25,9 @@ codex mcp add codex-peers -- node /absolute/path/to/codex-mcp-peers-server/dist/
 Restart Codex after adding the server. In a Codex session, use the MCP tools:
 
 - `spawn_peer`
+- `spawn_peer_and_wait`
 - `list_peers`
+- `wait_for_peer`
 - `peer_status`
 - `read_peer_log`
 - `send_peer_reply`
@@ -97,6 +99,8 @@ codex-peers log <peer-id> 120
 codex-peers kill <peer-id>
 codex-peers resume <peer-id> --prompt "Use option B and continue." --yolo
 ```
+
+For MCP-driven orchestration, `wait_for_peer` blocks until a peer reaches a terminal status, and `spawn_peer_and_wait` combines spawn plus wait in one tool call. Both accept `timeout_ms`, `poll_interval_ms`, and `log_lines`; timeout returns a structured result without killing the peer.
 
 ## State
 

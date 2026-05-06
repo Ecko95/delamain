@@ -1,4 +1,13 @@
-import { killPeer, listPeers, peerStatus, readPeerLog, resumePeer, spawnPeer } from "./peerManager.js";
+import {
+  killPeer,
+  listPeers,
+  peerStatus,
+  readPeerLog,
+  resumePeer,
+  spawnPeer,
+  spawnPeerAndWait,
+  waitForPeer,
+} from "./peerManager.js";
 
 const TOOLS = [
   {
@@ -32,6 +41,30 @@ const TOOLS = [
     name: "list_peers",
     description: "List all known Codex peers and their current status.",
     inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "wait_for_peer",
+    description:
+      "Block until an existing Codex peer reaches a terminal status, or until timeout_ms elapses.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        peer_id: { type: "string", description: "Peer id or id prefix." },
+        timeout_ms: {
+          type: "number",
+          description: "Maximum time to wait. Defaults to 30 minutes.",
+        },
+        poll_interval_ms: {
+          type: "number",
+          description: "Status polling interval. Defaults to 2000.",
+        },
+        log_lines: {
+          type: "number",
+          description: "Recent log lines to include in the result. Defaults to 80; use 0 to omit.",
+        },
+      },
+      required: ["peer_id"],
+    },
   },
   {
     name: "peer_status",
@@ -70,6 +103,46 @@ const TOOLS = [
         },
       },
       required: ["peer_id", "prompt"],
+    },
+  },
+  {
+    name: "spawn_peer_and_wait",
+    description:
+      "Spawn a supervised headless Codex peer, then block until it reaches a terminal status or timeout_ms elapses.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", description: "Absolute or relative path to the repository." },
+        prompt: { type: "string", description: "Task prompt for the peer." },
+        name: { type: "string", description: "Optional display name for the peer." },
+        model: { type: "string", description: "Optional Codex model override." },
+        sandbox: {
+          type: "string",
+          enum: ["read-only", "workspace-write", "danger-full-access"],
+          description: "Optional Codex sandbox mode.",
+        },
+        yolo: {
+          type: "boolean",
+          description: "Run peer with --dangerously-bypass-approvals-and-sandbox.",
+        },
+        dangerously_bypass_approvals_and_sandbox: {
+          type: "boolean",
+          description: "Alias for yolo. Run peer with --dangerously-bypass-approvals-and-sandbox.",
+        },
+        timeout_ms: {
+          type: "number",
+          description: "Maximum time to wait. Defaults to 30 minutes.",
+        },
+        poll_interval_ms: {
+          type: "number",
+          description: "Status polling interval. Defaults to 2000.",
+        },
+        log_lines: {
+          type: "number",
+          description: "Recent log lines to include in the result. Defaults to 80; use 0 to omit.",
+        },
+      },
+      required: ["repo", "prompt"],
     },
   },
   {
@@ -137,7 +210,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<unknown> {
   }
 }
 
-function callTool(name: unknown, rawArgs: unknown): unknown {
+async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
   const args = (rawArgs || {}) as Record<string, unknown>;
   switch (name) {
     case "spawn_peer":
@@ -151,6 +224,11 @@ function callTool(name: unknown, rawArgs: unknown): unknown {
       }));
     case "list_peers":
       return json(listPeers());
+    case "wait_for_peer":
+      return json(await waitForPeer({
+        peerId: requiredString(args, "peer_id"),
+        ...waitOptions(args),
+      }));
     case "peer_status":
       return json(peerStatus(requiredString(args, "peer_id")));
     case "read_peer_log":
@@ -161,6 +239,16 @@ function callTool(name: unknown, rawArgs: unknown): unknown {
         prompt: requiredString(args, "prompt"),
         model: optionalString(args, "model"),
         yolo: bypassEnabled(args),
+      }));
+    case "spawn_peer_and_wait":
+      return json(await spawnPeerAndWait({
+        repo: requiredString(args, "repo"),
+        prompt: requiredString(args, "prompt"),
+        name: optionalString(args, "name"),
+        model: optionalString(args, "model"),
+        sandbox: optionalString(args, "sandbox") as "read-only" | "workspace-write" | "danger-full-access" | undefined,
+        yolo: bypassEnabled(args),
+        ...waitOptions(args),
       }));
     case "kill_peer":
       return json(killPeer(requiredString(args, "peer_id"), signalValue(args.signal)));
@@ -197,6 +285,18 @@ function optionalString(args: Record<string, unknown>, key: string): string | un
 function optionalNumber(args: Record<string, unknown>, key: string): number | undefined {
   const value = args[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function waitOptions(args: Record<string, unknown>): {
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  logLines?: number;
+} {
+  return {
+    timeoutMs: optionalNumber(args, "timeout_ms") ?? optionalNumber(args, "timeoutMs"),
+    pollIntervalMs: optionalNumber(args, "poll_interval_ms") ?? optionalNumber(args, "pollIntervalMs"),
+    logLines: optionalNumber(args, "log_lines") ?? optionalNumber(args, "logLines"),
+  };
 }
 
 function signalValue(value: unknown): NodeJS.Signals {
