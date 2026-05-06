@@ -16,7 +16,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
         name: flagString(args, "name"),
         model: flagString(args, "model"),
         sandbox: flagString(args, "sandbox") as "read-only" | "workspace-write" | "danger-full-access" | undefined,
-        yolo: Boolean(args.yolo),
+        yolo: bypassEnabled(args),
       }), null, 2));
       return;
     }
@@ -27,7 +27,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       if (!peerId || !prompt) {
         throw new Error("Usage: codex-peers resume <peer-id> --prompt <message>");
       }
-      console.log(JSON.stringify(resumePeer({ peerId, prompt, model: flagString(args, "model"), yolo: Boolean(args.yolo) }), null, 2));
+      console.log(JSON.stringify(resumePeer({ peerId, prompt, model: flagString(args, "model"), yolo: bypassEnabled(args) }), null, 2));
       return;
     }
     case "list":
@@ -87,6 +87,10 @@ function flagString(args: Record<string, string | boolean>, key: string): string
   return typeof value === "string" ? value : undefined;
 }
 
+function bypassEnabled(args: Record<string, string | boolean>): boolean {
+  return Boolean(args.yolo || args["dangerously-bypass-approvals-and-sandbox"]);
+}
+
 function readStdin(): string {
   try {
     return readFileSync(0, "utf8").trim();
@@ -102,8 +106,8 @@ Commands:
   server                         Start the MCP server over stdio
   dashboard                      Run the live terminal dashboard
   tmux-status                    Print one tmux status-line summary
-  spawn --repo <path> --prompt <task>
-  resume <peer-id> --prompt <message>
+  spawn --repo <path> --prompt <task> [--yolo]
+  resume <peer-id> --prompt <message> [--yolo]
   list
   status <peer-id>
   log <peer-id> [lines]
@@ -114,5 +118,9 @@ Codex MCP registration:
 
 tmux status-line:
   set -g status-right '#(codex-peers tmux-status)'
+
+Aliases:
+  --yolo is accepted as shorthand for Codex's
+  --dangerously-bypass-approvals-and-sandbox
 `);
 }

@@ -20,6 +20,10 @@ const TOOLS = [
           type: "boolean",
           description: "Run peer with --dangerously-bypass-approvals-and-sandbox.",
         },
+        dangerously_bypass_approvals_and_sandbox: {
+          type: "boolean",
+          description: "Alias for yolo. Run peer with --dangerously-bypass-approvals-and-sandbox.",
+        },
       },
       required: ["repo", "prompt"],
     },
@@ -60,6 +64,10 @@ const TOOLS = [
         prompt: { type: "string" },
         model: { type: "string" },
         yolo: { type: "boolean" },
+        dangerously_bypass_approvals_and_sandbox: {
+          type: "boolean",
+          description: "Alias for yolo. Run peer with --dangerously-bypass-approvals-and-sandbox.",
+        },
       },
       required: ["peer_id", "prompt"],
     },
@@ -139,7 +147,7 @@ function callTool(name: unknown, rawArgs: unknown): unknown {
         name: optionalString(args, "name"),
         model: optionalString(args, "model"),
         sandbox: optionalString(args, "sandbox") as "read-only" | "workspace-write" | "danger-full-access" | undefined,
-        yolo: Boolean(args.yolo),
+        yolo: bypassEnabled(args),
       }));
     case "list_peers":
       return json(listPeers());
@@ -152,7 +160,7 @@ function callTool(name: unknown, rawArgs: unknown): unknown {
         peerId: requiredString(args, "peer_id"),
         prompt: requiredString(args, "prompt"),
         model: optionalString(args, "model"),
-        yolo: Boolean(args.yolo),
+        yolo: bypassEnabled(args),
       }));
     case "kill_peer":
       return json(killPeer(requiredString(args, "peer_id"), signalValue(args.signal)));
@@ -193,6 +201,14 @@ function optionalNumber(args: Record<string, unknown>, key: string): number | un
 
 function signalValue(value: unknown): NodeJS.Signals {
   return value === "SIGKILL" ? "SIGKILL" : "SIGTERM";
+}
+
+function bypassEnabled(args: Record<string, unknown>): boolean {
+  return Boolean(
+    args.yolo ||
+      args.dangerously_bypass_approvals_and_sandbox ||
+      args["dangerously-bypass-approvals-and-sandbox"],
+  );
 }
 
 type JsonRpcRequest = {

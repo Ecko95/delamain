@@ -79,6 +79,15 @@ Run with Codex's bypass flag:
 codex-peers spawn --repo /path/to/repo --prompt "Fix the failing test." --yolo
 ```
 
+`--yolo` is shorthand for Codex's full flag:
+
+```bash
+codex-peers spawn \
+  --repo /path/to/repo \
+  --prompt "Fix the failing test." \
+  --dangerously-bypass-approvals-and-sandbox
+```
+
 Inspect and control peers:
 
 ```bash
@@ -86,7 +95,7 @@ codex-peers list
 codex-peers status <peer-id>
 codex-peers log <peer-id> 120
 codex-peers kill <peer-id>
-codex-peers resume <peer-id> --prompt "Use option B and continue."
+codex-peers resume <peer-id> --prompt "Use option B and continue." --yolo
 ```
 
 ## State
