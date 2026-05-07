@@ -1,4 +1,4 @@
-import { Box, Text, ScrollBox, StyledText, createCliRenderer, fg as textColor, dim as dimText, stringToStyledText, type TextChunk } from "@opentui/core";
+import { Box, Text, StyledText, createCliRenderer, fg as textColor, dim as dimText, stringToStyledText, type TextChunk } from "@opentui/core";
 import { killPeer, listPeers, readPeerLog } from "../peerManager.js";
 import { commandForKey, type DashboardCommand } from "./keybindings.js";
 import {
@@ -19,9 +19,12 @@ type RuntimeState = Required<Pick<DashboardState, "selectedIndex" | "focusPane" 
     collapsedStatuses: Partial<Record<DashboardStatus, boolean>>;
     selectedStatus?: DashboardStatus;
     followSelectedPeer: boolean;
+    forceLogRefresh: boolean;
   };
 
 const STATUS_ORDER = ["working", "waiting", "cleanup", "done", "failed", "frozen", "killed", "idle"] as const;
+const PEER_REFRESH_MS = 1000;
+const LOG_REFRESH_MS = 1500;
 
 export async function runOpenTuiDashboard(): Promise<void> {
   const renderer = await createCliRenderer({
@@ -39,22 +42,38 @@ export async function runOpenTuiDashboard(): Promise<void> {
     peerOffset: 0,
     collapsedStatuses: defaultCollapsedStatuses(),
     followSelectedPeer: true,
+    forceLogRefresh: false,
   };
   let interval: ReturnType<typeof setInterval> | undefined;
   let destroyed = false;
   let cachedPeers = listPeers();
   let lastPeerRefresh = 0;
+  let cachedLogPeerId: string | undefined;
+  let cachedLogText = "";
+  let lastLogRefresh = 0;
 
   const refresh = (): void => {
     const currentTime = Date.now();
-    if (currentTime - lastPeerRefresh >= 1000) {
+    if (currentTime - lastPeerRefresh >= PEER_REFRESH_MS) {
       cachedPeers = listPeers();
       lastPeerRefresh = currentTime;
     }
     const peers = cachedPeers;
     const view = createDashboardViewModel(peers, state, {
       logLimit: 80,
-      logProvider: readPeerLog,
+      logProvider: (peerId, lines) => {
+        const peerChanged = cachedLogPeerId !== peerId;
+        const shouldRefresh = state.forceLogRefresh
+          || peerChanged
+          || (state.logOffset === 0 && currentTime - lastLogRefresh >= LOG_REFRESH_MS);
+        if (shouldRefresh) {
+          cachedLogPeerId = peerId;
+          cachedLogText = readPeerLog(peerId, lines);
+          lastLogRefresh = currentTime;
+          state.forceLogRefresh = false;
+        }
+        return cachedLogText;
+      },
     });
     state.selectedIndex = view.selectedIndex;
     state.selectedPeerId = view.selectedPeer?.id;
@@ -81,7 +100,7 @@ export async function runOpenTuiDashboard(): Promise<void> {
   };
 
   renderer.addInputHandler((sequence) => {
-    const command = commandForKey(sequence, state.mode);
+    const command = commandForKey(sequence, state.mode, state.focusPane);
     handleCommand(command, state, refresh, quit);
     return command !== "noop";
   });
@@ -133,6 +152,9 @@ function handleCommand(command: DashboardCommand, state: RuntimeState, refresh: 
       break;
     case "scroll-log-down":
       state.logOffset = Math.max(0, state.logOffset - 1);
+      if (state.logOffset === 0) {
+        state.forceLogRefresh = true;
+      }
       break;
     case "scroll-log-up":
       state.logOffset += 1;
@@ -143,6 +165,9 @@ function handleCommand(command: DashboardCommand, state: RuntimeState, refresh: 
         state.followSelectedPeer = false;
       } else {
         state.logOffset = Math.max(0, state.logOffset - 10);
+        if (state.logOffset === 0) {
+          state.forceLogRefresh = true;
+        }
       }
       break;
     case "page-log-up":
@@ -167,12 +192,19 @@ function handleCommand(command: DashboardCommand, state: RuntimeState, refresh: 
         state.followSelectedPeer = false;
       } else {
         state.logOffset = 0;
+        state.forceLogRefresh = true;
       }
+      break;
+    case "log-bottom":
+      state.logOffset = 0;
+      state.forceLogRefresh = true;
+      state.message = "Logs: latest";
       break;
     case "toggle-status-group":
       toggleSelectedStatusGroup(state);
       break;
     case "refresh":
+      state.forceLogRefresh = true;
       state.message = "Refreshed";
       break;
     case "enter-kill-mode":
@@ -311,7 +343,7 @@ function logsPane(view: DashboardViewModel, state: RuntimeState, narrow: boolean
   const visibleRows = narrow ? Math.max(3, screenHeight - 20) : Math.max(6, screenHeight - 24);
   const content = visibleLogContent(view.logLines, state.logOffset, visibleRows);
   state.logOffset = content.offset;
-  return ScrollBox(
+  return Box(
     paneProps(`Logs ${content.position}`, view.focusPane === "logs", {
       flexGrow: 1,
       minHeight: 3,
@@ -324,7 +356,7 @@ function logsPane(view: DashboardViewModel, state: RuntimeState, narrow: boolean
 function keysPane(view: DashboardViewModel) {
   const modeText = view.mode === "kill-confirm"
     ? view.message
-    : `${view.message} | tab focus, j/k select, c collapse, pgup/pgdn scroll focused, g/G top/bottom, r refresh, x kill, q quit`;
+    : `${view.message} | tab focus, j/k focused, c collapse, pgup/pgdn scroll, g/G top/bottom, b latest logs, r refresh, x kill, q quit`;
   return Box(
     paneProps("Keys", false, { height: 3 }),
     Text({ content: truncate(modeText, 180) }),

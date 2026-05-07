@@ -11,9 +11,14 @@ test("commandForKey maps dashboard shortcuts", () => {
   assert.equal(commandForKey("\x1b", "kill-confirm"), "cancel-mode");
   assert.equal(commandForKey("\t"), "focus-next");
   assert.equal(commandForKey("\x1b[Z"), "focus-prev");
+  assert.equal(commandForKey("\x1b[B", "normal", "peers"), "select-next");
+  assert.equal(commandForKey("\x1b[B", "normal", "logs"), "scroll-log-down");
+  assert.equal(commandForKey("\x1b[A", "normal", "logs"), "scroll-log-up");
   assert.equal(commandForKey("c"), "toggle-status-group");
   assert.equal(commandForKey("g"), "jump-top");
   assert.equal(commandForKey("G"), "jump-bottom");
+  assert.equal(commandForKey("b"), "log-bottom");
+  assert.equal(commandForKey("\x1b[F"), "log-bottom");
 });
 
 test("createDashboardViewModel counts statuses and cleanup peers", () => {

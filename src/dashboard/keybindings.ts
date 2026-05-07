@@ -1,4 +1,4 @@
-import type { DashboardMode } from "./model.js";
+import type { DashboardFocusPane, DashboardMode } from "./model.js";
 
 export type DashboardCommand =
   | "focus-next"
@@ -12,6 +12,7 @@ export type DashboardCommand =
   | "page-log-up"
   | "jump-top"
   | "jump-bottom"
+  | "log-bottom"
   | "toggle-status-group"
   | "refresh"
   | "enter-kill-mode"
@@ -20,7 +21,7 @@ export type DashboardCommand =
   | "quit"
   | "noop";
 
-export function commandForKey(key: string, mode: DashboardMode = "normal"): DashboardCommand {
+export function commandForKey(key: string, mode: DashboardMode = "normal", focusPane: DashboardFocusPane = "peers"): DashboardCommand {
   if (key === "\u0003" || (mode === "normal" && key === "q")) {
     return "quit";
   }
@@ -40,10 +41,10 @@ export function commandForKey(key: string, mode: DashboardMode = "normal"): Dash
     return "focus-prev";
   }
   if (key === "\x1b[B" || key === "j") {
-    return "select-next";
+    return focusPane === "logs" ? "scroll-log-down" : "select-next";
   }
   if (key === "\x1b[A" || key === "k") {
-    return "select-prev";
+    return focusPane === "logs" ? "scroll-log-up" : "select-prev";
   }
   if (key === "\r" || key === "\n" || key === " ") {
     return "toggle-details";
@@ -53,6 +54,9 @@ export function commandForKey(key: string, mode: DashboardMode = "normal"): Dash
   }
   if (key === "G") {
     return "jump-bottom";
+  }
+  if (key === "b" || key === "\x1b[F" || key === "\x1b[4~") {
+    return "log-bottom";
   }
   if (key === "\x1b[6~") {
     return "page-log-down";
