@@ -8,12 +8,14 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       const prompt = flagString(args, "prompt") || readStdin();
       const repo = flagString(args, "repo");
       if (!repo || !prompt) {
-        throw new Error("Usage: codex-peers spawn --repo <git-repo> --prompt <task> [--name <name>] [--yolo]");
+        throw new Error("Usage: codex-peers spawn --repo <git-repo> --prompt <task> [--name <name>] [--start-ref <ref>] [--merge-branch <branch>] [--yolo]");
       }
       console.log(JSON.stringify(spawnPeer({
         repo,
         prompt,
         name: flagString(args, "name"),
+        startRef: flagString(args, "start-ref"),
+        mergeBranch: flagString(args, "merge-branch"),
         targetBranch: flagString(args, "target-branch"),
         model: flagString(args, "model"),
         sandbox: flagString(args, "sandbox") as "read-only" | "workspace-write" | "danger-full-access" | undefined,
@@ -108,7 +110,7 @@ Commands:
   dashboard                      Run the live terminal dashboard
   --d, -d                        Run the live terminal dashboard
   tmux-status                    Print one tmux status-line summary
-  spawn --repo <git-repo> --prompt <task> [--target-branch <branch>] [--model <codex-model>] [--yolo]
+  spawn --repo <git-repo> --prompt <task> [--start-ref <ref>] [--merge-branch <branch>] [--target-branch <branch>] [--model <codex-model>] [--yolo]
   resume <peer-id> --prompt <message> [--model <codex-model>] [--yolo]
   list
   status <peer-id>
@@ -128,7 +130,10 @@ Aliases:
 Spawn behavior:
   New peers require a Git repository with origin. Each peer runs on a
   codex-peer/<id> branch in a linked worktree under CODEX_PEERS_HOME, then
-  successful work is committed if needed, merged with the origin default branch
-  or --target-branch, and pushed back to that branch.
+  successful work is committed if needed, merged with --merge-branch or the
+  origin default branch, and pushed back to that branch. Use --start-ref to
+  choose the commit/ref used to create the worktree. The older --target-branch
+  option still means both --start-ref origin/<branch> and --merge-branch
+  <branch> when the newer flags are not supplied.
 `);
 }

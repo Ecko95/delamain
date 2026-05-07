@@ -12,7 +12,7 @@ type RunnerArgs = {
   promptFile: string;
   logPath: string;
   resumeThread?: string;
-  targetBranch?: string;
+  mergeBranch?: string;
   model?: string;
   sandbox?: string;
   yolo?: boolean;
@@ -22,7 +22,7 @@ export async function runPeer(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   mkdirSync(dirname(args.logPath), { recursive: true });
   const log = createWriteStream(args.logPath, { flags: "a" });
-  const prompt = wrapPrompt(readFileSync(args.promptFile, "utf8"), args.repo, args.targetBranch, Boolean(args.resumeThread));
+  const prompt = wrapPrompt(readFileSync(args.promptFile, "utf8"), args.repo, args.mergeBranch, Boolean(args.resumeThread));
   const codexArgs = buildCodexArgs(args);
 
   append(log, `[codex-peers] starting: codex ${codexArgs.join(" ")}\n`);
@@ -128,9 +128,9 @@ export async function runPeer(argv: string[]): Promise<void> {
           lastHeartbeatAt: now(),
           lastEvent: `codex exited code=${code}; integrating peer worktree`,
         }));
-        append(log, `[codex-peers] integrating peer worktree with origin/${args.targetBranch || "main"}\n`);
+        append(log, `[codex-peers] integrating peer worktree with origin/${args.mergeBranch || "main"}\n`);
         try {
-          const integrated = integratePeerWorktree(args.repo, args.peerId, args.targetBranch || "main");
+          const integrated = integratePeerWorktree(args.repo, args.peerId, args.mergeBranch || "main");
           integrationStatus = integrated.status;
           integrationEvent = integrated.message;
           append(log, `[codex-peers] ${integrated.message}\n`);
@@ -212,9 +212,9 @@ function buildCodexArgs(args: RunnerArgs): string[] {
   return codexArgs;
 }
 
-function wrapPrompt(prompt: string, repo: string, targetBranch: string | undefined, isResume: boolean): string {
+function wrapPrompt(prompt: string, repo: string, mergeBranch: string | undefined, isResume: boolean): string {
   const header = isResume ? "Continue the existing Codex peer task." : "You are a supervised Codex peer worker.";
-  const branch = targetBranch ? `origin/${targetBranch}` : "the target branch";
+  const branch = mergeBranch ? `origin/${mergeBranch}` : "the target branch";
   return `${header}
 
 Repository: ${repo}
@@ -262,7 +262,7 @@ function parseArgs(argv: string[]): RunnerArgs {
     promptFile,
     logPath,
     resumeThread: stringValue(values, "resume-thread"),
-    targetBranch: stringValue(values, "target-branch"),
+    mergeBranch: stringValue(values, "merge-branch") || stringValue(values, "target-branch"),
     model: stringValue(values, "model"),
     sandbox: stringValue(values, "sandbox"),
     yolo: Boolean(values.yolo),

@@ -53,6 +53,50 @@ test("explicit target branch overrides origin default and integrates back to tar
   }
 });
 
+test("start_ref can differ from merge branch", () => {
+  const fixture = createFixture("main", ["experiment", "release"]);
+  try {
+    process.env.CODEX_PEERS_HOME = join(fixture.root, "home");
+    const created = createPeerWorktree(fixture.repo, "split-peer", { startRef: "origin/experiment" });
+    assert.equal(readFileSync(join(created.worktreePath, "README.md"), "utf8"), "experiment\n");
+    writeFileSync(join(created.worktreePath, "peer.txt"), "peer change\n", "utf8");
+
+    const integrated = integratePeerWorktree(created.worktreePath, "split-peer", "release");
+
+    assert.equal(created.baseBranch, "experiment");
+    assert.equal(created.baseRef, "origin/experiment");
+    assert.equal(integrated.status, "pushed");
+    assert.equal(git(["show", "release:peer.txt"], fixture.origin), "peer change\n");
+    assert.throws(() => git(["show", "experiment:peer.txt"], fixture.origin));
+  } finally {
+    cleanupFixture(fixture.root);
+  }
+});
+
+test("start_ref accepts a local branch and can merge to the origin default branch", () => {
+  const fixture = createFixture("main");
+  try {
+    process.env.CODEX_PEERS_HOME = join(fixture.root, "home");
+    git(["checkout", "-b", "local-only"], fixture.repo);
+    writeFileSync(join(fixture.repo, "README.md"), "local-only\n", "utf8");
+    git(["commit", "-am", "prepare local only"], fixture.repo);
+    git(["checkout", "main"], fixture.repo);
+
+    const created = createPeerWorktree(fixture.repo, "local-peer", { startRef: "local-only" });
+    writeFileSync(join(created.worktreePath, "peer.txt"), "local peer change\n", "utf8");
+
+    const integrated = integratePeerWorktree(created.worktreePath, "local-peer", "main");
+
+    assert.equal(created.baseBranch, "local-only");
+    assert.equal(created.baseRef, "local-only");
+    assert.equal(readFileSync(join(created.worktreePath, "README.md"), "utf8"), "local-only\n");
+    assert.equal(integrated.status, "pushed");
+    assert.equal(git(["show", "main:peer.txt"], fixture.origin), "local peer change\n");
+  } finally {
+    cleanupFixture(fixture.root);
+  }
+});
+
 test("missing resolvable base branch fails with clear error", () => {
   const root = mkdtempSync(join(tmpdir(), "codex-peers-empty-"));
   try {

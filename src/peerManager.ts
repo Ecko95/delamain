@@ -4,7 +4,7 @@ import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
-import { createPeerWorktree, gitBranch, gitWorktreeInfo } from "./git.js";
+import { createPeerWorktree, gitBranch, gitRoot, gitWorktreeInfo, resolveBaseBranch } from "./git.js";
 import { reconcileFinishedWaitingPeer } from "./lifecycle.js";
 import { promptsDir, runsDir } from "./paths.js";
 import { getPeer, readState, updatePeer, upsertPeer } from "./store.js";
@@ -25,7 +25,15 @@ const DEFAULT_WAIT_LOG_LINES = 80;
 export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
   const repo = resolve(options.repo);
   const id = randomUUID().slice(0, 8);
-  const isolated = createPeerWorktree(repo, id, options.targetBranch);
+  const sourceRepo = gitRoot(repo);
+  if (!sourceRepo) {
+    throw new Error(`Cannot spawn isolated peer: ${repo} is not inside a git repository.`);
+  }
+  const mergeBranch = resolveBaseBranch(sourceRepo, options.mergeBranch || options.targetBranch);
+  const isolated = createPeerWorktree(repo, id, {
+    startRef: options.startRef,
+    targetBranch: options.targetBranch,
+  });
   const root = isolated.worktreePath;
   const worktree = isolated.info;
   const logPath = join(runsDir(), `${new Date().toISOString().replace(/[:.]/g, "-")}-${id}.log`);
@@ -42,6 +50,7 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
     branch: gitBranch(root),
     baseBranch: isolated.baseBranch,
     baseRef: isolated.baseRef,
+    mergeBranch,
     worktreeBranch: isolated.branch,
     worktreePath: worktree.worktreePath,
     gitDir: worktree.gitDir,
@@ -55,7 +64,7 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
     updatedAt: now(),
     lastHeartbeatAt: now(),
     logPath,
-    lastEvent: `queued in ${isolated.branch}`,
+    lastEvent: `queued in ${isolated.branch}; merge target origin/${mergeBranch}`,
   };
   upsertPeer(peer);
 
@@ -64,7 +73,7 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
     repo: root,
     promptFile,
     logPath,
-    targetBranch: peer.baseBranch,
+    mergeBranch: peer.mergeBranch,
     model: options.model,
     sandbox: options.sandbox,
     yolo: options.yolo,
@@ -112,7 +121,7 @@ export function resumePeer(options: ResumePeerOptions): PeerRecord {
     promptFile,
     logPath: peer.logPath,
     resumeThread: peer.threadId,
-    targetBranch: peer.baseBranch,
+    mergeBranch: peer.mergeBranch || peer.baseBranch,
     model: options.model,
     yolo: options.yolo,
   });
@@ -218,7 +227,7 @@ function spawnRunner(args: {
   promptFile: string;
   logPath: string;
   resumeThread?: string;
-  targetBranch?: string;
+  mergeBranch?: string;
   model?: string;
   sandbox?: string;
   yolo?: boolean;
@@ -239,8 +248,8 @@ function spawnRunner(args: {
   if (args.resumeThread) {
     runnerArgs.push("--resume-thread", args.resumeThread);
   }
-  if (args.targetBranch) {
-    runnerArgs.push("--target-branch", args.targetBranch);
+  if (args.mergeBranch) {
+    runnerArgs.push("--merge-branch", args.mergeBranch);
   }
   if (args.model) {
     runnerArgs.push("--model", args.model);

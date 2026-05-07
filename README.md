@@ -7,7 +7,7 @@ The package provides:
 - an MCP server with tools for spawning, listing, resuming, logging, and killing Codex peers
 - detached peer runners backed by `codex exec --json`
 - automatic linked worktree isolation for every new peer
-- automatic successful-run integration: commit remaining peer edits, merge the origin default branch, then push back to that branch
+- automatic successful-run integration: commit remaining peer edits, merge the selected origin branch, then push back to that branch
 - a tmux/Warp-friendly live dashboard
 - a one-line tmux status segment
 
@@ -140,10 +140,29 @@ accept `model`. The selected model is stored on the peer record and shown in
 the dashboard Details pane.
 
 The repo must be a Git repository with `origin`. By default, codex-peers bases
-the worktree on the origin default branch. Pass `--target-branch <branch>` to
-force a specific origin branch. Each new peer runs on a fresh `codex-peer/<id>`
-branch in a linked worktree under `~/.codex-peers/worktrees/`, not in the
-checkout passed with `--repo`.
+the worktree on the origin default branch and pushes successful changes back to
+that branch. Use `--start-ref <ref>` to choose where the worktree starts, such
+as `origin/main`, `origin/release`, a local branch, `HEAD`, or a commit SHA.
+Use `--merge-branch <branch>` to choose the origin branch that receives the
+peer changes. If omitted, the merge branch defaults to origin's default branch,
+then `main`, then `master`.
+
+Example: start from a local worktree branch and merge to `origin/release`:
+
+```bash
+codex-peers spawn \
+  --repo /path/to/repo \
+  --prompt "Implement the release fix." \
+  --start-ref local-experiment \
+  --merge-branch release
+```
+
+The older `--target-branch <branch>` option is still accepted. When the newer
+flags are omitted, it means both `--start-ref origin/<branch>` and
+`--merge-branch <branch>`.
+
+Each new peer runs on a fresh `codex-peer/<id>` branch in a linked worktree
+under `~/.codex-peers/worktrees/`, not in the checkout passed with `--repo`.
 
 Run with Codex's bypass flag:
 
@@ -175,8 +194,8 @@ For MCP-driven orchestration, `wait_for_peer` blocks until a peer reaches a term
 When a peer exits successfully, the runner integrates that worktree by:
 
 1. committing any remaining uncommitted edits
-2. fetching and merging the target origin branch into the peer branch
-3. pushing the merged peer branch with `git push origin HEAD:<target-branch>`
+2. fetching and merging the selected merge origin branch into the peer branch
+3. pushing the merged peer branch with `git push origin HEAD:<merge-branch>`
 
 If the merge or push fails, the peer is marked `failed` and its linked worktree
 is left in place for inspection.
@@ -210,8 +229,8 @@ The dashboard derives one extra display-only status:
 - `cleanup`: peer record is `done` and `integrationStatus` is `pushed`, which means the worktree has already been merged and is only waiting to be cleaned up
 
 Peer records include git worktree metadata when the peer was spawned:
-`sourceRepo`, `worktreePath`, `worktreeBranch`, `gitDir`, `gitCommonDir`,
-`isLinkedWorktree`, and `integrationStatus`. Use these fields from
+`sourceRepo`, `baseRef`, `mergeBranch`, `worktreePath`, `worktreeBranch`,
+`gitDir`, `gitCommonDir`, `isLinkedWorktree`, and `integrationStatus`. Use these fields from
 `codex-peers status <peer-id>` or MCP `peer_status` to confirm a peer is
 running in an independent linked worktree and whether it pushed to
 the target origin branch.

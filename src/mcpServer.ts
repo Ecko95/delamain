@@ -20,7 +20,11 @@ const TOOLS = [
         repo: { type: "string", description: "Absolute or relative path to a Git repository with origin." },
         prompt: { type: "string", description: "Task prompt for the peer." },
         name: { type: "string", description: "Optional display name for the peer." },
-        target_branch: { type: "string", description: "Optional origin branch to base the worktree on and push back to." },
+        start_ref: { type: "string", description: "Optional git ref used to create the peer worktree, such as origin/main, a local branch, HEAD, or a commit SHA." },
+        startRef: { type: "string", description: "CamelCase alias for start_ref." },
+        merge_branch: { type: "string", description: "Optional origin branch that receives successful peer changes. Defaults to the origin default branch, main, or master." },
+        mergeBranch: { type: "string", description: "CamelCase alias for merge_branch." },
+        target_branch: { type: "string", description: "Legacy alias. If newer fields are omitted, use this origin branch as both the start branch and merge branch." },
         targetBranch: { type: "string", description: "CamelCase alias for target_branch." },
         model: { type: "string", description: "Optional Codex model override." },
         sandbox: {
@@ -118,7 +122,11 @@ const TOOLS = [
         repo: { type: "string", description: "Absolute or relative path to a Git repository with origin." },
         prompt: { type: "string", description: "Task prompt for the peer." },
         name: { type: "string", description: "Optional display name for the peer." },
-        target_branch: { type: "string", description: "Optional origin branch to base the worktree on and push back to." },
+        start_ref: { type: "string", description: "Optional git ref used to create the peer worktree, such as origin/main, a local branch, HEAD, or a commit SHA." },
+        startRef: { type: "string", description: "CamelCase alias for start_ref." },
+        merge_branch: { type: "string", description: "Optional origin branch that receives successful peer changes. Defaults to the origin default branch, main, or master." },
+        mergeBranch: { type: "string", description: "CamelCase alias for merge_branch." },
+        target_branch: { type: "string", description: "Legacy alias. If newer fields are omitted, use this origin branch as both the start branch and merge branch." },
         targetBranch: { type: "string", description: "CamelCase alias for target_branch." },
         model: { type: "string", description: "Optional Codex model override." },
         sandbox: {
@@ -199,7 +207,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<unknown> {
           version: "0.1.0",
         },
         instructions:
-          "Use this MCP server to spawn and supervise headless Codex peers across repositories. New peers run in isolated linked worktrees and successful changes are merged with the origin default branch, or explicit target branch, before pushing back to that branch. Use list_peers and read_peer_log to monitor progress; use send_peer_reply when a peer reports CODEX_PEERS_STATUS: WAITING.",
+          "Use this MCP server to spawn and supervise headless Codex peers across repositories. New peers run in isolated linked worktrees. By default they start from the origin default branch and merge successful changes back there; callers can choose a separate start_ref and merge_branch. Use list_peers and read_peer_log to monitor progress; use send_peer_reply when a peer reports CODEX_PEERS_STATUS: WAITING.",
       };
     case "notifications/initialized":
       return undefined;
@@ -223,7 +231,7 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
         repo: requiredString(args, "repo"),
         prompt: requiredString(args, "prompt"),
         name: optionalString(args, "name"),
-        targetBranch: targetBranch(args),
+        ...branchOptions(args),
         model: optionalString(args, "model"),
         sandbox: optionalString(args, "sandbox") as "read-only" | "workspace-write" | "danger-full-access" | undefined,
         yolo: bypassEnabled(args),
@@ -251,7 +259,7 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
         repo: requiredString(args, "repo"),
         prompt: requiredString(args, "prompt"),
         name: optionalString(args, "name"),
-        targetBranch: targetBranch(args),
+        ...branchOptions(args),
         model: optionalString(args, "model"),
         sandbox: optionalString(args, "sandbox") as "read-only" | "workspace-write" | "danger-full-access" | undefined,
         yolo: bypassEnabled(args),
@@ -306,8 +314,16 @@ function waitOptions(args: Record<string, unknown>): {
   };
 }
 
-function targetBranch(args: Record<string, unknown>): string | undefined {
-  return optionalString(args, "target_branch") ?? optionalString(args, "targetBranch");
+function branchOptions(args: Record<string, unknown>): {
+  startRef?: string;
+  mergeBranch?: string;
+  targetBranch?: string;
+} {
+  return {
+    startRef: optionalString(args, "start_ref") ?? optionalString(args, "startRef"),
+    mergeBranch: optionalString(args, "merge_branch") ?? optionalString(args, "mergeBranch"),
+    targetBranch: optionalString(args, "target_branch") ?? optionalString(args, "targetBranch"),
+  };
 }
 
 function signalValue(value: unknown): NodeJS.Signals {

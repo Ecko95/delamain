@@ -18,6 +18,7 @@ export type PeerRecord = {
   branch?: string;
   baseBranch?: string;
   baseRef?: string;
+  mergeBranch?: string;
   worktreeBranch?: string;
   worktreePath?: string;
   gitDir?: string;
@@ -54,6 +55,13 @@ export type SpawnPeerOptions = {
   repo: string;
   prompt: string;
   name?: string;
+  startRef?: string;
+  mergeBranch?: string;
+  /**
+   * Backwards-compatible alias: when startRef is omitted this also selects the
+   * origin branch used to create the worktree; when mergeBranch is omitted this
+   * selects the origin branch that receives the peer changes.
+   */
   targetBranch?: string;
   model?: string;
   sandbox?: "read-only" | "workspace-write" | "danger-full-access";

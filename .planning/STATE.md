@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: complete
 stopped_at: Phase 01 complete
-last_updated: "2026-05-07T17:44:52+02:00"
-last_activity: 2026-05-07 -- Phase 01 completed with Bun-backed OpenTUI dashboard runtime
+last_updated: "2026-05-07T23:23:38+02:00"
+last_activity: 2026-05-07 -- Quick task completed: codex-peers configurable worktree routing
 progress:
   total_phases: 1
   completed_phases: 1
@@ -61,6 +61,12 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ### Blockers/Concerns
 
 None.
+
+### Quick Tasks Completed
+
+| Date | Quick Task | Summary |
+|------|------------|---------|
+| 2026-05-07 | 260507-wc6 configurable worktree routing | Added separate codex-peers start ref and merge branch controls plus an orchestrator prompting skill. |
 
 ### Roadmap Evolution
 
