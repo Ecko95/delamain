@@ -56,6 +56,17 @@ export type DashboardViewModelOptions = {
 
 const LOG_LIMIT = 80;
 const FOCUS_PANES: DashboardFocusPane[] = ["peers", "details", "logs", "status"];
+const STATUS_COLORS: Record<DashboardStatus, string> = {
+  starting: "#60a5fa",
+  working: "#22d3ee",
+  waiting: "#facc15",
+  idle: "#94a3b8",
+  done: "#a3a3a3",
+  cleanup: "#34d399",
+  failed: "#f87171",
+  frozen: "#c084fc",
+  killed: "#fb923c",
+};
 
 export function createDashboardViewModel(
   inputPeers: PeerRecord[],
@@ -121,6 +132,10 @@ export function dashboardStatus(peer: PeerRecord): DashboardStatus {
     return "cleanup";
   }
   return peer.status;
+}
+
+export function statusColor(status: DashboardStatus): string {
+  return STATUS_COLORS[status];
 }
 
 export function projectLabel(peer: Pick<PeerRecord, "sourceRepo" | "repo" | "worktreePath">): string {

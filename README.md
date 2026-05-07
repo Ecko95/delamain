@@ -35,6 +35,17 @@ Restart Codex after adding the server. In a Codex session, use the MCP tools:
 - `send_peer_reply`
 - `kill_peer`
 
+To rebuild and re-register the MCP server in one command after pulling updates:
+
+```bash
+npm run mcp:restart
+```
+
+That command runs `npm install`, builds `dist/`, removes any existing
+`codex-peers` MCP registration, adds the rebuilt server, and smoke-tests the
+Bun dashboard path when `bun` is installed. Set `CODEX_PEERS_MCP_NAME` if you
+registered the server under a different name.
+
 ## Dashboard
 
 Run the dashboard in another Warp window or tmux pane:

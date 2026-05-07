@@ -12,6 +12,7 @@
     "dev": "tsx src/index.ts",
     "server": "node dist/index.js server",
     "dashboard": "node dist/index.js dashboard",
+    "mcp:restart": "bash scripts/restart-mcp.sh",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test tests/*.test.mjs"
   },

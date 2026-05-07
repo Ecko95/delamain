@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { commandForKey } from "../dist/dashboard/keybindings.js";
-import { createDashboardViewModel, projectLabel } from "../dist/dashboard/model.js";
+import { createDashboardViewModel, projectLabel, statusColor } from "../dist/dashboard/model.js";
 import { bunMissingMessage } from "../dist/dashboard.js";
 
 test("commandForKey maps dashboard shortcuts", () => {
@@ -60,6 +60,16 @@ test("project labels prefer source repo path over generated worktree path", () =
     }),
     "lovable/isomer",
   );
+});
+
+test("status colors give each dashboard state a distinct visible color", () => {
+  const statuses = ["starting", "working", "waiting", "idle", "done", "cleanup", "failed", "frozen", "killed"];
+  const colors = statuses.map((status) => statusColor(status));
+
+  assert.equal(new Set(colors).size, statuses.length);
+  assert.match(statusColor("waiting"), /^#/);
+  assert.match(statusColor("failed"), /^#/);
+  assert.match(statusColor("cleanup"), /^#/);
 });
 
 test("Bun missing message is actionable for dashboard users", () => {

@@ -1,11 +1,14 @@
-import { Box, Text, ScrollBox, createCliRenderer } from "@opentui/core";
+import { Box, Text, ScrollBox, StyledText, createCliRenderer, fg as textColor, dim as dimText, stringToStyledText, type TextChunk } from "@opentui/core";
 import { killPeer, listPeers, readPeerLog } from "../peerManager.js";
 import { commandForKey, type DashboardCommand } from "./keybindings.js";
 import {
   createDashboardViewModel,
   nextFocusPane,
+  statusColor,
   truncate,
+  type DashboardPeerRow,
   type DashboardState,
+  type DashboardStatus,
   type DashboardViewModel,
 } from "./model.js";
 
@@ -200,20 +203,24 @@ function render(renderer: Awaited<ReturnType<typeof createCliRenderer>>, view: D
 }
 
 function statusPane(view: DashboardViewModel) {
-  const counts = STATUS_ORDER
-    .map((status) => `${status} ${view.counts[status] || 0}`)
-    .join("  ");
-  const warnings = view.warnings.length > 0 ? `  ${view.warnings.join(" | ")}` : "";
+  const chunks: TextChunk[] = [];
+  STATUS_ORDER.forEach((status, index) => {
+    if (index > 0) {
+      chunks.push(...plainChunks("  "));
+    }
+    chunks.push(textColor(statusColor(status))(`${status} ${view.counts[status] || 0}`));
+  });
+  if (view.warnings.length > 0) {
+    chunks.push(textColor("#f59e0b")(`  ${view.warnings.join(" | ")}`));
+  }
   return Box(
     paneProps("Status", view.focusPane === "status", { height: 3 }),
-    Text({ content: truncate(`${counts}${warnings}`, 180) }),
+    Text({ content: truncateStyled(chunks, 180) }),
   );
 }
 
 function peerPane(view: DashboardViewModel, narrow: boolean) {
-  const rows = view.peers.length > 0
-    ? view.peers.map((peer) => peerRow(peer.id, peer.index, peer.status, peer.project, peer.branch, peer.worktree, peer.selected)).join("\n")
-    : "No peers yet";
+  const rows = view.peers.length > 0 ? peerRows(view.peers) : styledText(dimText("No peers yet"));
   return Box(
     paneProps("Peers", view.focusPane === "peers", {
       width: narrow ? "100%" : 42,
@@ -257,6 +264,43 @@ function keysPane(view: DashboardViewModel) {
   );
 }
 
+function styledText(...chunks: TextChunk[]): StyledText {
+  return new StyledText(chunks);
+}
+
+function plainChunks(text: string): TextChunk[] {
+  return stringToStyledText(text).chunks;
+}
+
+function truncateStyled(chunks: TextChunk[], max: number): StyledText {
+  let remaining = max;
+  const result: TextChunk[] = [];
+  for (const chunk of chunks) {
+    if (remaining <= 0) {
+      break;
+    }
+    if (chunk.text.length <= remaining) {
+      result.push(chunk);
+      remaining -= chunk.text.length;
+      continue;
+    }
+    result.push({ ...chunk, text: chunk.text.slice(0, remaining) });
+    remaining = 0;
+  }
+  return styledText(...result);
+}
+
+function peerRows(peers: DashboardPeerRow[]): StyledText {
+  const chunks: TextChunk[] = [];
+  peers.forEach((peer, index) => {
+    chunks.push(...peerRow(peer));
+    if (index < peers.length - 1) {
+      chunks.push(...plainChunks("\n"));
+    }
+  });
+  return styledText(...chunks);
+}
+
 function paneProps(title: string, focused: boolean, extra: Record<string, unknown> = {}) {
   return {
     title,
@@ -268,15 +312,11 @@ function paneProps(title: string, focused: boolean, extra: Record<string, unknow
   };
 }
 
-function peerRow(
-  id: string,
-  index: number,
-  status: string,
-  project: string,
-  branch: string,
-  worktree: string,
-  selected: boolean,
-): string {
-  const marker = selected ? ">" : " ";
-  return `${marker}${String(index + 1).padStart(2)} ${id.padEnd(8)} ${status.padEnd(8)} ${truncate(project, 18).padEnd(18)} ${truncate(branch, 10).padEnd(10)} ${worktree}`;
+function peerRow(peer: DashboardPeerRow): TextChunk[] {
+  return [
+    peer.selected ? textColor("#facc15")(">") : dimText(" "),
+    ...plainChunks(`${String(peer.index + 1).padStart(2)} ${peer.id.padEnd(8)} `),
+    textColor(statusColor(peer.status as DashboardStatus))(peer.status.padEnd(8)),
+    ...plainChunks(` ${truncate(peer.project, 18).padEnd(18)} ${truncate(peer.branch, 10).padEnd(10)} ${peer.worktree}`),
+  ];
 }
