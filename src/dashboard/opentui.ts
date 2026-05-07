@@ -183,7 +183,7 @@ function render(renderer: Awaited<ReturnType<typeof createCliRenderer>>, view: D
           flexDirection: narrow ? "column" : "row",
           gap: 1,
         },
-        peerPane(view, narrow),
+        peerPane(view, narrow, renderer.width),
         Box(
           {
             id: "dashboard-right",
@@ -219,11 +219,12 @@ function statusPane(view: DashboardViewModel) {
   );
 }
 
-function peerPane(view: DashboardViewModel, narrow: boolean) {
-  const rows = view.peers.length > 0 ? peerRows(view.peers) : styledText(dimText("No peers yet"));
+function peerPane(view: DashboardViewModel, narrow: boolean, screenWidth: number) {
+  const paneWidth = narrow ? screenWidth : Math.min(Math.max(62, Math.floor(screenWidth * 0.46)), 86);
+  const rows = view.peers.length > 0 ? peerRows(view.peers, paneWidth) : styledText(dimText("No peers yet"));
   return Box(
     paneProps("Peers", view.focusPane === "peers", {
-      width: narrow ? "100%" : 42,
+      width: narrow ? "100%" : paneWidth,
       height: narrow ? 8 : "100%",
       flexShrink: 0,
     }),
@@ -245,7 +246,7 @@ function detailsPane(view: DashboardViewModel, narrow: boolean) {
 }
 
 function logsPane(view: DashboardViewModel) {
-  const lines = view.logLines.length > 0 ? view.logLines.slice(-80).join("\n") : "No recent log lines";
+  const lines = view.logLines.length > 0 ? view.logLines.slice(-180).join("\n") : "No recent log lines";
   return ScrollBox(
     paneProps("Logs", view.focusPane === "logs", {
       flexGrow: 1,
@@ -290,10 +291,10 @@ function truncateStyled(chunks: TextChunk[], max: number): StyledText {
   return styledText(...result);
 }
 
-function peerRows(peers: DashboardPeerRow[]): StyledText {
+function peerRows(peers: DashboardPeerRow[], paneWidth: number): StyledText {
   const chunks: TextChunk[] = [];
   peers.forEach((peer, index) => {
-    chunks.push(...peerRow(peer));
+    chunks.push(...peerRow(peer, paneWidth));
     if (index < peers.length - 1) {
       chunks.push(...plainChunks("\n"));
     }
@@ -312,11 +313,14 @@ function paneProps(title: string, focused: boolean, extra: Record<string, unknow
   };
 }
 
-function peerRow(peer: DashboardPeerRow): TextChunk[] {
+function peerRow(peer: DashboardPeerRow, paneWidth: number): TextChunk[] {
+  const contentWidth = Math.max(38, paneWidth - 4);
+  const projectWidth = Math.max(18, contentWidth - 37);
   return [
     peer.selected ? textColor("#facc15")(">") : dimText(" "),
-    ...plainChunks(`${String(peer.index + 1).padStart(2)} ${peer.id.padEnd(8)} `),
+    textColor(statusColor(peer.status as DashboardStatus))(peer.statusIcon),
+    ...plainChunks(` ${String(peer.index + 1).padStart(2)} ${peer.id.padEnd(8)} `),
     textColor(statusColor(peer.status as DashboardStatus))(peer.status.padEnd(8)),
-    ...plainChunks(` ${truncate(peer.project, 18).padEnd(18)} ${truncate(peer.branch, 10).padEnd(10)} ${peer.worktree}`),
+    ...plainChunks(` ${truncate(peer.project, projectWidth).padEnd(projectWidth)} ${peer.worktree.padEnd(7)} ${peer.elapsed}`),
   ];
 }

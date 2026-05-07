@@ -19,6 +19,7 @@ export type DashboardPeerRow = {
   id: string;
   index: number;
   status: DashboardStatus;
+  statusIcon: string;
   project: string;
   branch: string;
   worktree: string;
@@ -55,6 +56,7 @@ export type DashboardViewModelOptions = {
 };
 
 const LOG_LIMIT = 80;
+const FORMATTED_LOG_LIMIT = 220;
 const FOCUS_PANES: DashboardFocusPane[] = ["peers", "details", "logs", "status"];
 const STATUS_COLORS: Record<DashboardStatus, string> = {
   starting: "#60a5fa",
@@ -67,6 +69,17 @@ const STATUS_COLORS: Record<DashboardStatus, string> = {
   frozen: "#c084fc",
   killed: "#fb923c",
 };
+const STATUS_ICONS: Record<DashboardStatus, string[]> = {
+  starting: ["🚀", "✨"],
+  working: ["⚙️", "🔧", "💻", "🧠"],
+  waiting: ["⏳", "❓", "⌛", "❔"],
+  idle: ["💤"],
+  done: ["✅"],
+  cleanup: ["🧹"],
+  failed: ["❌"],
+  frozen: ["🧊"],
+  killed: ["🛑"],
+};
 
 export function createDashboardViewModel(
   inputPeers: PeerRecord[],
@@ -78,10 +91,12 @@ export function createDashboardViewModel(
   const selectedPeer = peers[selectedIndex];
   const worktrees = analyzeWorktrees(peers);
   const now = options.now || new Date();
+  const frame = Math.floor(now.getTime() / 1000);
   const rows = peers.map((peer, index) => ({
     id: peer.id,
     index,
     status: dashboardStatus(peer),
+    statusIcon: statusIcon(dashboardStatus(peer), frame),
     project: projectLabel(peer),
     branch: valueOrDash(peer.baseBranch || peer.branch),
     worktree: worktreeLabel(peer, worktrees.risks.get(peer.id)),
@@ -93,7 +108,7 @@ export function createDashboardViewModel(
     expanded: state.expandedPeerId === peer.id,
   }));
   const mode = state.mode || "normal";
-  const logLines = selectedPeer ? safeLogTail(selectedPeer.id, options) : [];
+  const logLines = selectedPeer ? formatDashboardLogLines(safeLogTail(selectedPeer.id, options)) : [];
   const logOffset = Math.max(0, state.logOffset || 0);
 
   return {
@@ -136,6 +151,19 @@ export function dashboardStatus(peer: PeerRecord): DashboardStatus {
 
 export function statusColor(status: DashboardStatus): string {
   return STATUS_COLORS[status];
+}
+
+export function statusIcon(status: DashboardStatus, frame = 0): string {
+  const frames = STATUS_ICONS[status];
+  return frames[Math.abs(frame) % frames.length];
+}
+
+export function formatDashboardLogLines(lines: string[]): string[] {
+  const formatted: string[] = [];
+  for (const line of lines) {
+    formatted.push(...formatDashboardLogLine(line));
+  }
+  return formatted.slice(-FORMATTED_LOG_LIMIT);
 }
 
 export function projectLabel(peer: Pick<PeerRecord, "sourceRepo" | "repo" | "worktreePath">): string {
@@ -202,6 +230,136 @@ function safeLogTail(peerId: string, options: DashboardViewModelOptions): string
   } catch {
     return [];
   }
+}
+
+function formatDashboardLogLine(line: string): string[] {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return [];
+  }
+  if (trimmed.startsWith("[codex-peers]")) {
+    return [`🧭 ${trimmed}`];
+  }
+  if (trimmed.startsWith("[stderr]")) {
+    return [`⚠️ ${trimmed}`];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return [`│ ${trimmed}`];
+  }
+  if (!isRecord(parsed)) {
+    return [`◇ ${JSON.stringify(parsed)}`];
+  }
+
+  const type = stringValue(parsed.type);
+  const item = isRecord(parsed.item) ? parsed.item : undefined;
+  const itemType = stringValue(item?.type);
+  const event = itemType ? `${type || "event"}/${itemType}` : type || "json";
+  const icon = logIcon(type, itemType);
+  const id = stringValue(item?.id);
+  const lines = [`${icon} ${event}${id ? ` ${id}` : ""}`];
+
+  const text = compact(stringValue(item?.text) || stringValue(parsed.text), 240);
+  if (text) {
+    lines.push(`  text: ${text}`);
+  }
+
+  const command = stringValue(item?.command);
+  if (command) {
+    lines.push(`  command: ${compact(command, 220)}`);
+  }
+
+  const status = stringValue(item?.status);
+  const exitCode = item?.exit_code;
+  if (status || exitCode !== undefined) {
+    lines.push(`  result: ${[status, exitCode !== undefined ? `exit=${String(exitCode)}` : undefined].filter(Boolean).join(" ")}`);
+  }
+
+  const output = stringValue(item?.aggregated_output);
+  if (output) {
+    lines.push(...formatOutputBlock(output));
+  }
+
+  const extra = compactJsonWithout(parsed, new Set(["type", "item", "thread_id"]));
+  if (extra) {
+    lines.push(`  json: ${extra}`);
+  }
+  return lines;
+}
+
+function formatOutputBlock(output: string): string[] {
+  const trimmed = output.trim();
+  if (!trimmed) {
+    return [];
+  }
+  const lines = ["  output:"];
+  const pretty = prettyJson(trimmed);
+  const source = pretty || trimmed;
+  for (const line of source.split(/\r?\n/).slice(0, 18)) {
+    lines.push(`    ${compact(line, 180)}`);
+  }
+  if (source.split(/\r?\n/).length > 18) {
+    lines.push("    ...");
+  }
+  return lines;
+}
+
+function prettyJson(value: string): string | undefined {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return undefined;
+  }
+}
+
+function compactJsonWithout(record: Record<string, unknown>, omitted: Set<string>): string | undefined {
+  const extra: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (!omitted.has(key)) {
+      extra[key] = value;
+    }
+  }
+  return Object.keys(extra).length > 0 ? compact(JSON.stringify(extra), 240) : undefined;
+}
+
+function logIcon(type?: string, itemType?: string): string {
+  if (type === "thread.started") {
+    return "🧵";
+  }
+  if (type === "turn.started") {
+    return "▶️";
+  }
+  if (type === "turn.completed") {
+    return "✅";
+  }
+  if (itemType === "agent_message") {
+    return "💬";
+  }
+  if (itemType === "command_execution") {
+    return "🔨";
+  }
+  if (itemType === "file_change") {
+    return "📝";
+  }
+  return "◇";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function compact(text: string | undefined, max: number): string | undefined {
+  if (!text) {
+    return undefined;
+  }
+  return truncate(text.replace(/\s+/g, " ").trim(), max);
 }
 
 function detailRows(peer: PeerRecord): DashboardDetailRow[] {

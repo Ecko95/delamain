@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { commandForKey } from "../dist/dashboard/keybindings.js";
-import { createDashboardViewModel, projectLabel, statusColor } from "../dist/dashboard/model.js";
+import { createDashboardViewModel, formatDashboardLogLines, projectLabel, statusColor, statusIcon } from "../dist/dashboard/model.js";
 import { bunMissingMessage } from "../dist/dashboard.js";
 
 test("commandForKey maps dashboard shortcuts", () => {
@@ -70,6 +70,35 @@ test("status colors give each dashboard state a distinct visible color", () => {
   assert.match(statusColor("waiting"), /^#/);
   assert.match(statusColor("failed"), /^#/);
   assert.match(statusColor("cleanup"), /^#/);
+});
+
+test("status icons animate active and waiting states", () => {
+  assert.notEqual(statusIcon("working", 0), statusIcon("working", 1));
+  assert.notEqual(statusIcon("waiting", 0), statusIcon("waiting", 1));
+  assert.equal(statusIcon("done", 0), statusIcon("done", 1));
+});
+
+test("formatDashboardLogLines turns Codex JSON events into readable blocks", () => {
+  const lines = formatDashboardLogLines([
+    JSON.stringify({ type: "thread.started", thread_id: "abc123" }),
+    JSON.stringify({
+      type: "item.completed",
+      item: {
+        id: "item_1",
+        type: "command_execution",
+        command: "codex-peers list",
+        aggregated_output: JSON.stringify({ status: "waiting", id: "p1" }),
+        exit_code: 0,
+        status: "completed",
+      },
+    }),
+    "[codex-peers] exited code=0 signal=",
+  ]);
+
+  assert.match(lines.join("\n"), /thread\.started/);
+  assert.match(lines.join("\n"), /command: codex-peers list/);
+  assert.match(lines.join("\n"), /\"status\": \"waiting\"/);
+  assert.match(lines.join("\n"), /exited code=0/);
 });
 
 test("Bun missing message is actionable for dashboard users", () => {
