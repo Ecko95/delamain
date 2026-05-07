@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { commandForKey } from "../dist/dashboard/keybindings.js";
-import { createDashboardViewModel, formatDashboardLogLines, projectLabel, statusColor, statusIcon } from "../dist/dashboard/model.js";
+import { createDashboardViewModel, formatDashboardLogLines, projectLabel, statusActivity, statusColor } from "../dist/dashboard/model.js";
 import { bunMissingMessage } from "../dist/dashboard.js";
 
 test("commandForKey maps dashboard shortcuts", () => {
@@ -72,10 +72,12 @@ test("status colors give each dashboard state a distinct visible color", () => {
   assert.match(statusColor("cleanup"), /^#/);
 });
 
-test("status icons animate active and waiting states", () => {
-  assert.notEqual(statusIcon("working", 0), statusIcon("working", 1));
-  assert.notEqual(statusIcon("waiting", 0), statusIcon("waiting", 1));
-  assert.equal(statusIcon("done", 0), statusIcon("done", 1));
+test("status activity uses OpenCode-style sweep for active peers and stable labels for terminal states", () => {
+  assert.equal(statusActivity("working", 0), "■⬝⬝⬝⬝⬝⬝⬝");
+  assert.equal(statusActivity("working", 1), "⬝■⬝⬝⬝⬝⬝⬝");
+  assert.equal(statusActivity("working", 8), "⬝⬝⬝⬝⬝⬝■⬝");
+  assert.equal(statusActivity("waiting", 0), "WAIT");
+  assert.equal(statusActivity("done", 0), "DONE");
 });
 
 test("formatDashboardLogLines turns Codex JSON events into readable blocks", () => {

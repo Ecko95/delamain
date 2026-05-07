@@ -33,9 +33,16 @@ export async function runOpenTuiDashboard(): Promise<void> {
   };
   let interval: ReturnType<typeof setInterval> | undefined;
   let destroyed = false;
+  let cachedPeers = listPeers();
+  let lastPeerRefresh = 0;
 
   const refresh = (): void => {
-    const peers = listPeers();
+    const currentTime = Date.now();
+    if (currentTime - lastPeerRefresh >= 1000) {
+      cachedPeers = listPeers();
+      lastPeerRefresh = currentTime;
+    }
+    const peers = cachedPeers;
     const view = createDashboardViewModel(peers, state, {
       logLimit: 80,
       logProvider: readPeerLog,
@@ -80,7 +87,7 @@ export async function runOpenTuiDashboard(): Promise<void> {
       cleanup();
       return;
     }
-    interval = setInterval(refresh, 1000);
+    interval = setInterval(refresh, 120);
     await new Promise<void>(() => {});
   } finally {
     cleanup();
@@ -315,12 +322,12 @@ function paneProps(title: string, focused: boolean, extra: Record<string, unknow
 
 function peerRow(peer: DashboardPeerRow, paneWidth: number): TextChunk[] {
   const contentWidth = Math.max(38, paneWidth - 4);
-  const projectWidth = Math.max(18, contentWidth - 37);
+  const projectWidth = Math.max(18, contentWidth - 40);
   return [
     peer.selected ? textColor("#facc15")(">") : dimText(" "),
-    textColor(statusColor(peer.status as DashboardStatus))(peer.statusIcon),
-    ...plainChunks(` ${String(peer.index + 1).padStart(2)} ${peer.id.padEnd(8)} `),
+    textColor(statusColor(peer.status as DashboardStatus))(peer.activity.padEnd(8)),
+    ...plainChunks(` ${String(peer.index + 1).padStart(2)} ${peer.id.padEnd(8)} ${peer.elapsed.padEnd(8)} `),
     textColor(statusColor(peer.status as DashboardStatus))(peer.status.padEnd(8)),
-    ...plainChunks(` ${truncate(peer.project, projectWidth).padEnd(projectWidth)} ${peer.worktree.padEnd(7)} ${peer.elapsed}`),
+    ...plainChunks(` ${truncate(peer.project, projectWidth).padEnd(projectWidth)}`),
   ];
 }

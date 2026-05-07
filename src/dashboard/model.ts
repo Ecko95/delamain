@@ -19,7 +19,7 @@ export type DashboardPeerRow = {
   id: string;
   index: number;
   status: DashboardStatus;
-  statusIcon: string;
+  activity: string;
   project: string;
   branch: string;
   worktree: string;
@@ -69,16 +69,14 @@ const STATUS_COLORS: Record<DashboardStatus, string> = {
   frozen: "#c084fc",
   killed: "#fb923c",
 };
-const STATUS_ICONS: Record<DashboardStatus, string[]> = {
-  starting: ["🚀", "✨"],
-  working: ["⚙️", "🔧", "💻", "🧠"],
-  waiting: ["⏳", "❓", "⌛", "❔"],
-  idle: ["💤"],
-  done: ["✅"],
-  cleanup: ["🧹"],
-  failed: ["❌"],
-  frozen: ["🧊"],
-  killed: ["🛑"],
+const STATIC_ACTIVITY: Record<Exclude<DashboardStatus, "starting" | "working">, string> = {
+  waiting: "WAIT",
+  idle: "IDLE",
+  done: "DONE",
+  cleanup: "PUSH",
+  failed: "FAIL",
+  frozen: "STOP",
+  killed: "KILL",
 };
 
 export function createDashboardViewModel(
@@ -91,12 +89,12 @@ export function createDashboardViewModel(
   const selectedPeer = peers[selectedIndex];
   const worktrees = analyzeWorktrees(peers);
   const now = options.now || new Date();
-  const frame = Math.floor(now.getTime() / 1000);
+  const frame = Math.floor(now.getTime() / 120);
   const rows = peers.map((peer, index) => ({
     id: peer.id,
     index,
     status: dashboardStatus(peer),
-    statusIcon: statusIcon(dashboardStatus(peer), frame),
+    activity: statusActivity(dashboardStatus(peer), frame),
     project: projectLabel(peer),
     branch: valueOrDash(peer.baseBranch || peer.branch),
     worktree: worktreeLabel(peer, worktrees.risks.get(peer.id)),
@@ -153,9 +151,11 @@ export function statusColor(status: DashboardStatus): string {
   return STATUS_COLORS[status];
 }
 
-export function statusIcon(status: DashboardStatus, frame = 0): string {
-  const frames = STATUS_ICONS[status];
-  return frames[Math.abs(frame) % frames.length];
+export function statusActivity(status: DashboardStatus, frame = 0): string {
+  if (status === "starting" || status === "working") {
+    return knightRiderFrame(frame);
+  }
+  return STATIC_ACTIVITY[status];
 }
 
 export function formatDashboardLogLines(lines: string[]): string[] {
@@ -360,6 +360,23 @@ function compact(text: string | undefined, max: number): string | undefined {
     return undefined;
   }
   return truncate(text.replace(/\s+/g, " ").trim(), max);
+}
+
+function knightRiderFrame(frame: number): string {
+  const width = 8;
+  const lead = knightRiderPosition(frame, width);
+  let result = "";
+  for (let index = 0; index < width; index += 1) {
+    result += index === lead ? "■" : "⬝";
+  }
+  return result;
+}
+
+function knightRiderPosition(frame: number, width: number): number {
+  const distance = width - 1;
+  const cycle = distance * 2;
+  const position = Math.abs(frame) % cycle;
+  return position <= distance ? position : cycle - position;
 }
 
 function detailRows(peer: PeerRecord): DashboardDetailRow[] {
