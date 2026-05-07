@@ -3,6 +3,7 @@ import { killPeer, listPeers, readPeerLog } from "../peerManager.js";
 import { commandForKey, type DashboardCommand } from "./keybindings.js";
 import {
   createDashboardViewModel,
+  defaultCollapsedStatuses,
   nextFocusPane,
   statusColor,
   truncate,
@@ -13,7 +14,12 @@ import {
 } from "./model.js";
 
 type RuntimeState = Required<Pick<DashboardState, "selectedIndex" | "focusPane" | "mode" | "logOffset">> &
-  Omit<DashboardState, "selectedIndex" | "focusPane" | "mode" | "logOffset">;
+  Omit<DashboardState, "selectedIndex" | "focusPane" | "mode" | "logOffset"> & {
+    peerOffset: number;
+    collapsedStatuses: Partial<Record<DashboardStatus, boolean>>;
+    selectedStatus?: DashboardStatus;
+    followSelectedPeer: boolean;
+  };
 
 const STATUS_ORDER = ["working", "waiting", "cleanup", "done", "failed", "frozen", "killed", "idle"] as const;
 
@@ -30,6 +36,9 @@ export async function runOpenTuiDashboard(): Promise<void> {
     focusPane: "peers",
     mode: "normal",
     logOffset: 0,
+    peerOffset: 0,
+    collapsedStatuses: defaultCollapsedStatuses(),
+    followSelectedPeer: true,
   };
   let interval: ReturnType<typeof setInterval> | undefined;
   let destroyed = false;
@@ -52,7 +61,7 @@ export async function runOpenTuiDashboard(): Promise<void> {
     if (state.expandedPeerId && !peers.some((peer) => peer.id === state.expandedPeerId)) {
       state.expandedPeerId = undefined;
     }
-    render(renderer, view);
+    render(renderer, view, state);
   };
 
   const cleanup = (): void => {
@@ -111,11 +120,13 @@ function handleCommand(command: DashboardCommand, state: RuntimeState, refresh: 
       state.selectedIndex += 1;
       state.selectedPeerId = undefined;
       state.logOffset = 0;
+      state.followSelectedPeer = true;
       break;
     case "select-prev":
       state.selectedIndex -= 1;
       state.selectedPeerId = undefined;
       state.logOffset = 0;
+      state.followSelectedPeer = true;
       break;
     case "toggle-details":
       state.expandedPeerId = state.expandedPeerId === state.selectedPeerId ? undefined : state.selectedPeerId;
@@ -127,10 +138,39 @@ function handleCommand(command: DashboardCommand, state: RuntimeState, refresh: 
       state.logOffset += 1;
       break;
     case "page-log-down":
-      state.logOffset = Math.max(0, state.logOffset - 10);
+      if (state.focusPane === "peers") {
+        state.peerOffset += 10;
+        state.followSelectedPeer = false;
+      } else {
+        state.logOffset = Math.max(0, state.logOffset - 10);
+      }
       break;
     case "page-log-up":
-      state.logOffset += 10;
+      if (state.focusPane === "peers") {
+        state.peerOffset = Math.max(0, state.peerOffset - 10);
+        state.followSelectedPeer = false;
+      } else {
+        state.logOffset += 10;
+      }
+      break;
+    case "jump-top":
+      if (state.focusPane === "peers") {
+        state.peerOffset = 0;
+        state.followSelectedPeer = false;
+      } else {
+        state.logOffset = Number.MAX_SAFE_INTEGER;
+      }
+      break;
+    case "jump-bottom":
+      if (state.focusPane === "peers") {
+        state.peerOffset = Number.MAX_SAFE_INTEGER;
+        state.followSelectedPeer = false;
+      } else {
+        state.logOffset = 0;
+      }
+      break;
+    case "toggle-status-group":
+      toggleSelectedStatusGroup(state);
       break;
     case "refresh":
       state.message = "Refreshed";
@@ -166,7 +206,21 @@ function confirmKill(state: RuntimeState): void {
   state.mode = "normal";
 }
 
-function render(renderer: Awaited<ReturnType<typeof createCliRenderer>>, view: DashboardViewModel): void {
+function toggleSelectedStatusGroup(state: RuntimeState): void {
+  if (!state.selectedStatus) {
+    state.message = "No selected status group";
+    return;
+  }
+  const next = !state.collapsedStatuses[state.selectedStatus];
+  state.collapsedStatuses = {
+    ...state.collapsedStatuses,
+    [state.selectedStatus]: next,
+  };
+  state.peerOffset = 0;
+  state.message = `${next ? "Collapsed" : "Expanded"} ${state.selectedStatus}`;
+}
+
+function render(renderer: Awaited<ReturnType<typeof createCliRenderer>>, view: DashboardViewModel, state: RuntimeState): void {
   for (const child of renderer.root.getChildren()) {
     child.destroyRecursively();
   }
@@ -190,7 +244,7 @@ function render(renderer: Awaited<ReturnType<typeof createCliRenderer>>, view: D
           flexDirection: narrow ? "column" : "row",
           gap: 1,
         },
-        peerPane(view, narrow, renderer.width),
+        peerPane(view, state, narrow, renderer.width, renderer.height),
         Box(
           {
             id: "dashboard-right",
@@ -200,7 +254,7 @@ function render(renderer: Awaited<ReturnType<typeof createCliRenderer>>, view: D
             minHeight: narrow ? 9 : 0,
           },
           detailsPane(view, narrow),
-          logsPane(view),
+          logsPane(view, state, narrow, renderer.height),
         ),
       ),
       keysPane(view),
@@ -226,16 +280,17 @@ function statusPane(view: DashboardViewModel) {
   );
 }
 
-function peerPane(view: DashboardViewModel, narrow: boolean, screenWidth: number) {
+function peerPane(view: DashboardViewModel, state: RuntimeState, narrow: boolean, screenWidth: number, screenHeight: number) {
   const paneWidth = narrow ? screenWidth : Math.min(Math.max(62, Math.floor(screenWidth * 0.46)), 86);
-  const rows = view.peers.length > 0 ? peerRows(view.peers, paneWidth) : styledText(dimText("No peers yet"));
+  const visibleRows = narrow ? 5 : Math.max(6, screenHeight - 9);
+  const content = peerContent(view, state, paneWidth, visibleRows);
   return Box(
-    paneProps("Peers", view.focusPane === "peers", {
+    paneProps(`Peers ${content.position}`, view.focusPane === "peers", {
       width: narrow ? "100%" : paneWidth,
       height: narrow ? 8 : "100%",
       flexShrink: 0,
     }),
-    Text({ content: rows }),
+    Text({ content: content.rows }),
   );
 }
 
@@ -252,20 +307,24 @@ function detailsPane(view: DashboardViewModel, narrow: boolean) {
   );
 }
 
-function logsPane(view: DashboardViewModel) {
-  const lines = view.logLines.length > 0 ? view.logLines.slice(-180).join("\n") : "No recent log lines";
+function logsPane(view: DashboardViewModel, state: RuntimeState, narrow: boolean, screenHeight: number) {
+  const visibleRows = narrow ? Math.max(3, screenHeight - 20) : Math.max(6, screenHeight - 24);
+  const content = visibleLogContent(view.logLines, state.logOffset, visibleRows);
+  state.logOffset = content.offset;
   return ScrollBox(
-    paneProps("Logs", view.focusPane === "logs", {
+    paneProps(`Logs ${content.position}`, view.focusPane === "logs", {
       flexGrow: 1,
       minHeight: 3,
       overflow: "hidden",
     }),
-    Text({ content: lines }),
+    Text({ content: content.lines.join("\n") || "No recent log lines" }),
   );
 }
 
 function keysPane(view: DashboardViewModel) {
-  const modeText = view.mode === "kill-confirm" ? view.message : `${view.message} | tab focus, shift-tab back, j k select, enter details, pgup pgdn logs, r refresh, x kill, q quit`;
+  const modeText = view.mode === "kill-confirm"
+    ? view.message
+    : `${view.message} | tab focus, j/k select, c collapse, pgup/pgdn scroll focused, g/G top/bottom, r refresh, x kill, q quit`;
   return Box(
     paneProps("Keys", false, { height: 3 }),
     Text({ content: truncate(modeText, 180) }),
@@ -298,15 +357,64 @@ function truncateStyled(chunks: TextChunk[], max: number): StyledText {
   return styledText(...result);
 }
 
-function peerRows(peers: DashboardPeerRow[], paneWidth: number): StyledText {
+type PeerDisplayLine = {
+  kind: "group" | "peer";
+  status: DashboardStatus;
+  peer?: DashboardPeerRow;
+  text?: string;
+};
+
+function peerContent(view: DashboardViewModel, state: RuntimeState, paneWidth: number, visibleRows: number): { rows: StyledText; position: string } {
+  const lines = peerDisplayLines(view);
+  const selectedLine = lines.findIndex((line) => line.peer?.selected);
+  const maxOffset = Math.max(0, lines.length - visibleRows);
+  let offset = clamp(state.peerOffset, 0, maxOffset);
+  if (state.followSelectedPeer && selectedLine !== -1 && !view.collapsedStatuses[lines[selectedLine].status]) {
+    if (selectedLine < offset) {
+      offset = selectedLine;
+    } else if (selectedLine >= offset + visibleRows) {
+      offset = selectedLine - visibleRows + 1;
+    }
+  }
+  state.peerOffset = offset;
+  state.selectedStatus = view.selectedPeer ? view.peers.find((peer) => peer.id === view.selectedPeer?.id)?.status : undefined;
+
+  const visible = lines.slice(offset, offset + visibleRows);
   const chunks: TextChunk[] = [];
-  peers.forEach((peer, index) => {
-    chunks.push(...peerRow(peer, paneWidth));
-    if (index < peers.length - 1) {
+  visible.forEach((line, index) => {
+    chunks.push(...peerDisplayLine(line, paneWidth));
+    if (index < visible.length - 1) {
       chunks.push(...plainChunks("\n"));
     }
   });
-  return styledText(...chunks);
+  return {
+    rows: chunks.length > 0 ? styledText(...chunks) : styledText(dimText("No peers yet")),
+    position: scrollPosition(offset, visibleRows, lines.length),
+  };
+}
+
+function peerDisplayLines(view: DashboardViewModel): PeerDisplayLine[] {
+  const lines: PeerDisplayLine[] = [];
+  for (const status of STATUS_ORDER) {
+    const peers = view.peers.filter((peer) => peer.status === status);
+    if (peers.length === 0) {
+      continue;
+    }
+    lines.push({ kind: "group", status, text: `${view.collapsedStatuses[status] ? "▸" : "▾"} ${status} ${peers.length}` });
+    if (!view.collapsedStatuses[status]) {
+      for (const peer of peers) {
+        lines.push({ kind: "peer", status, peer });
+      }
+    }
+  }
+  return lines;
+}
+
+function peerDisplayLine(line: PeerDisplayLine, paneWidth: number): TextChunk[] {
+  if (line.kind === "group") {
+    return [textColor(statusColor(line.status))(line.text || line.status)];
+  }
+  return line.peer ? peerRow(line.peer, paneWidth) : [];
 }
 
 function paneProps(title: string, focused: boolean, extra: Record<string, unknown> = {}) {
@@ -330,4 +438,29 @@ function peerRow(peer: DashboardPeerRow, paneWidth: number): TextChunk[] {
     textColor(statusColor(peer.status as DashboardStatus))(peer.status.padEnd(8)),
     ...plainChunks(` ${truncate(peer.project, projectWidth).padEnd(projectWidth)}`),
   ];
+}
+
+function visibleLogContent(lines: string[], requestedOffset: number, visibleRows: number): { lines: string[]; offset: number; position: string } {
+  const maxOffset = Math.max(0, lines.length - visibleRows);
+  const offset = clamp(requestedOffset, 0, maxOffset);
+  const end = lines.length - offset;
+  const start = Math.max(0, end - visibleRows);
+  return {
+    lines: lines.slice(start, end),
+    offset,
+    position: scrollPosition(offset, visibleRows, lines.length),
+  };
+}
+
+function scrollPosition(offset: number, visibleRows: number, totalRows: number): string {
+  if (totalRows <= visibleRows) {
+    return `[all ${totalRows}]`;
+  }
+  const start = totalRows - offset - visibleRows + 1;
+  const end = totalRows - offset;
+  return `[${Math.max(1, start)}-${Math.max(1, end)}/${totalRows}]`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }

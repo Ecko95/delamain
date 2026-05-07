@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { commandForKey } from "../dist/dashboard/keybindings.js";
-import { createDashboardViewModel, formatDashboardLogLines, projectLabel, statusActivity, statusColor } from "../dist/dashboard/model.js";
+import { createDashboardViewModel, defaultCollapsedStatuses, formatDashboardLogLines, projectLabel, statusActivity, statusColor } from "../dist/dashboard/model.js";
 import { bunMissingMessage } from "../dist/dashboard.js";
 
 test("commandForKey maps dashboard shortcuts", () => {
@@ -11,6 +11,9 @@ test("commandForKey maps dashboard shortcuts", () => {
   assert.equal(commandForKey("\x1b", "kill-confirm"), "cancel-mode");
   assert.equal(commandForKey("\t"), "focus-next");
   assert.equal(commandForKey("\x1b[Z"), "focus-prev");
+  assert.equal(commandForKey("c"), "toggle-status-group");
+  assert.equal(commandForKey("g"), "jump-top");
+  assert.equal(commandForKey("G"), "jump-bottom");
 });
 
 test("createDashboardViewModel counts statuses and cleanup peers", () => {
@@ -49,6 +52,17 @@ test("createDashboardViewModel includes integration detail and bounded logLines"
     value: "pushed",
   });
   assert.equal(view.logLines.length, 80);
+});
+
+test("createDashboardViewModel keeps default collapsed status groups in view state", () => {
+  const view = createDashboardViewModel([
+    peer({ id: "done1", status: "done" }),
+    peer({ id: "killed1", status: "killed" }),
+  ]);
+
+  assert.deepEqual(view.collapsedStatuses, defaultCollapsedStatuses());
+  assert.equal(view.peerOffset, 0);
+  assert.equal(view.logOffset, 0);
 });
 
 test("project labels prefer source repo path over generated worktree path", () => {

@@ -9,6 +9,8 @@ export type DashboardState = {
   selectedIndex?: number;
   selectedPeerId?: string;
   expandedPeerId?: string;
+  peerOffset?: number;
+  collapsedStatuses?: Partial<Record<DashboardStatus, boolean>>;
   focusPane?: DashboardFocusPane;
   mode?: DashboardMode;
   message?: string;
@@ -44,6 +46,9 @@ export type DashboardViewModel = {
   warnings: string[];
   details: DashboardDetailRow[];
   logLines: string[];
+  logOffset: number;
+  peerOffset: number;
+  collapsedStatuses: Partial<Record<DashboardStatus, boolean>>;
   message: string;
   focusPane: DashboardFocusPane;
   mode: DashboardMode;
@@ -116,10 +121,21 @@ export function createDashboardViewModel(
     counts: countByDashboardStatus(peers),
     warnings: worktrees.warnings,
     details: selectedPeer ? detailRows(selectedPeer) : [],
-    logLines: logOffset > 0 ? logLines.slice(0, Math.max(0, logLines.length - logOffset)) : logLines,
+    logLines,
+    logOffset,
+    peerOffset: Math.max(0, state.peerOffset || 0),
+    collapsedStatuses: state.collapsedStatuses || defaultCollapsedStatuses(),
     message: messageForState(state, selectedPeer, mode),
     focusPane: state.focusPane || "peers",
     mode,
+  };
+}
+
+export function defaultCollapsedStatuses(): Partial<Record<DashboardStatus, boolean>> {
+  return {
+    done: true,
+    killed: true,
+    idle: true,
   };
 }
 

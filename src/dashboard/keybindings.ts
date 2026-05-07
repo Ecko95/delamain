@@ -10,6 +10,9 @@ export type DashboardCommand =
   | "scroll-log-up"
   | "page-log-down"
   | "page-log-up"
+  | "jump-top"
+  | "jump-bottom"
+  | "toggle-status-group"
   | "refresh"
   | "enter-kill-mode"
   | "confirm-kill"
@@ -46,16 +49,19 @@ export function commandForKey(key: string, mode: DashboardMode = "normal"): Dash
     return "toggle-details";
   }
   if (key === "g") {
-    return "scroll-log-up";
+    return "jump-top";
   }
   if (key === "G") {
-    return "scroll-log-down";
+    return "jump-bottom";
   }
   if (key === "\x1b[6~") {
     return "page-log-down";
   }
   if (key === "\x1b[5~") {
     return "page-log-up";
+  }
+  if (key === "c") {
+    return "toggle-status-group";
   }
   if (key === "r") {
     return "refresh";
