@@ -1,8 +1,9 @@
 import { createWriteStream, mkdirSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname } from "node:path";
-import { parseCodexJsonLine, parseWaitingQuestion, trim } from "./codexEvents.js";
+import { parseCodexJsonLine, trim } from "./codexEvents.js";
 import { integratePeerWorktree } from "./git.js";
+import { initialTerminalResponseState, updateTerminalResponseState } from "./lifecycle.js";
 import { updatePeer } from "./store.js";
 
 type RunnerArgs = {
@@ -61,7 +62,7 @@ export async function runPeer(argv: string[]): Promise<void> {
   let stdoutBuffer = "";
   let stderrBuffer = "";
   let collectedText = "";
-  let question: string | undefined;
+  let terminalResponse = initialTerminalResponseState();
 
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk: string) => {
@@ -114,7 +115,7 @@ export async function runPeer(argv: string[]): Promise<void> {
         append(log, `[stderr] ${stderrBuffer.trimEnd()}\n`);
       }
 
-      const finalQuestion = question || parseWaitingQuestion(collectedText);
+      const finalQuestion = terminalResponse.waitingQuestion;
       let status: "waiting" | "done" | "failed" = finalQuestion ? "waiting" : code === 0 ? "done" : "failed";
       let integrationStatus: "skipped" | "pushed" | "failed" | undefined;
       let integrationError: string | undefined;
@@ -172,14 +173,21 @@ export async function runPeer(argv: string[]): Promise<void> {
     if (parsed.text) {
       collectedText = trim(`${collectedText}\n${parsed.text}`, 20_000);
     }
-    if (parsed.waitingQuestion) {
-      question = parsed.waitingQuestion;
-    }
+    terminalResponse = updateTerminalResponseState(terminalResponse, parsed);
     updatePeer(args.peerId, (peer) => ({
       ...peer,
       threadId: parsed.threadId || peer.threadId,
-      status: peer.status === "killed" ? "killed" : parsed.waitingQuestion ? "waiting" : peer.status === "starting" ? "working" : peer.status,
-      question: parsed.waitingQuestion || peer.question,
+      status:
+        peer.status === "killed"
+          ? "killed"
+          : parsed.waitingQuestion
+            ? "waiting"
+            : parsed.isAgentMessage && peer.status === "waiting"
+              ? "working"
+              : peer.status === "starting"
+                ? "working"
+                : peer.status,
+      question: parsed.isAgentMessage ? parsed.waitingQuestion : peer.question,
       updatedAt: now(),
       lastHeartbeatAt: now(),
       lastEvent: parsed.label ? trim(parsed.label, 180) : peer.lastEvent,

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { createPeerWorktree, gitBranch, gitWorktreeInfo } from "./git.js";
+import { reconcileFinishedWaitingPeer } from "./lifecycle.js";
 import { promptsDir, runsDir } from "./paths.js";
 import { getPeer, readState, updatePeer, upsertPeer } from "./store.js";
 import { killPid, killProcessGroup, pidAlive } from "./processes.js";
@@ -258,7 +259,7 @@ function spawnRunner(args: {
 }
 
 function reconciledPeer(peer: PeerRecord): PeerRecord {
-  const enriched = withWorktreeInfo(peer);
+  const enriched = reconcileFinishedWaitingPeer(withWorktreeInfo(peer));
   if (!isActive(enriched)) {
     return enriched;
   }
