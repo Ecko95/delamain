@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Phase 01 planned; ready to execute 01-01
-last_updated: "2026-05-07T17:04:28+02:00"
-last_activity: 2026-05-07 -- Phase 01 planning complete
+status: blocked
+stopped_at: Phase 01 Wave 1 OpenTUI Node runtime proof failed
+last_updated: "2026-05-07T17:21:26+02:00"
+last_activity: 2026-05-07 -- OpenTUI runtime proof failed under Node before renderer creation
 progress:
   total_phases: 1
   completed_phases: 0
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-05-07)
 ## Current Position
 
 Phase: 1 of 1 (Dashboard TUI upgrade)
-Plan: 01-01 ready
-Status: Ready to execute
-Last activity: 2026-05-07 -- Phase 01 planning complete
+Plan: 01-01 blocked
+Status: Blocked on OpenTUI Node runtime compatibility
+Last activity: 2026-05-07 -- OpenTUI runtime proof failed under Node before renderer creation
 
 Progress: [----------] 0%
 
@@ -58,7 +58,7 @@ None yet.
 
 ### Blockers/Concerns
 
-None yet.
+- Phase 1 Wave 1: `@opentui/core@0.2.4` fails during Node ESM import with `ERR_UNKNOWN_FILE_EXTENSION` for `node_modules/@opentui/core/assets/javascript/highlights.scm`. OpenTUI package subpaths for renderer/renderables are not exported, so the dashboard migration is stopped before Plans 01-02 and 01-03 per fallback policy.
 
 ### Roadmap Evolution
 

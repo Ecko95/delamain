@@ -22,7 +22,9 @@
     "agents"
   ],
   "license": "MIT",
-  "dependencies": {},
+  "dependencies": {
+    "@opentui/core": "0.2.4"
+  },
   "devDependencies": {
     "@types/node": "^25.0.0",
     "tsx": "^4.20.6",
