@@ -7,7 +7,7 @@ The package provides:
 - an MCP server with tools for spawning, listing, resuming, logging, and killing Codex peers
 - detached peer runners backed by `codex exec --json`
 - automatic linked worktree isolation for every new peer
-- automatic successful-run integration: commit remaining peer edits, merge `origin/main`, then push `HEAD:main`
+- automatic successful-run integration: commit remaining peer edits, merge the origin default branch, then push back to that branch
 - a tmux/Warp-friendly live dashboard
 - a one-line tmux status segment
 
@@ -49,11 +49,29 @@ If installed globally or linked:
 codex-peers dashboard
 ```
 
+Short alias:
+
+```bash
+codex-peers --d
+```
+
 Dashboard keys:
 
+- `↑`/`↓` or `j`: select a peer
+- `Enter`: expand/collapse the selected peer
 - `k`: kill by row number or peer id prefix
 - `r`: refresh
 - `q`: quit
+
+Dashboard status notes:
+
+- `done`: peer exited successfully but did not push new commits
+- `cleanup`: peer exited successfully, merged/pushed to the target origin branch, and its linked worktree is now only pending cleanup
+
+The dashboard `REPO` column shows the source project path, such as
+`lovable/isomer`, instead of the generated linked worktree directory. Expand a
+peer to see the full source path, worktree path, target branch, task, log path,
+integration status, latest question, last event, and recent log lines.
 
 The `WT` column shows whether a peer is running in the main checkout, a linked
 worktree, or an unknown/non-git directory. Active peers that share the same
@@ -71,7 +89,7 @@ set -g status-right '#(codex-peers tmux-status)'
 Example:
 
 ```text
-Codex peers: 4 | working 2 | waiting 1 | frozen 1
+Codex peers: 4 | working 2 | waiting 1 | cleanup 1 | frozen 0
 ```
 
 ## CLI
@@ -82,9 +100,11 @@ Manual spawn:
 codex-peers spawn --repo /path/to/repo --prompt "Review the auth routes and report risks."
 ```
 
-The repo must be a Git repository with `origin/main`. Each new peer runs on a
-fresh `codex-peer/<id>` branch in a linked worktree under
-`~/.codex-peers/worktrees/`, not in the checkout passed with `--repo`.
+The repo must be a Git repository with `origin`. By default, codex-peers bases
+the worktree on the origin default branch. Pass `--target-branch <branch>` to
+force a specific origin branch. Each new peer runs on a fresh `codex-peer/<id>`
+branch in a linked worktree under `~/.codex-peers/worktrees/`, not in the
+checkout passed with `--repo`.
 
 Run with Codex's bypass flag:
 
@@ -116,8 +136,8 @@ For MCP-driven orchestration, `wait_for_peer` blocks until a peer reaches a term
 When a peer exits successfully, the runner integrates that worktree by:
 
 1. committing any remaining uncommitted edits
-2. fetching and merging `origin/main` into the peer branch
-3. pushing the merged peer branch with `git push origin HEAD:main`
+2. fetching and merging the target origin branch into the peer branch
+3. pushing the merged peer branch with `git push origin HEAD:<target-branch>`
 
 If the merge or push fails, the peer is marked `failed` and its linked worktree
 is left in place for inspection.
@@ -146,12 +166,16 @@ export CODEX_PEERS_HOME=/tmp/codex-peers-test
 - `frozen`: runner/Codex process vanished or heartbeat is stale
 - `killed`: killed by dashboard, CLI, or MCP tool
 
+The dashboard derives one extra display-only status:
+
+- `cleanup`: peer record is `done` and `integrationStatus` is `pushed`, which means the worktree has already been merged and is only waiting to be cleaned up
+
 Peer records include git worktree metadata when the peer was spawned:
 `sourceRepo`, `worktreePath`, `worktreeBranch`, `gitDir`, `gitCommonDir`,
 `isLinkedWorktree`, and `integrationStatus`. Use these fields from
 `codex-peers status <peer-id>` or MCP `peer_status` to confirm a peer is
 running in an independent linked worktree and whether it pushed to
-`origin/main`.
+the target origin branch.
 
 Peers are instructed to emit:
 

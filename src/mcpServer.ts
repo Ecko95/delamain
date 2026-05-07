@@ -13,13 +13,15 @@ const TOOLS = [
   {
     name: "spawn_peer",
     description:
-      "Spawn a supervised headless Codex peer in an isolated linked worktree, then integrate successful changes into origin/main.",
+      "Spawn a supervised headless Codex peer in an isolated linked worktree, then integrate successful changes into the origin default branch or explicit target branch.",
     inputSchema: {
       type: "object",
       properties: {
-        repo: { type: "string", description: "Absolute or relative path to a Git repository with origin/main." },
+        repo: { type: "string", description: "Absolute or relative path to a Git repository with origin." },
         prompt: { type: "string", description: "Task prompt for the peer." },
         name: { type: "string", description: "Optional display name for the peer." },
+        target_branch: { type: "string", description: "Optional origin branch to base the worktree on and push back to." },
+        targetBranch: { type: "string", description: "CamelCase alias for target_branch." },
         model: { type: "string", description: "Optional Codex model override." },
         sandbox: {
           type: "string",
@@ -113,9 +115,11 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        repo: { type: "string", description: "Absolute or relative path to a Git repository with origin/main." },
+        repo: { type: "string", description: "Absolute or relative path to a Git repository with origin." },
         prompt: { type: "string", description: "Task prompt for the peer." },
         name: { type: "string", description: "Optional display name for the peer." },
+        target_branch: { type: "string", description: "Optional origin branch to base the worktree on and push back to." },
+        targetBranch: { type: "string", description: "CamelCase alias for target_branch." },
         model: { type: "string", description: "Optional Codex model override." },
         sandbox: {
           type: "string",
@@ -195,7 +199,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<unknown> {
           version: "0.1.0",
         },
         instructions:
-          "Use this MCP server to spawn and supervise headless Codex peers across repositories. New peers run in isolated linked worktrees and successful changes are merged with origin/main before pushing to origin/main. Use list_peers and read_peer_log to monitor progress; use send_peer_reply when a peer reports CODEX_PEERS_STATUS: WAITING.",
+          "Use this MCP server to spawn and supervise headless Codex peers across repositories. New peers run in isolated linked worktrees and successful changes are merged with the origin default branch, or explicit target branch, before pushing back to that branch. Use list_peers and read_peer_log to monitor progress; use send_peer_reply when a peer reports CODEX_PEERS_STATUS: WAITING.",
       };
     case "notifications/initialized":
       return undefined;
@@ -219,6 +223,7 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
         repo: requiredString(args, "repo"),
         prompt: requiredString(args, "prompt"),
         name: optionalString(args, "name"),
+        targetBranch: targetBranch(args),
         model: optionalString(args, "model"),
         sandbox: optionalString(args, "sandbox") as "read-only" | "workspace-write" | "danger-full-access" | undefined,
         yolo: bypassEnabled(args),
@@ -246,6 +251,7 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
         repo: requiredString(args, "repo"),
         prompt: requiredString(args, "prompt"),
         name: optionalString(args, "name"),
+        targetBranch: targetBranch(args),
         model: optionalString(args, "model"),
         sandbox: optionalString(args, "sandbox") as "read-only" | "workspace-write" | "danger-full-access" | undefined,
         yolo: bypassEnabled(args),
@@ -298,6 +304,10 @@ function waitOptions(args: Record<string, unknown>): {
     pollIntervalMs: optionalNumber(args, "poll_interval_ms") ?? optionalNumber(args, "pollIntervalMs"),
     logLines: optionalNumber(args, "log_lines") ?? optionalNumber(args, "logLines"),
   };
+}
+
+function targetBranch(args: Record<string, unknown>): string | undefined {
+  return optionalString(args, "target_branch") ?? optionalString(args, "targetBranch");
 }
 
 function signalValue(value: unknown): NodeJS.Signals {

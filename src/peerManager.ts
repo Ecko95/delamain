@@ -24,7 +24,7 @@ const DEFAULT_WAIT_LOG_LINES = 80;
 export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
   const repo = resolve(options.repo);
   const id = randomUUID().slice(0, 8);
-  const isolated = createPeerWorktree(repo, id);
+  const isolated = createPeerWorktree(repo, id, options.targetBranch);
   const root = isolated.worktreePath;
   const worktree = isolated.info;
   const logPath = join(runsDir(), `${new Date().toISOString().replace(/[:.]/g, "-")}-${id}.log`);
@@ -199,12 +199,14 @@ export function tmuxStatusLine(): string {
   const peers = listPeers();
   const counts = new Map<string, number>();
   for (const peer of peers) {
-    counts.set(peer.status, (counts.get(peer.status) || 0) + 1);
+    const status = peer.status === "done" && peer.integrationStatus === "pushed" ? "cleanup" : peer.status;
+    counts.set(status, (counts.get(status) || 0) + 1);
   }
   const active = (counts.get("starting") || 0) + (counts.get("working") || 0);
   const waiting = counts.get("waiting") || 0;
+  const cleanup = counts.get("cleanup") || 0;
   const frozen = counts.get("frozen") || 0;
-  return `Codex peers: ${peers.length} | working ${active} | waiting ${waiting} | frozen ${frozen}`;
+  return `Codex peers: ${peers.length} | working ${active} | waiting ${waiting} | cleanup ${cleanup} | frozen ${frozen}`;
 }
 
 function spawnRunner(args: {

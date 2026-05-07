@@ -21,7 +21,7 @@ export async function runPeer(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   mkdirSync(dirname(args.logPath), { recursive: true });
   const log = createWriteStream(args.logPath, { flags: "a" });
-  const prompt = wrapPrompt(readFileSync(args.promptFile, "utf8"), args.repo, Boolean(args.resumeThread));
+  const prompt = wrapPrompt(readFileSync(args.promptFile, "utf8"), args.repo, args.targetBranch, Boolean(args.resumeThread));
   const codexArgs = buildCodexArgs(args);
 
   append(log, `[codex-peers] starting: codex ${codexArgs.join(" ")}\n`);
@@ -204,15 +204,16 @@ function buildCodexArgs(args: RunnerArgs): string[] {
   return codexArgs;
 }
 
-function wrapPrompt(prompt: string, repo: string, isResume: boolean): string {
+function wrapPrompt(prompt: string, repo: string, targetBranch: string | undefined, isResume: boolean): string {
   const header = isResume ? "Continue the existing Codex peer task." : "You are a supervised Codex peer worker.";
+  const branch = targetBranch ? `origin/${targetBranch}` : "the target branch";
   return `${header}
 
 Repository: ${repo}
 
 Operational contract:
 - Work only on the requested task unless the orchestrator explicitly broadens scope.
-- You are running in an isolated linked worktree. Do not push, merge main, or switch branches; the peer supervisor integrates successful work into origin/main.
+- You are running in an isolated linked worktree. Do not push, merge ${branch}, or switch branches; the peer supervisor integrates successful work into ${branch}.
 - If you need input from the orchestrator and cannot proceed, make your final answer start with:
   CODEX_PEERS_STATUS: WAITING
   QUESTION: <one concise question>

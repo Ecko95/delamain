@@ -47,13 +47,14 @@ export function gitRoot(repo: string): string | undefined {
   return result.status === 0 && root ? root : undefined;
 }
 
-export function createPeerWorktree(repo: string, peerId: string, baseBranch = "main"): CreatedPeerWorktree {
+export function createPeerWorktree(repo: string, peerId: string, targetBranch?: string): CreatedPeerWorktree {
   const sourceRepo = gitRoot(repo);
   if (!sourceRepo) {
     throw new Error(`Cannot spawn isolated peer: ${repo} is not inside a git repository.`);
   }
 
   ensureOrigin(sourceRepo);
+  const baseBranch = resolveBaseBranch(sourceRepo, targetBranch);
   fetchOriginBranch(sourceRepo, baseBranch);
 
   const baseRef = hasRef(sourceRepo, `refs/remotes/origin/${baseBranch}`) ? `origin/${baseBranch}` : baseBranch;
@@ -104,6 +105,32 @@ export function integratePeerWorktree(repo: string, peerId: string, baseBranch =
     committed,
     pushed: true,
   };
+}
+
+export function resolveBaseBranch(repo: string, targetBranch?: string): string {
+  if (targetBranch?.trim()) {
+    return validateBranchName(targetBranch.trim(), "target branch");
+  }
+
+  const remoteDefault = remoteDefaultBranch(repo);
+  if (remoteDefault) {
+    return remoteDefault;
+  }
+
+  const upstream = upstreamBranch(repo);
+  if (upstream) {
+    return upstream;
+  }
+
+  for (const candidate of ["main", "master"]) {
+    if (remoteHasBranch(repo, candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    "Cannot resolve peer base branch: origin HEAD is unavailable and neither origin/main nor origin/master exists. Pass an explicit target branch.",
+  );
 }
 
 export function gitWorktreeInfo(repo: string): GitWorktreeInfo {
@@ -188,6 +215,36 @@ function fetchOriginBranch(repo: string, baseBranch: string): void {
   runGit(repo, ["fetch", "origin", baseBranch]);
 }
 
+function remoteDefaultBranch(repo: string): string | undefined {
+  const result = runGit(repo, ["ls-remote", "--symref", "origin", "HEAD"], { allowFailure: true });
+  if (result.status !== 0) {
+    return undefined;
+  }
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const match = line.match(/^ref:\s+refs\/heads\/(.+)\s+HEAD$/);
+    if (match?.[1]) {
+      return validateBranchName(match[1], "origin default branch");
+    }
+  }
+  return undefined;
+}
+
+function upstreamBranch(repo: string): string | undefined {
+  const result = runGit(repo, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], { allowFailure: true });
+  if (result.status !== 0) {
+    return undefined;
+  }
+  const upstream = result.stdout.trim();
+  if (!upstream.startsWith("origin/")) {
+    return undefined;
+  }
+  return validateBranchName(upstream.slice("origin/".length), "upstream branch");
+}
+
+function remoteHasBranch(repo: string, branch: string): boolean {
+  return runGit(repo, ["ls-remote", "--exit-code", "--heads", "origin", branch], { allowFailure: true }).status === 0;
+}
+
 function aheadCount(repo: string, baseRef: string, headRef: string): number {
   const result = runGit(repo, ["rev-list", "--count", `${baseRef}..${headRef}`]);
   return Number(result.stdout.trim()) || 0;
@@ -201,6 +258,14 @@ function repoKey(repo: string): string {
   const name = basename(repo).replace(/[^a-zA-Z0-9._-]/g, "-") || "repo";
   const hash = createHash("sha1").update(resolve(repo)).digest("hex").slice(0, 12);
   return `${name}-${hash}`;
+}
+
+function validateBranchName(branch: string, label: string): string {
+  const result = runGit(process.cwd(), ["check-ref-format", "--branch", branch], { allowFailure: true });
+  if (result.status !== 0 || branch.startsWith("-")) {
+    throw new Error(`Invalid ${label}: ${branch}`);
+  }
+  return branch;
 }
 
 type GitCommandResult = {

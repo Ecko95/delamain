@@ -14,6 +14,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
         repo,
         prompt,
         name: flagString(args, "name"),
+        targetBranch: flagString(args, "target-branch"),
         model: flagString(args, "model"),
         sandbox: flagString(args, "sandbox") as "read-only" | "workspace-write" | "danger-full-access" | undefined,
         yolo: bypassEnabled(args),
@@ -105,8 +106,9 @@ function printHelp(): void {
 Commands:
   server                         Start the MCP server over stdio
   dashboard                      Run the live terminal dashboard
+  --d, -d                        Run the live terminal dashboard
   tmux-status                    Print one tmux status-line summary
-  spawn --repo <git-repo> --prompt <task> [--yolo]
+  spawn --repo <git-repo> --prompt <task> [--target-branch <branch>] [--yolo]
   resume <peer-id> --prompt <message> [--yolo]
   list
   status <peer-id>
@@ -124,9 +126,9 @@ Aliases:
   --dangerously-bypass-approvals-and-sandbox
 
 Spawn behavior:
-  New peers require a Git repository with origin/main. Each peer runs on a
+  New peers require a Git repository with origin. Each peer runs on a
   codex-peer/<id> branch in a linked worktree under CODEX_PEERS_HOME, then
-  successful work is committed if needed, merged with origin/main, and pushed
-  to origin/main.
+  successful work is committed if needed, merged with the origin default branch
+  or --target-branch, and pushed back to that branch.
 `);
 }

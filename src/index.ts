@@ -7,6 +7,10 @@ import { runCliCommand } from "./cli.js";
 async function main(): Promise<void> {
   const [command = "help", ...args] = process.argv.slice(2);
   switch (command) {
+    case "--d":
+    case "-d":
+      startDashboard();
+      return;
     case "server":
       await startMcpServer();
       return;

@@ -12,7 +12,8 @@
     "dev": "tsx src/index.ts",
     "server": "node dist/index.js server",
     "dashboard": "node dist/index.js dashboard",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test tests/*.test.mjs"
   },
   "keywords": [
     "codex",

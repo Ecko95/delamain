@@ -53,6 +53,7 @@ export type SpawnPeerOptions = {
   repo: string;
   prompt: string;
   name?: string;
+  targetBranch?: string;
   model?: string;
   sandbox?: "read-only" | "workspace-write" | "danger-full-access";
   yolo?: boolean;
