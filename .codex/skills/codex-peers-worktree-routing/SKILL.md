@@ -1,11 +1,13 @@
 ---
 name: codex-peers-worktree-routing
-description: Prompt the orchestrator before spawning codex-peers with an explicit peer task, worktree start ref, and origin merge branch; use when a user wants codex-peers to start from a chosen branch/ref/worktree and merge to a chosen origin branch.
+description: Prompt the orchestrator before spawning codex-peers with an explicit peer task, planned handoff file, worktree start ref, and origin merge branch; use when a user wants codex-peers to start from a chosen branch/ref/worktree and merge to a chosen origin branch.
 ---
 
 # Codex Peers Worktree Routing
 
-Use this skill before calling the `codex-peers` MCP tools when the peer's start point or merge target matters.
+Use this skill before calling the `codex-peers` MCP tools when the peer's start point, merge target, or handoff quality matters.
+
+Every peer handoff must be planned and written in advance inside the target repo's `.codex/peer-handoffs/` directory before spawning the peer. The handoff file is the source of truth for the peer prompt.
 
 ## Required Questions
 
@@ -20,14 +22,63 @@ Before spawning, collect these values from the orchestrator unless they were alr
    - Default to the same origin default branch, `main`, or `master`.
    - Store this as a bare branch name such as `main` or `release`, not `origin/main`.
 
+## Handoff File Gate
+
+Before confirmation and before spawning:
+
+1. Create the target repo directory `.codex/peer-handoffs/` if it does not exist.
+2. Write a handoff file named `<YYYYMMDD-HHMM>-<short-slug>.md`.
+3. Keep the file in the target repo, not in the orchestrator's unrelated checkout.
+4. Do not spawn until the handoff exists on disk and has been reviewed by the orchestrator.
+
+Use this structure:
+
+```markdown
+# Codex Peer Handoff: <short title>
+
+## Routing
+
+- Repo: <absolute repo path>
+- Start worktree from: <start_ref>
+- Merge successful changes to: origin/<merge_branch>
+
+## Task
+
+<clear task statement>
+
+## Context
+
+<relevant code paths, docs, prior decisions, constraints>
+
+## Instructions
+
+- Work only on the task described here.
+- Do not push, merge, or switch branches; codex-peers handles integration.
+- Ask the orchestrator if blocked or if scope needs to change.
+
+## Acceptance Criteria
+
+- <observable outcome 1>
+- <observable outcome 2>
+
+## Verification
+
+- <commands, checks, or manual validation expected>
+
+## Report Back
+
+Summarize files changed, verification performed, and any residual risk.
+```
+
 ## Confirmation Gate
 
-After the answers are collected, always confirm with the orchestrator before spawning:
+After the answers are collected and the handoff file is written, always confirm with the orchestrator before spawning:
 
 ```text
 Confirm codex-peer spawn:
 - Repo: <repo>
-- Peer task: <one-line task summary>
+- Handoff: <repo>/.codex/peer-handoffs/<file>.md
+- Peer task: <one-line task summary from handoff>
 - Start worktree from: <start_ref>
 - Merge successful changes to: origin/<merge_branch>
 - Wait mode: <spawn_peer or spawn_peer_and_wait>
@@ -35,19 +86,21 @@ Confirm codex-peer spawn:
 Proceed?
 ```
 
-Do not call `spawn_peer` or `spawn_peer_and_wait` until the orchestrator confirms.
+Do not call `spawn_peer` or `spawn_peer_and_wait` until the handoff file exists and the orchestrator confirms.
 
 ## Tool Mapping
 
-When confirmed, call codex-peers with separate routing fields:
+When confirmed, call codex-peers with separate routing fields. Set `prompt` to the full handoff content, optionally prefixed with the handoff path for traceability:
 
 ```json
 {
   "repo": "<repo>",
-  "prompt": "<peer task>",
+  "prompt": "Handoff file: <repo>/.codex/peer-handoffs/<file>.md\n\n<full handoff content>",
   "start_ref": "<start_ref>",
   "merge_branch": "<merge_branch>"
 }
 ```
+
+Do not rely on the peer reading the handoff from the worktree unless that file is already committed into the selected `start_ref`; always send the handoff content in `prompt`.
 
 Use `target_branch` only for backwards-compatible requests where the start branch and merge branch are intentionally the same and the user did not choose the newer split fields.
