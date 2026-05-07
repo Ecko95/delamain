@@ -43,6 +43,19 @@ Run the dashboard in another Warp window or tmux pane:
 node /absolute/path/to/codex-mcp-peers-server/dist/index.js dashboard
 ```
 
+The dashboard path uses OpenTUI and currently requires Bun. The rest of the
+package remains Node-compatible: MCP server, peer CLI commands, tmux status,
+logs, and worktree integration still run through Node. Bun is required only for
+`codex-peers dashboard`, `codex-peers --d`, and `codex-peers -d` because
+`@opentui/core@0.2.4` does not load under Node ESM in this package; Node fails
+while importing OpenTUI's bundled `.scm` assets.
+
+Install Bun before running the dashboard:
+
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+
 If installed globally or linked:
 
 ```bash
@@ -57,10 +70,14 @@ codex-peers --d
 
 Dashboard keys:
 
-- `↑`/`↓` or `j`: select a peer
-- `Enter`: expand/collapse the selected peer
-- `k`: kill by row number or peer id prefix
+- `tab`/`shift+tab`: focus panes
+- `j/k` or arrow keys: select peers
+- `Enter` or space: expand/collapse the selected peer details
+- `pageup`/`pagedown`: scroll logs
 - `r`: refresh
+- `x`: open `Kill selected peer?` confirmation
+- `Enter`: confirm kill while in kill confirmation
+- `Escape`: cancel modes
 - `q`: quit
 
 Dashboard status notes:
@@ -68,12 +85,13 @@ Dashboard status notes:
 - `done`: peer exited successfully but did not push new commits
 - `cleanup`: peer exited successfully, merged/pushed to the target origin branch, and its linked worktree is now only pending cleanup
 
-The dashboard `REPO` column shows the source project path, such as
+The dashboard `Peers` pane shows the source project path, such as
 `lovable/isomer`, instead of the generated linked worktree directory. Expand a
 peer to see the full source path, worktree path, target branch, task, log path,
-integration status, latest question, last event, and recent log lines.
+integration status, latest question, last event, and recent log lines in
+bordered OpenTUI panes.
 
-The `WT` column shows whether a peer is running in the main checkout, a linked
+The peer list shows whether a peer is running in the main checkout, a linked
 worktree, or an unknown/non-git directory. Active peers that share the same
 checkout are marked `shared`; active peers on the same branch across multiple
 worktrees are marked `branch`.

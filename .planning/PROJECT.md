@@ -20,9 +20,9 @@ Run multiple Codex peer jobs safely and visibly without losing track of which re
 
 ### Active
 
-- [ ] Improve the dashboard into a full dynamic TUI suitable for supervising many peers.
-- [ ] Preserve peer safety and process controls while improving layout and interaction.
-- [ ] Prefer proven TUI libraries over hand-rolled terminal rendering where they materially reduce complexity.
+- [x] Improve the dashboard into a full dynamic TUI suitable for supervising many peers.
+- [x] Preserve peer safety and process controls while improving layout and interaction.
+- [x] Prefer proven TUI libraries over hand-rolled terminal rendering where they materially reduce complexity.
 
 ### Out of Scope
 
@@ -32,11 +32,11 @@ Run multiple Codex peer jobs safely and visibly without losing track of which re
 
 ## Context
 
-The codebase is TypeScript/Node ESM. Current dashboard rendering is hand-written ANSI output in `src/dashboard.ts`; it now supports selection, inline expansion, project labels, and status coloring, but it is still a custom table renderer. The next dashboard step should evaluate mature TUI frameworks before committing to a rewrite.
+The codebase is TypeScript/Node ESM for MCP/server/non-dashboard CLI behavior. Dashboard commands launch a Bun-backed OpenTUI runtime because `@opentui/core@0.2.4` fails under Node ESM while importing bundled `.scm` assets. The dashboard rendering is split into a Node wrapper, pure model/keybinding modules, and a Bun-only OpenTUI pane renderer.
 
 ## Constraints
 
-- **Runtime:** Node.js >=20 ESM package.
+- **Runtime:** Node.js >=20 ESM package, with Bun required only for OpenTUI dashboard commands.
 - **Distribution:** `codex-peers` bin should work globally via npm link/install and from any current directory.
 - **Safety:** Peer worktrees, process killing, logs, and branch integration must remain inspectable.
 - **Terminal UX:** Layout must remain usable in tmux/Warp and degrade cleanly on smaller terminal sizes.
@@ -48,6 +48,7 @@ The codebase is TypeScript/Node ESM. Current dashboard rendering is hand-written
 | Linked worktrees for peers | Keeps concurrent peer edits isolated from the source checkout | Good |
 | Target branch detection plus override | Avoids hardcoded `origin/main` failures | Good |
 | Source repo labels in dashboard | Generated worktree paths are not useful for supervision | Good |
+| Bun-backed OpenTUI dashboard path | Keeps OpenTUI despite Node `.scm` import failure while preserving Node for MCP/server CLI behavior | Accepted |
 
 ---
 *Last updated: 2026-05-07 after repo-local GSD initialization*

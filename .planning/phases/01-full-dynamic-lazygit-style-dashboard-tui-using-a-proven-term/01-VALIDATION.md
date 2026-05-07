@@ -1,9 +1,9 @@
 ---
 phase: 01
 slug: full-dynamic-lazygit-style-dashboard-tui-using-a-proven-term
-status: draft
+status: complete
 nyquist_compliant: true
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-05-07
 ---
 
@@ -32,18 +32,18 @@ created: 2026-05-07
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 01-01-01 | 01 | 1 | DASH-05 | T-01-01 | No dependency/runtime change is accepted without a recorded compatibility result | typecheck/smoke | `npm run check` plus documented OpenTUI smoke command | pending | pending |
-| 01-01-02 | 01 | 1 | DASH-05 | T-01-02 | Dashboard exits restore terminal state | typecheck/smoke | `npm run check` | pending | pending |
-| 01-02-01 | 02 | 2 | DASH-04 | T-02-01 | Peer actions still call existing peer manager APIs | unit/typecheck | `npm run check` | pending | pending |
-| 01-02-02 | 02 | 2 | DASH-04 | T-02-02 | Log reads remain bounded and file-based | unit/typecheck | `npm run check` | pending | pending |
-| 01-03-01 | 03 | 3 | DASH-04 | T-03-01 | Kill action requires explicit key command and target confirmation | unit/manual | `npm test` | pending | pending |
-| 01-03-02 | 03 | 3 | DASH-04, DASH-05 | T-03-02 | CLI smoke proves dashboard command starts in a TTY and exits cleanly | smoke/manual | `npm test` plus manual TTY check | pending | pending |
+| 01-01-01 | 01 | 1 | DASH-05 | T-01-01 | No dependency/runtime change is accepted without a recorded compatibility result | typecheck/smoke | `npm run check` plus documented OpenTUI smoke command | yes | complete |
+| 01-01-02 | 01 | 1 | DASH-05 | T-01-02 | Dashboard exits restore terminal state | typecheck/smoke | `npm run check` | yes | complete |
+| 01-02-01 | 02 | 2 | DASH-04 | T-02-01 | Peer actions still call existing peer manager APIs | unit/typecheck | `npm run check` | yes | complete |
+| 01-02-02 | 02 | 2 | DASH-04 | T-02-02 | Log reads remain bounded and file-based | unit/typecheck | `npm run check` | yes | complete |
+| 01-03-01 | 03 | 3 | DASH-04 | T-03-01 | Kill action requires explicit key command and target confirmation | unit/manual | `npm test` | yes | complete |
+| 01-03-02 | 03 | 3 | DASH-04, DASH-05 | T-03-02 | CLI smoke proves dashboard command starts in a TTY and exits cleanly | smoke/manual | `npm test` plus Bun dashboard smoke | yes | complete |
 
 ## Wave 0 Requirements
 
-- [ ] `tests/dashboard.test.mjs` exists and covers pure dashboard view-model helpers.
-- [ ] `npm run check` remains available and green.
-- [ ] `npm test` remains available and green.
+- [x] `tests/dashboard.test.mjs` exists and covers pure dashboard view-model helpers.
+- [x] `npm run check` remains available and green.
+- [x] `npm test` remains available and green.
 
 ## Manual-Only Verifications
 

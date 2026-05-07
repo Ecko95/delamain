@@ -22,8 +22,8 @@
 - [x] **DASH-01**: User can view live peer status in a terminal dashboard.
 - [x] **DASH-02**: Dashboard shows meaningful source repo labels instead of generated worktree ids.
 - [x] **DASH-03**: Dashboard can expand a peer to show detail and recent log context.
-- [ ] **DASH-04**: Dashboard provides a full dynamic lazygit-style grid UI with bordered panes, color, keyboard navigation, and responsive layout.
-- [ ] **DASH-05**: Dashboard implementation uses a proven TUI library unless evaluation shows the dependency is unsuitable.
+- [x] **DASH-04**: Dashboard provides a full dynamic lazygit-style grid UI with bordered panes, color, keyboard navigation, and responsive layout.
+- [x] **DASH-05**: Dashboard implementation uses a proven TUI library unless evaluation shows the dependency is unsuitable.
 
 ## v2 Requirements
 
@@ -53,8 +53,8 @@
 | DASH-01 | Existing | Complete |
 | DASH-02 | Existing | Complete |
 | DASH-03 | Existing | Complete |
-| DASH-04 | Phase 1 | Pending |
-| DASH-05 | Phase 1 | Pending |
+| DASH-04 | Phase 1 | Complete |
+| DASH-05 | Phase 1 | Complete |
 
 **Coverage:**
 - v1 requirements: 11 total

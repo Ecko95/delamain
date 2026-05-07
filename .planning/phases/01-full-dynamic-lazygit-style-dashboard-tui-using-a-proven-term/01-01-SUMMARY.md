@@ -1,7 +1,7 @@
 ---
 phase: 01-full-dynamic-lazygit-style-dashboard-tui-using-a-proven-term
 plan: 01
-status: blocked
+status: complete
 completed: 2026-05-07
 ---
 
@@ -12,11 +12,11 @@ completed: 2026-05-07
 - `npm view @opentui/core version --json` returned `"0.2.4"`.
 - Installed `@opentui/core` at exact version `0.2.4`.
 - `package.json` keeps `"node": ">=20"`.
-- Production dashboard code in `src/dashboard.ts` was not migrated.
+- Production dashboard code now keeps the Node CLI wrapper in `src/dashboard.ts` and launches a Bun-backed OpenTUI entrypoint for dashboard commands.
 
 ## OpenTUI Compatibility Result
 
-OpenTUI compatibility result: OpenTUI friction unacceptable.
+OpenTUI compatibility result: Proceed with OpenTUI through a Bun-backed dashboard runtime.
 
 Direct package import command:
 
@@ -55,13 +55,25 @@ node --input-type=module -e "const m = await import('@opentui/core/renderables/c
 
 Each subpath check failed with `ERR_PACKAGE_PATH_NOT_EXPORTED`, because `@opentui/core@0.2.4` only exports the package root plus testing/runtime-plugin entries.
 
+## Bun Runtime Decision
+
+The orchestrator selected a Bun-backed dashboard runtime rather than the `blessed-contrib` fallback. The package remains a Node >=20 ESM CLI for MCP/server/non-dashboard behavior. Only `codex-peers dashboard`, `codex-peers --d`, and `codex-peers -d` require Bun.
+
+Bun proof command:
+
+```bash
+bun --eval "const m = await import('@opentui/core'); console.log(typeof m.createCliRenderer, typeof m.Box, typeof m.Text, typeof m.ScrollBox)"
+```
+
+Result: passed with Bun 1.3.11.
+
 ## Outcome
 
-Do not continue to Plans 01-02 or 01-03 under the current Node CLI runtime. The recorded blocker matches the fallback policy: reconsider `blessed-contrib` or make an explicit runtime/distribution decision for a Bun-backed dashboard path before replacing `src/dashboard.ts`.
+Proceed with OpenTUI using the Bun-backed dashboard runtime. Node remains the main package runtime for MCP/server/CLI behavior, and dashboard commands fail with an actionable Bun installation message if Bun is missing.
 
 ## Verification
 
 - `npm run check`: passed.
 - `npm run build`: passed.
-- `npm test`: passed, 5 tests.
-- Manual TTY smoke: not run because OpenTUI fails during Node module import before TTY rendering begins.
+- `npm test`: passed.
+- `CODEX_PEERS_DASHBOARD_SMOKE=1 node dist/index.js --d`: passed with Bun and exited cleanly.

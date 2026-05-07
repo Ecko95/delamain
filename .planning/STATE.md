@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: blocked
-stopped_at: Phase 01 Wave 1 OpenTUI Node runtime proof failed
-last_updated: "2026-05-07T17:21:26+02:00"
-last_activity: 2026-05-07 -- OpenTUI runtime proof failed under Node before renderer creation
+status: complete
+stopped_at: Phase 01 complete
+last_updated: "2026-05-07T17:44:52+02:00"
+last_activity: 2026-05-07 -- Phase 01 completed with Bun-backed OpenTUI dashboard runtime
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 0
-  percent: 0
+  completed_plans: 3
+  percent: 100
 ---
 
 # Project State
@@ -26,17 +26,17 @@ See: .planning/PROJECT.md (updated 2026-05-07)
 ## Current Position
 
 Phase: 1 of 1 (Dashboard TUI upgrade)
-Plan: 01-01 blocked
-Status: Blocked on OpenTUI Node runtime compatibility
-Last activity: 2026-05-07 -- OpenTUI runtime proof failed under Node before renderer creation
+Plan: 01-03 complete
+Status: Complete
+Last activity: 2026-05-07 -- Phase 01 completed with Bun-backed OpenTUI dashboard runtime
 
-Progress: [----------] 0%
+Progress: [##########] 100%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
+- Total plans completed: 3
 - Average duration: n/a
 - Total execution time: 0 hours
 
@@ -44,7 +44,7 @@ Progress: [----------] 0%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 1 | 3 | 3 | n/a |
 
 ## Accumulated Context
 
@@ -54,15 +54,18 @@ Decisions are logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
 
-None yet.
+- OpenTUI remains the dashboard TUI library.
+- The dashboard command path uses Bun because `@opentui/core@0.2.4` fails under Node ESM while loading bundled `.scm` assets.
+- MCP/server/non-dashboard CLI behavior remains Node-based.
 
 ### Blockers/Concerns
 
-- Phase 1 Wave 1: `@opentui/core@0.2.4` fails during Node ESM import with `ERR_UNKNOWN_FILE_EXTENSION` for `node_modules/@opentui/core/assets/javascript/highlights.scm`. OpenTUI package subpaths for renderer/renderables are not exported, so the dashboard migration is stopped before Plans 01-02 and 01-03 per fallback policy.
+None.
 
 ### Roadmap Evolution
 
 - Phase 1 added: Full dynamic lazygit-style dashboard TUI using a proven terminal UI library.
+- Phase 1 completed with a Bun-backed OpenTUI dashboard runtime and Node-compatible MCP/server CLI path.
 
 ## Deferred Items
 
@@ -73,5 +76,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-05-07
-Stopped at: Phase 01 planned and ready to execute 01-01
+Stopped at: Phase 01 complete
 Resume file: None

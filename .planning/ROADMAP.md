@@ -10,7 +10,7 @@ The current milestone focuses on improving Codex peer supervision from a functio
 - Integer phases are planned milestone work.
 - Decimal phases are urgent insertions between existing phases.
 
-- [ ] **Phase 1: Full dynamic lazygit-style dashboard TUI** - Replace the custom ANSI table with a polished lazygit-style dashboard built on a proven TUI library.
+- [x] **Phase 1: Full dynamic lazygit-style dashboard TUI** - Replace the custom ANSI table with a polished lazygit-style dashboard built on a proven TUI library.
 
 ## Phase Details
 
@@ -25,23 +25,23 @@ The current milestone focuses on improving Codex peer supervision from a functio
   3. Keyboard navigation supports moving focus, expanding details, scrolling logs, refreshing, killing peers, and quitting without layout glitches.
   4. Implementation uses a vetted TUI library or records a clear rationale if a small custom layer remains necessary.
   5. Existing MCP, CLI, process supervision, worktree safety, and branch integration behavior continue to pass tests.
-**Plans:** 0/3 plans executed; Wave 1 runtime proof blocked OpenTUI migration under the current Node CLI runtime.
+**Plans:** 3/3 plans executed. OpenTUI dashboard uses a Bun-backed runtime while Node remains supported for MCP/server/non-dashboard CLI behavior.
 
 Plans:
 **Wave 1**
-- [ ] 01-01-PLAN.md — Prove and record the OpenTUI runtime/dependency path before migrating the dashboard. Blocked: `@opentui/core@0.2.4` fails during Node import before renderer creation.
+- [x] 01-01-PLAN.md — Prove and record the OpenTUI runtime/dependency path before migrating the dashboard. Decision: use Bun for the OpenTUI dashboard path because Node import fails on OpenTUI `.scm` assets.
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 01-02-PLAN.md — Migrate the current hand-rendered ANSI dashboard into an OpenTUI pane architecture while preserving existing peer data semantics.
+- [x] 01-02-PLAN.md — Migrate the current hand-rendered ANSI dashboard into an OpenTUI pane architecture while preserving existing peer data semantics.
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 01-03-PLAN.md — Complete dashboard interactions, smoke checks, and user-facing key documentation.
+- [x] 01-03-PLAN.md — Complete dashboard interactions, smoke checks, and user-facing key documentation.
 
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Full dynamic lazygit-style dashboard TUI | 0/3 | Blocked on OpenTUI Node import |  |
+| 1. Full dynamic lazygit-style dashboard TUI | 3/3 | Complete | 2026-05-07 |
 
 ---
 *Created: 2026-05-07*
