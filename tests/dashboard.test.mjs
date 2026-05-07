@@ -46,7 +46,7 @@ test("createDashboardViewModel clamps selected index when peers disappear", () =
 
 test("createDashboardViewModel includes integration detail and bounded logLines", () => {
   const view = createDashboardViewModel([
-    peer({ id: "done1", status: "done", integrationStatus: "pushed" }),
+    peer({ id: "done1", status: "done", integrationStatus: "pushed", model: "gpt-5.4" }),
   ], {}, {
     logLimit: 80,
     logProvider: () => Array.from({ length: 100 }, (_, index) => `line-${index}`).join("\n"),
@@ -55,6 +55,10 @@ test("createDashboardViewModel includes integration detail and bounded logLines"
   assert.deepEqual(view.details.find((row) => row.label === "integration"), {
     label: "integration",
     value: "pushed",
+  });
+  assert.deepEqual(view.details.find((row) => row.label === "model"), {
+    label: "model",
+    value: "gpt-5.4",
   });
   assert.equal(view.logLines.length, 80);
 });

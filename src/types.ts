@@ -23,6 +23,7 @@ export type PeerRecord = {
   gitDir?: string;
   gitCommonDir?: string;
   isLinkedWorktree?: boolean;
+  model?: string;
   task: string;
   status: PeerStatus;
   runnerPid?: number;

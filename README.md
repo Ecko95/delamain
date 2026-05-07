@@ -129,6 +129,16 @@ Manual spawn:
 codex-peers spawn --repo /path/to/repo --prompt "Review the auth routes and report risks."
 ```
 
+Choose a Codex model for a peer from the CLI or MCP tool call:
+
+```bash
+codex-peers spawn --repo /path/to/repo --prompt "Fix the failing test." --model gpt-5.4
+```
+
+The MCP `spawn_peer`, `spawn_peer_and_wait`, and `send_peer_reply` tools also
+accept `model`. The selected model is stored on the peer record and shown in
+the dashboard Details pane.
+
 The repo must be a Git repository with `origin`. By default, codex-peers bases
 the worktree on the origin default branch. Pass `--target-branch <branch>` to
 force a specific origin branch. Each new peer runs on a fresh `codex-peer/<id>`

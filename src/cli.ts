@@ -108,8 +108,8 @@ Commands:
   dashboard                      Run the live terminal dashboard
   --d, -d                        Run the live terminal dashboard
   tmux-status                    Print one tmux status-line summary
-  spawn --repo <git-repo> --prompt <task> [--target-branch <branch>] [--yolo]
-  resume <peer-id> --prompt <message> [--yolo]
+  spawn --repo <git-repo> --prompt <task> [--target-branch <branch>] [--model <codex-model>] [--yolo]
+  resume <peer-id> --prompt <message> [--model <codex-model>] [--yolo]
   list
   status <peer-id>
   log <peer-id> [lines]

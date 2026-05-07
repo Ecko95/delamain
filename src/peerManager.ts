@@ -47,6 +47,7 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
     gitDir: worktree.gitDir,
     gitCommonDir: worktree.gitCommonDir,
     isLinkedWorktree: worktree.isLinkedWorktree,
+    model: options.model,
     task: firstLine(options.prompt),
     status: "starting",
     integrationStatus: "pending",
@@ -119,6 +120,7 @@ export function resumePeer(options: ResumePeerOptions): PeerRecord {
   const updated = updatePeer(peer.id, (current) => ({
     ...current,
     status: "starting",
+    model: options.model || current.model,
     runnerPid: runner.pid,
     codexPid: undefined,
     question: undefined,

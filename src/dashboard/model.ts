@@ -397,6 +397,9 @@ function knightRiderPosition(frame: number, width: number): number {
 
 function detailRows(peer: PeerRecord): DashboardDetailRow[] {
   const rows: DashboardDetailRow[] = [
+    { label: "id", value: peer.id },
+    { label: "status", value: dashboardStatus(peer) },
+    { label: "model", value: peer.model || "default" },
     { label: "project", value: projectLabel(peer) },
     { label: "source", value: valueOrDash(peer.sourceRepo) },
     { label: "worktree", value: valueOrDash(peer.worktreePath || peer.repo) },

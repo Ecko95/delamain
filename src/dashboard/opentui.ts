@@ -327,15 +327,12 @@ function peerPane(view: DashboardViewModel, state: RuntimeState, narrow: boolean
 }
 
 function detailsPane(view: DashboardViewModel, narrow: boolean) {
-  const rows = view.details.length > 0
-    ? view.details.map((row) => `${row.label}: ${truncate(row.value, narrow ? 96 : 120)}`).join("\n")
-    : "No peer selected";
   return Box(
     paneProps("Details", view.focusPane === "details", {
       height: narrow ? 6 : 12,
       flexShrink: 0,
     }),
-    Text({ content: rows }),
+    Text({ content: detailsContent(view, narrow) }),
   );
 }
 
@@ -387,6 +384,40 @@ function truncateStyled(chunks: TextChunk[], max: number): StyledText {
     remaining = 0;
   }
   return styledText(...result);
+}
+
+function detailsContent(view: DashboardViewModel, narrow: boolean): StyledText {
+  if (view.details.length === 0) {
+    return styledText(dimText("No peer selected"));
+  }
+  const chunks: TextChunk[] = [];
+  const labelWidth = view.details.reduce((width, row) => Math.max(width, row.label.length), 0);
+  view.details.forEach((row, index) => {
+    const value = truncate(row.value, narrow ? 96 : 120);
+    chunks.push(dimText(row.label.padStart(labelWidth)));
+    chunks.push(dimText("  "));
+    chunks.push(...detailValueChunks(row.label, value));
+    if (index < view.details.length - 1) {
+      chunks.push(...plainChunks("\n"));
+    }
+  });
+  return styledText(...chunks);
+}
+
+function detailValueChunks(label: string, value: string): TextChunk[] {
+  if (label === "status") {
+    return [textColor(statusColor(value as DashboardStatus))(value)];
+  }
+  if (label === "model") {
+    return [textColor("#22d3ee")(value)];
+  }
+  if (label === "question") {
+    return [textColor("#facc15")(value)];
+  }
+  if (label === "integration") {
+    return [textColor(value.startsWith("failed") ? "#f87171" : "#34d399")(value)];
+  }
+  return plainChunks(value);
 }
 
 type PeerDisplayLine = {
