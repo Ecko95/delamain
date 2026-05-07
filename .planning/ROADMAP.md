@@ -25,16 +25,23 @@ The current milestone focuses on improving Codex peer supervision from a functio
   3. Keyboard navigation supports moving focus, expanding details, scrolling logs, refreshing, killing peers, and quitting without layout glitches.
   4. Implementation uses a vetted TUI library or records a clear rationale if a small custom layer remains necessary.
   5. Existing MCP, CLI, process supervision, worktree safety, and branch integration behavior continue to pass tests.
-**Plans:** 0 plans
+**Plans:** 0/3 plans executed
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 1 to break down)
+**Wave 1**
+- [ ] 01-01-PLAN.md — Prove and record the OpenTUI runtime/dependency path before migrating the dashboard.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 01-02-PLAN.md — Migrate the current hand-rendered ANSI dashboard into an OpenTUI pane architecture while preserving existing peer data semantics.
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 01-03-PLAN.md — Complete dashboard interactions, smoke checks, and user-facing key documentation.
 
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Full dynamic lazygit-style dashboard TUI | 0/0 | Not started | - |
+| 1. Full dynamic lazygit-style dashboard TUI | 0/3 | Planned    |  |
 
 ---
 *Created: 2026-05-07*
