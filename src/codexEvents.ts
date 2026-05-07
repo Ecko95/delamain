@@ -18,6 +18,9 @@ const TEXT_KEYS = new Set([
 ]);
 
 export type ParsedCodexEvent = {
+  type?: string;
+  itemType?: string;
+  isAgentMessage?: boolean;
   threadId?: string;
   text?: string;
   label?: string;
@@ -36,17 +39,41 @@ export function parseCodexJsonLine(line: string): ParsedCodexEvent {
   const texts = collectText(parsed);
   const text = texts.join(" ").replace(/\s+/g, " ").trim() || undefined;
   const label = eventLabel(parsed, text);
-  const waitingQuestion = parseWaitingQuestion(`${line}\n${text || ""}`);
+  const type = eventType(parsed);
+  const itemType = eventItemType(parsed);
+  const isAgentMessage = type === "agent_message" || itemType === "agent_message";
+  const waitingQuestion = isAgentMessage ? parseWaitingQuestion(text || line) : undefined;
 
-  return { threadId, text, label, waitingQuestion };
+  return { type, itemType, isAgentMessage, threadId, text, label, waitingQuestion };
 }
 
 function parseText(text: string): ParsedCodexEvent {
   return {
     text,
     label: trim(text, 180),
+    isAgentMessage: true,
     waitingQuestion: parseWaitingQuestion(text),
   };
+}
+
+function eventType(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const type = (value as Record<string, unknown>).type;
+  return typeof type === "string" ? type : undefined;
+}
+
+function eventItemType(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const item = (value as Record<string, unknown>).item;
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    return undefined;
+  }
+  const type = (item as Record<string, unknown>).type;
+  return typeof type === "string" ? type : undefined;
 }
 
 function findThreadId(value: unknown, depth = 0): string | undefined {
