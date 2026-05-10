@@ -6,6 +6,7 @@
 // the gate orchestrator.
 
 import type { ExtractorName } from '../types.js';
+import { extractFileSha256 } from './file-sha256.js';
 
 export type ExtractorResult = {
   sha256?: string;
@@ -17,4 +18,8 @@ export type Extractor = (
   relPath: string,
 ) => Promise<ExtractorResult>;
 
-export const extractors: Partial<Record<ExtractorName, Extractor>> = {};
+export const extractors: Partial<Record<ExtractorName, Extractor>> = {
+  file_sha256_v1: extractFileSha256,
+};
+
+export { extractFileSha256, FrozenGateFileNotFoundError } from './file-sha256.js';
