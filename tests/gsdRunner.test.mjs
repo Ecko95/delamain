@@ -166,25 +166,8 @@ process.exit(0);
   }
 });
 
-test("runGsdPhaseBatch: refuses frozen mode with clear error pointing at plan 33-03", async () => {
-  const { deps, peers } = makeFakeDeps();
-  const initial = {
-    id: "p4",
-    repo: "/tmp/x",
-    task: "t",
-    status: "gsd_pending",
-    startedAt: "t",
-    updatedAt: "t",
-    logPath: "/tmp/p4.log",
-    kind: "gsd_phase_batch",
-    gsdBatch: { planning_mode: "frozen", selected_phases: ["02"], cursor: 0 },
-  };
-  peers.set("p4", initial);
-  await assert.rejects(
-    () => runGsdPhaseBatch(initial, deps),
-    (err) => /frozen.*33-03/.test(err.message),
-  );
-});
+// (Plan 33-02's frozen-mode rejection guard was removed in plan 33-03.
+// Frozen-mode runner coverage now lives in tests/gsdRunnerFrozen.test.mjs.)
 
 test("runGsdPhaseBatch dynamic: cursor mid-batch resumes from cursor (does NOT replay completed phases)", async () => {
   const behaviour = `

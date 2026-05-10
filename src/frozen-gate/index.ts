@@ -2,7 +2,11 @@
 //
 // Public entry point. Consumers import from this file only.
 
-export { gateFrozenPhase } from './gate.js';
+export {
+  gateFrozenPhase,
+  FrozenContractMalformedError,
+  UnknownExtractorError,
+} from './gate.js';
 export type {
   ExtractorName,
   FrozenContract,
