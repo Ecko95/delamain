@@ -63,6 +63,8 @@ export type PeerRecord = {
   question?: string;
   integrationStatus?: PeerIntegrationStatus;
   integrationError?: string;
+  integrationCommitSha?: string;
+  integrationMergeCommitSha?: string;
   // Phase 33 additions:
   kind?: PeerKind; // missing → treat as "generic"
   gsdBatch?: GsdBatchSpawnConfig; // present only when kind === "gsd_phase_batch"

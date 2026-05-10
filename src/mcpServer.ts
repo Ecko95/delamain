@@ -10,6 +10,8 @@ import {
   waitForPeer,
 } from "./peerManager.js";
 import { expandSelectedPhases } from "./gsdPhaseList.js";
+import { inspectGsdMilestone } from "./gsdMilestone.js";
+import { integratePeer, IntegratePeerRefusedError } from "./peerIntegration.js";
 import type { GsdPlanningMode } from "./types.js";
 
 const TOOLS = [
@@ -203,6 +205,42 @@ const TOOLS = [
       required: ["repo_url", "planning_mode", "selected_phases"],
     },
   },
+  {
+    name: "inspect_gsd_milestone",
+    description:
+      "Clone the repo to a temp dir, read .planning/, and return an ordered phase list with per-phase readiness flags (has_context, has_plan, has_frozen_contract, has_verification, has_summary). Read-only; cleans up the temp clone. Use before spawn_gsd_phase_batch to confirm phases are runnable.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo_url: {
+          type: "string",
+          minLength: 1,
+          description: "Absolute or relative local path to a Git repository, or a git URL.",
+        },
+        branch: {
+          type: "string",
+          description: "Optional branch to check out before reading .planning/. Defaults to origin's HEAD.",
+        },
+        milestone_filter: {
+          type: "string",
+          description: "Optional substring; only phase IDs containing this substring are returned.",
+        },
+      },
+      required: ["repo_url"],
+    },
+  },
+  {
+    name: "integrate_peer",
+    description:
+      "Integrate a completed peer: stage tracked-file changes in the peer's worktree, commit, merge --no-ff into the target branch, and push to origin. Refuses peers in running/halted/failed states. Per Hard Constraint 4 this is the explicit-invocation path; no other tool in codex-peers triggers a push.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        peer_id: { type: "string", minLength: 1, description: "Peer id or id prefix." },
+      },
+      required: ["peer_id"],
+    },
+  },
 ];
 
 export async function startMcpServer(): Promise<void> {
@@ -331,6 +369,46 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
         kind: peer.kind,
         gsd_batch: peer.gsdBatch,
       });
+    }
+    case "inspect_gsd_milestone": {
+      const result = await inspectGsdMilestone({
+        repo_url: requiredString(args, "repo_url"),
+        branch: optionalString(args, "branch"),
+        milestone_filter: optionalString(args, "milestone_filter"),
+      });
+      return json(result);
+    }
+    case "integrate_peer": {
+      try {
+        const r = await integratePeer(requiredString(args, "peer_id"));
+        return json({
+          peer_id: r.peer.id,
+          status: r.peer.status,
+          integration: r.outcome,
+        });
+      } catch (err) {
+        if (err instanceof IntegratePeerRefusedError) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  {
+                    refused: true,
+                    peer_id: err.peerId,
+                    status: err.status,
+                    message: err.message,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
+        throw err;
+      }
     }
     default:
       throw new Error(`Unknown tool: ${String(name)}`);
