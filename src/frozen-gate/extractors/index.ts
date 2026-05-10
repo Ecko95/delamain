@@ -7,6 +7,7 @@
 
 import type { ExtractorName } from '../types.js';
 import { extractFileSha256 } from './file-sha256.js';
+import { extractTsExportSurface } from './ts-export-surface.js';
 
 export type ExtractorResult = {
   sha256?: string;
@@ -20,6 +21,13 @@ export type Extractor = (
 
 export const extractors: Partial<Record<ExtractorName, Extractor>> = {
   file_sha256_v1: extractFileSha256,
+  ts_export_surface_v1: extractTsExportSurface,
 };
 
 export { extractFileSha256, FrozenGateFileNotFoundError } from './file-sha256.js';
+export {
+  extractTsExportSurface,
+  type ExportInfo,
+  type ExportKind,
+  type TsExportSurfaceResult,
+} from './ts-export-surface.js';
