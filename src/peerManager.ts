@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFile } from "node:fs/promises";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -9,6 +10,7 @@ import { reconcileFinishedWaitingPeer } from "./lifecycle.js";
 import { promptsDir, runsDir } from "./paths.js";
 import { getPeer, readState, updatePeer, upsertPeer } from "./store.js";
 import { killPid, killProcessGroup, pidAlive } from "./processes.js";
+import { runGsdPhaseBatch } from "./gsdRunner.js";
 import type {
   GsdBatchSpawnConfig,
   PeerRecord,
@@ -251,6 +253,78 @@ export function killPeer(peerId: string, signal: NodeJS.Signals = "SIGTERM"): Pe
     lastEvent: `killed with ${signal}`,
   }));
   return updated || peer;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 33 plan 02 — GSD peer dispatch wiring.
+//
+// `dispatchGsdPeer` picks up a `gsd_pending` peer with kind=gsd_phase_batch
+// and drives it through the dynamic-mode state machine in gsdRunner.ts.
+// The dispatch is fire-and-forget for the caller (MCP tool handler can
+// optionally `await _awaitGsdRunner` for tests / integration verification).
+//
+// Note: `spawnGsdPhaseBatch` deliberately does NOT auto-dispatch in this
+// plan to preserve backwards compatibility with the 33-01 test contract
+// (which asserts that the record returns synchronously as `gsd_pending`).
+// The MCP tool handler in plan 33-04 will call `dispatchGsdPeer` explicitly
+// after `spawnGsdPhaseBatch`. Generic-peer flow (`spawnPeer`) is unchanged.
+// ---------------------------------------------------------------------------
+
+const gsdRunners = new Map<string, Promise<PeerRecord>>();
+
+export function dispatchGsdPeer(
+  peerId: string,
+  opts?: { codexBin?: string },
+): Promise<PeerRecord> {
+  const peer = getPeer(peerId);
+  if (!peer) {
+    throw new Error(`dispatchGsdPeer: unknown peer ${peerId}`);
+  }
+  if (peer.kind !== "gsd_phase_batch") {
+    throw new Error(
+      `dispatchGsdPeer: peer ${peerId} kind=${peer.kind ?? "generic"}; only gsd_phase_batch peers are dispatched here`,
+    );
+  }
+  if (gsdRunners.has(peerId)) {
+    return gsdRunners.get(peerId) as Promise<PeerRecord>;
+  }
+  const promise = runGsdPhaseBatch(
+    peer,
+    {
+      updatePeer: async (id, patch) => applyGsdPatch(id, patch),
+      appendLog: async (p, line) => {
+        try {
+          await appendFile(p.logPath, line, "utf8");
+        } catch {
+          /* log append best-effort */
+        }
+      },
+    },
+    opts,
+  ).catch(async (err: Error) => {
+    return applyGsdPatch(peerId, {
+      status: "gsd_failed",
+      lastEvent: `gsdRunner threw: ${err.message}`,
+      error: err.message,
+      updatedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+    });
+  });
+  gsdRunners.set(peerId, promise);
+  return promise;
+}
+
+function applyGsdPatch(id: string, patch: Partial<PeerRecord>): PeerRecord {
+  const merged = updatePeer(id, (current) => ({ ...current, ...patch }));
+  if (!merged) {
+    throw new Error(`applyGsdPatch: peer ${id} not found`);
+  }
+  return merged;
+}
+
+/** Test-only hook to await a dispatched runner. Not exposed via MCP. */
+export function _awaitGsdRunner(peerId: string): Promise<PeerRecord> | undefined {
+  return gsdRunners.get(peerId);
 }
 
 export function tmuxStatusLine(): string {
