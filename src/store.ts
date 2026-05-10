@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { peersHome, statePath } from "./paths.js";
+import { normalizePeerRecord } from "./types.js";
 import type { PeerRecord, PeerState } from "./types.js";
 
 const EMPTY_STATE: PeerState = {
@@ -22,7 +23,9 @@ export function readState(): PeerState {
     if (parsed.version !== 1 || !Array.isArray(parsed.peers)) {
       return { ...EMPTY_STATE, updatedAt: new Date().toISOString() };
     }
-    return parsed;
+    // Phase 33: normalize records on read so older on-disk state.json files
+    // (which lack `kind`) come back with kind=="generic". Idempotent.
+    return { ...parsed, peers: parsed.peers.map(normalizePeerRecord) };
   } catch {
     return { ...EMPTY_STATE, updatedAt: new Date().toISOString() };
   }

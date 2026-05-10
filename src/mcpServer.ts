@@ -4,10 +4,13 @@ import {
   peerStatus,
   readPeerLog,
   resumePeer,
+  spawnGsdPhaseBatch,
   spawnPeer,
   spawnPeerAndWait,
   waitForPeer,
 } from "./peerManager.js";
+import { expandSelectedPhases } from "./gsdPhaseList.js";
+import type { GsdPlanningMode } from "./types.js";
 
 const TOOLS = [
   {
@@ -170,6 +173,36 @@ const TOOLS = [
       required: ["peer_id"],
     },
   },
+  {
+    name: "spawn_gsd_phase_batch",
+    description:
+      "Spawn a peer that drives /gsd-autonomous (dynamic mode) or /gsd-execute-phase (frozen mode) one phase at a time inside Codex CLI. Phase 33 plan 01 creates the spawn record only; the runner (plans 33-02/03) picks gsd_pending peers off the queue. Does NOT auto-integrate; use integrate_peer for review-then-merge.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo_url: {
+          type: "string",
+          description: "Absolute or relative path to a Git repository with origin, or a git URL.",
+        },
+        planning_mode: {
+          type: "string",
+          enum: ["dynamic", "frozen"],
+          description: "GSD planning mode: dynamic (re-plan per phase via /gsd-autonomous) or frozen (execute frozen plan via /gsd-execute-phase).",
+        },
+        selected_phases: {
+          type: "array",
+          minItems: 1,
+          items: { type: "string", minLength: 1 },
+          description: "Phase IDs (NN-slug or NN.M-slug) and/or from..to ranges. Ranges require a known phase list — pass exact IDs here in plan 33-01.",
+        },
+        branch_name: { type: "string", description: "Optional branch for the runner-provisioned worktree (plan 33-02)." },
+        milestone: { type: "string", description: "Informational milestone tag." },
+        name: { type: "string", description: "Optional display name for the peer." },
+        model: { type: "string", description: "Optional Codex model override for the runner." },
+      },
+      required: ["repo_url", "planning_mode", "selected_phases"],
+    },
+  },
 ];
 
 export async function startMcpServer(): Promise<void> {
@@ -267,6 +300,38 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
       }));
     case "kill_peer":
       return json(killPeer(requiredString(args, "peer_id"), signalValue(args.signal)));
+    case "spawn_gsd_phase_batch": {
+      const repo = requiredString(args, "repo_url");
+      const planningMode = requiredEnum(args, "planning_mode", ["dynamic", "frozen"]) as GsdPlanningMode;
+      const rawSelected = args.selected_phases;
+      if (!Array.isArray(rawSelected) || rawSelected.length === 0) {
+        throw new Error("spawn_gsd_phase_batch: 'selected_phases' must be a non-empty array");
+      }
+      for (const entry of rawSelected) {
+        if (typeof entry !== "string") {
+          throw new Error("spawn_gsd_phase_batch: 'selected_phases' entries must be strings");
+        }
+      }
+      const expanded = expandSelectedPhases(rawSelected as string[]);
+      const peer = spawnGsdPhaseBatch({
+        repo,
+        name: optionalString(args, "name"),
+        branch: optionalString(args, "branch_name") ?? optionalString(args, "branchName"),
+        model: optionalString(args, "model"),
+        gsdBatch: {
+          planning_mode: planningMode,
+          selected_phases: expanded,
+          milestone: optionalString(args, "milestone"),
+          cursor: 0,
+        },
+      });
+      return json({
+        peer_id: peer.id,
+        status: peer.status,
+        kind: peer.kind,
+        gsd_batch: peer.gsdBatch,
+      });
+    }
     default:
       throw new Error(`Unknown tool: ${String(name)}`);
   }
@@ -288,6 +353,14 @@ function requiredString(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   if (typeof value !== "string" || !value.trim()) {
     throw new Error(`Missing required string argument: ${key}`);
+  }
+  return value;
+}
+
+function requiredEnum(args: Record<string, unknown>, key: string, allowed: readonly string[]): string {
+  const value = requiredString(args, key);
+  if (!allowed.includes(value)) {
+    throw new Error(`Invalid value for ${key}: ${value}. Expected one of: ${allowed.join(", ")}`);
   }
   return value;
 }

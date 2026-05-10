@@ -10,6 +10,7 @@ import { promptsDir, runsDir } from "./paths.js";
 import { getPeer, readState, updatePeer, upsertPeer } from "./store.js";
 import { killPid, killProcessGroup, pidAlive } from "./processes.js";
 import type {
+  GsdBatchSpawnConfig,
   PeerRecord,
   ResumePeerOptions,
   SpawnPeerAndWaitOptions,
@@ -87,6 +88,51 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
   }));
 
   return getPeer(id) || peer;
+}
+
+/**
+ * Phase 33: spawn a GSD-mode peer record without launching any process.
+ *
+ * Creates a peer with `kind: "gsd_phase_batch"` and `status: "gsd_pending"`.
+ * The runner (plans 33-02 / 33-03) will pick up `gsd_pending` records and
+ * drive them through the slash-command state machine. This function exists
+ * purely so the schema-level entry point is available now and tests can pin
+ * the contract.
+ *
+ * Unlike `spawnPeer`, no worktree is created here — worktree provisioning
+ * is the runner's responsibility once it picks the peer off the queue.
+ */
+export function spawnGsdPhaseBatch(options: {
+  repo: string;
+  name?: string;
+  branch?: string;
+  model?: string;
+  gsdBatch: GsdBatchSpawnConfig;
+}): PeerRecord {
+  const id = randomUUID().slice(0, 8);
+  const startedAt = new Date().toISOString();
+  const logPath = join(runsDir(), `${startedAt.replace(/[:.]/g, "-")}-${id}.log`);
+  mkdirSync(dirname(logPath), { recursive: true });
+  // Touch the log file so future tailers can open it without race.
+  writeFileSync(logPath, "", "utf8");
+
+  const peer: PeerRecord = {
+    id,
+    name: options.name,
+    repo: resolve(options.repo),
+    branch: options.branch,
+    model: options.model,
+    task: `GSD ${options.gsdBatch.planning_mode} batch: ${options.gsdBatch.selected_phases.join(", ")}`,
+    status: "gsd_pending",
+    startedAt,
+    updatedAt: startedAt,
+    logPath,
+    kind: "gsd_phase_batch",
+    gsdBatch: { ...options.gsdBatch },
+    lastEvent: `gsd peer queued (${options.gsdBatch.planning_mode} mode, ${options.gsdBatch.selected_phases.length} phases)`,
+  };
+  upsertPeer(peer);
+  return peer;
 }
 
 export async function spawnPeerAndWait(options: SpawnPeerAndWaitOptions): Promise<WaitPeerResult> {
@@ -270,6 +316,12 @@ function spawnRunner(args: {
 }
 
 function reconciledPeer(peer: PeerRecord): PeerRecord {
+  // Phase 33: GSD-kind peers have their own state machine (driven by the
+  // runner in plans 33-02/03). They don't carry runnerPid/codexPid during
+  // the schema-only 33-01 step, so skip generic-peer reconciliation entirely.
+  if (peer.kind === "gsd_phase_batch") {
+    return peer;
+  }
   const enriched = reconcileFinishedWaitingPeer(withWorktreeInfo(peer));
   if (!isActive(enriched)) {
     return enriched;

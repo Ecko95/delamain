@@ -73,6 +73,15 @@ const STATUS_COLORS: Record<DashboardStatus, string> = {
   failed: "#f87171",
   frozen: "#c084fc",
   killed: "#fb923c",
+  // Phase 33 — GSD peer state machine colors (palette aligned with generic
+  // states: pending/idle blue, running cyan, halted purple, completed green).
+  gsd_pending: "#818cf8",
+  gsd_running_phase: "#22d3ee",
+  gsd_polling_state: "#60a5fa",
+  gsd_running_gate_check: "#fbbf24",
+  gsd_halted_on_gate_failure: "#c084fc",
+  gsd_completed: "#34d399",
+  gsd_failed: "#f87171",
 };
 const STATIC_ACTIVITY: Record<Exclude<DashboardStatus, "starting" | "working">, string> = {
   waiting: "WAIT",
@@ -82,6 +91,14 @@ const STATIC_ACTIVITY: Record<Exclude<DashboardStatus, "starting" | "working">, 
   failed: "FAIL",
   frozen: "STOP",
   killed: "KILL",
+  // Phase 33 — short 4-char labels for the GSD state machine.
+  gsd_pending: "QUED",
+  gsd_running_phase: "GSDR",
+  gsd_polling_state: "POLL",
+  gsd_running_gate_check: "GATE",
+  gsd_halted_on_gate_failure: "HALT",
+  gsd_completed: "GSDC",
+  gsd_failed: "GFAIL",
 };
 
 export function createDashboardViewModel(
