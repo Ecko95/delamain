@@ -262,6 +262,10 @@ export async function invokeCodexExec(
 ): Promise<CodexExecResult> {
   const args = ["exec", "--cwd", repo, "--json"];
   if (model) args.push("--model", model);
+  args.push("-c", "features.codex_hooks=false");
+  if (model && model !== "gpt-5.5") {
+    args.push("-c", 'model_reasoning_effort="high"');
+  }
   args.push("--");
   if (mode === "dynamic") {
     args.push("/gsd-autonomous", "--only", phaseId);

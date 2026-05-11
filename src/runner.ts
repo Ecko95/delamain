@@ -209,6 +209,12 @@ function buildCodexArgs(args: RunnerArgs): string[] {
   if (args.yolo) {
     codexArgs.splice(2, 0, "--dangerously-bypass-approvals-and-sandbox");
   }
+
+  const promptArgIndex = codexArgs.lastIndexOf("-");
+  codexArgs.splice(promptArgIndex, 0, "-c", "features.codex_hooks=false");
+  if (args.model && args.model !== "gpt-5.5") {
+    codexArgs.splice(promptArgIndex + 2, 0, "-c", 'model_reasoning_effort="high"');
+  }
   return codexArgs;
 }
 
