@@ -12,6 +12,7 @@ import {
 import { expandSelectedPhases } from "./gsdPhaseList.js";
 import { inspectGsdMilestone } from "./gsdMilestone.js";
 import { integratePeer, IntegratePeerRefusedError } from "./peerIntegration.js";
+import { classifyFrozenBatch } from "./frozen-eligibility/index.js";
 import type { GsdPlanningMode } from "./types.js";
 
 const TOOLS = [
@@ -241,6 +242,38 @@ const TOOLS = [
       required: ["peer_id"],
     },
   },
+  {
+    name: "classify_frozen_batch",
+    description:
+      "Conservative pre-flight eligibility check for a planning_mode=frozen PhaseBatch. " +
+      "Returns { eligible: true } only when every selected phase has a FROZEN-CONTRACT.json, " +
+      "every PLAN.md frontmatter declares type: execute AND autonomous: true, and no " +
+      "risky keywords (TODO, FIXME, WIP, scratch, discussion needed, needs human review) " +
+      "appear in CONTEXT/SPEC/PLAN files. Otherwise returns { eligible: false, reasons: string[] } " +
+      "listing EVERY failing condition (no short-circuit) so the UI can render a complete " +
+      "blocker list. Mirror of the DevOS Tauri command `dispatch_classify_frozen_batch` " +
+      "(Phase 37 plan 02).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: {
+          type: "string",
+          description:
+            "Absolute filesystem path to the repository root (where .planning/ lives). " +
+            "For codex-peers usage this is typically a peer worktree path.",
+        },
+        phase_ids: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          description:
+            "Selected phase IDs (directory names under .planning/phases/). " +
+            "Same shape as `selected_phases` from spawn_gsd_phase_batch.",
+        },
+      },
+      required: ["repo", "phase_ids"],
+    },
+  },
 ];
 
 export async function startMcpServer(): Promise<void> {
@@ -376,6 +409,20 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
         branch: optionalString(args, "branch"),
         milestone_filter: optionalString(args, "milestone_filter"),
       });
+      return json(result);
+    }
+    case "classify_frozen_batch": {
+      const repo = requiredString(args, "repo");
+      const phaseIdsRaw = (args as Record<string, unknown>)["phase_ids"];
+      if (!Array.isArray(phaseIdsRaw)) {
+        throw new Error("classify_frozen_batch: 'phase_ids' must be an array of strings");
+      }
+      for (const entry of phaseIdsRaw) {
+        if (typeof entry !== "string") {
+          throw new Error("classify_frozen_batch: 'phase_ids' entries must be strings");
+        }
+      }
+      const result = await classifyFrozenBatch(repo, phaseIdsRaw as string[]);
       return json(result);
     }
     case "integrate_peer": {
