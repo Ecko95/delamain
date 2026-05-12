@@ -214,6 +214,38 @@ Override with:
 export CODEX_PEERS_HOME=/tmp/codex-peers-test
 ```
 
+## CODEX_HOME — Codex config and auth directory
+
+Each spawned peer runner sets `CODEX_HOME` explicitly when launching the `codex` subprocess. This ensures codex can always find its auth credentials and `config.toml` regardless of how codex-peers was started (cron, MCP server, or direct CLI).
+
+**Default:** `~/.codex-peers/peer-codex-home`
+
+If `CODEX_HOME` is already set in the environment when codex-peers starts, that value is forwarded unchanged to every peer. If it is not set, codex-peers falls back to `~/.codex-peers/peer-codex-home`.
+
+This directory should contain:
+
+```text
+~/.codex-peers/peer-codex-home/
+├── auth.json        # OpenAI / ChatGPT credentials written by `codex login`
+├── config.toml      # Default model, reasoning effort, trusted project paths, MCP servers
+├── sessions/        # Codex thread session files
+└── ...              # Other Codex runtime state
+```
+
+To set up the peer-codex-home directory, run `codex login` once with `CODEX_HOME` pointing there:
+
+```bash
+CODEX_HOME=~/.codex-peers/peer-codex-home codex login
+```
+
+To override for a single spawn:
+
+```bash
+CODEX_HOME=/custom/path codex-peers spawn --repo /path/to/repo --prompt "..."
+```
+
+**Why this exists:** When codex-peers runs as a cron-driven autopilot supervisor or as an MCP server inside Claude Code, the process environment may not carry the `CODEX_HOME` the user configured interactively. Without explicit forwarding, `codex exec` falls back to `~/.codex/` (or an empty default), finds no auth, and the peer dies with SIGTERM immediately after starting.
+
 ## Peer Statuses
 
 - `starting`: runner launched

@@ -1,6 +1,7 @@
 import { createWriteStream, mkdirSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { parseCodexJsonLine, trim } from "./codexEvents.js";
 import { integratePeerWorktree } from "./git.js";
 import { initialTerminalResponseState, updateTerminalResponseState } from "./lifecycle.js";
@@ -35,10 +36,12 @@ export async function runPeer(argv: string[]): Promise<void> {
     lastEvent: "runner started",
   }));
 
+  const codexHome = process.env.CODEX_HOME ?? join(homedir(), ".codex-peers", "peer-codex-home");
   const child = spawn("codex", codexArgs, {
     cwd: args.repo,
     detached: true,
     stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, CODEX_HOME: codexHome },
   });
 
   updatePeer(args.peerId, (peer) => ({
