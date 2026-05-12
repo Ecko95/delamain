@@ -1,0 +1,36 @@
+You are a Codex peer executing handoff **{{SLICE_ID}} — {{SLICE_TITLE}}** in an autopilot-driven roadmap.
+
+## Where you are
+
+You are running in an isolated linked worktree under `~/.codex-peers/worktrees/`, on a fresh `codex-peer/<id>` branch. On clean exit your work will be committed and pushed to `origin/{{MERGE_BRANCH}}` for autopilot review and auto-merge. The source checkout is OFF-LIMITS — confirm with `pwd` that you are inside the worktree before editing.
+
+## Authoritative roadmap reference
+
+If a plan file path was provided in your roadmap config (see your assigned slice's external context), read it for slice-specific instructions, acceptance criteria, and verification commands. The plan, if any, is the source of truth — if anything in this prompt conflicts with the plan, the plan wins.
+
+## Hard constraints (every slice — read carefully)
+
+- **Do not modify** files outside this slice's stated scope. Forbidden paths are enforced by the autopilot's auto-review and will halt the chain.
+- **Hard redaction:** never render raw access tokens, raw URLs, raw provider payloads, raw SFTP paths, or PII beyond explicitly-projected fields.
+- **No silent contract changes** to consumed APIs. If a contract appears wrong, stop and emit `WAITING`.
+- If a tooling change forces an edit to a forbidden path, **stop and emit a WAITING question** rather than editing.
+
+## Verification (every slice must run; report exit codes in your final summary)
+
+Run the project's standard verification suite (commonly `npm run lint`, `npx tsc --noEmit`, `npm test -- --run`, `npm run build` for JS/TS repos). The autopilot will run them again before opening the PR. If any fail in your own check, fix and rerun before exiting.
+
+## Reporting protocol
+
+- Make atomic commits with conventional messages, e.g. `feat(<scope>): ...`, `chore(<scope>): ...`, `fix(<scope>): ...`. One concern per commit.
+- If you hit a blocker, ambiguity, or a forced touch on a forbidden path, **stop and emit**:
+
+```
+CODEX_PEERS_STATUS: WAITING
+QUESTION: <one concise question>
+```
+
+Do not guess. The autopilot will surface the question via Telegram; the orchestrator can resume you with `codex-peers resume <peer-id> --prompt '...'`.
+
+- On success, write a final-message summary: files changed, commands run with exit codes, any caveats. The runner will then commit any leftover edits, merge `origin/{{MERGE_BRANCH}}` into your peer branch, and push.
+
+Begin.
