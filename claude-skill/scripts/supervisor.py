@@ -139,6 +139,31 @@ def run(cmd: list[str], cwd: str | None = None, timeout: int | None = None) -> s
     )
 
 
+def install_worktree_deps(wt_path: str | None) -> None:
+    """Run the appropriate package manager install in a worktree.
+
+    Executed outside codex sessions so the peer doesn't burn tokens on it.
+    Non-fatal: logs a warning on failure rather than halting the chain.
+    """
+    if not wt_path:
+        return
+    wt = Path(wt_path)
+    if not (wt / "package.json").exists():
+        return
+    lockfiles = [
+        ("pnpm-lock.yaml", ["pnpm", "install", "--frozen-lockfile", "--prefer-offline"]),
+        ("yarn.lock", ["yarn", "install", "--frozen-lockfile"]),
+        ("package-lock.json", ["npm", "install", "--prefer-offline", "--no-audit", "--no-fund"]),
+    ]
+    for lockfile, cmd in lockfiles:
+        if (wt / lockfile).exists():
+            log(f"installing deps in {wt_path} via {cmd[0]}")
+            proc = run(cmd, cwd=wt_path, timeout=300)
+            if proc.returncode != 0:
+                log(f"dep install warn (non-fatal): {(proc.stderr or proc.stdout)[-500:]}")
+            return
+
+
 def peer_status_json(peer_id: str) -> dict | None:
     proc = run(["codex-peers", "status", peer_id])
     if proc.returncode != 0:
@@ -211,6 +236,9 @@ def auto_review_and_merge(
             + f"\n\nWorktree: {wt}"
         )
         return False
+
+    # Ensure deps are present before running verification commands.
+    install_worktree_deps(wt)
 
     # --- Verification suite --------------------------------------------------
     failures = []
@@ -401,6 +429,9 @@ def spawn_next(config: dict, state: dict, new_main_sha: str) -> None:
     history_append(state, nxt["slice_id"], next_peer_id, nxt["merge_branch"])
     event_mark(state, f"spawn:{next_peer_id}")
     save_state(state)
+
+    wt_path = spawn_data.get("worktreePath")
+    install_worktree_deps(wt_path)
 
     notify(
         f"<b>🚀 spawned {nxt['slice_id']} — {nxt['title']}</b>\n\n"
