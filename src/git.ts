@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { worktreesDir } from "./paths.js";
 
@@ -72,6 +72,7 @@ export function createPeerWorktree(
   const worktreePath = join(worktreesDir(), repoKey(sourceRepo), peerId);
   mkdirSync(dirname(worktreePath), { recursive: true });
   runGit(sourceRepo, ["worktree", "add", "-b", branch, worktreePath, startPoint.baseRef]);
+  installWorktreeDeps(worktreePath);
 
   return {
     sourceRepo,
@@ -81,6 +82,22 @@ export function createPeerWorktree(
     baseRef: startPoint.baseRef,
     info: gitWorktreeInfo(worktreePath),
   };
+}
+
+function installWorktreeDeps(worktreePath: string): void {
+	const pkg = join(worktreePath, "package.json");
+	if (!existsSync(pkg)) return;
+	const lockfiles: [string, string, string[]][] = [
+		["pnpm-lock.yaml", "pnpm", ["install", "--frozen-lockfile", "--prefer-offline"]],
+		["yarn.lock", "yarn", ["install", "--frozen-lockfile"]],
+		["package-lock.json", "npm", ["install", "--prefer-offline", "--no-audit", "--no-fund"]],
+	];
+	for (const [lockfile, cmd, args] of lockfiles) {
+		if (existsSync(join(worktreePath, lockfile))) {
+			spawnSync(cmd, args, { cwd: worktreePath, stdio: "ignore" });
+			return;
+		}
+	}
 }
 
 export function integratePeerWorktree(repo: string, peerId: string, baseBranch = "main"): PeerIntegrationResult {
