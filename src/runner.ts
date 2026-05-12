@@ -231,6 +231,8 @@ Repository: ${repo}
 Operational contract:
 - Work only on the requested task unless the orchestrator explicitly broadens scope.
 - You are running in an isolated linked worktree. Do not push, merge ${branch}, or switch branches; the peer supervisor integrates successful work into ${branch}.
+- When running verification or tests, prefer \`npx <tool>\` (e.g. \`npx tsc --noEmit\`, \`npx vitest run\`) over \`npm run <script>\`; \`npm run\` can silently resolve a wrong global binary when \`node_modules\` is absent or incomplete in a fresh worktree.
+- Scope test runs to directories containing changed files (e.g. \`npx vitest run src/foo/\`) rather than running the full suite unless specifically required.
 - If you need input from the orchestrator and cannot proceed, make your final answer start with:
   CODEX_PEERS_STATUS: WAITING
   QUESTION: <one concise question>

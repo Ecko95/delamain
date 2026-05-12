@@ -63,7 +63,18 @@ Use this structure:
 
 ## Verification
 
-- <commands, checks, or manual validation expected>
+Use `npx <tool>` for all shell verification steps; never `npm run <script>`. Reason: `npm run` can resolve a stale global binary when `node_modules` is missing in a fresh worktree.
+
+Good examples:
+- `npx tsc -p tsconfig.json --noEmit`
+- `npx vitest run src/changed-module/`
+- `npx eslint src/changed-file.ts`
+
+Scope test commands to the directories containing changed files; do not run the full suite unless the change is cross-cutting.
+
+Before the first peer finishes, dry-run the verification commands in a clean worktree (no peer changes yet) to confirm the suite itself is PATH/environment-clean. If any command fails in an unmodified tree, document this as a known issue at the bottom of the handoff.
+
+- <specific commands for this handoff>
 
 ## Report Back
 
