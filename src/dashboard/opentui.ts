@@ -1,5 +1,6 @@
 import { Box, Text, StyledText, createCliRenderer, fg as textColor, dim as dimText, stringToStyledText, type TextChunk } from "@opentui/core";
 import { killPeer, listPeers, readPeerLog } from "../peerManager.js";
+import { worktreeDiffStat } from "../git.js";
 import { commandForKey, type DashboardCommand } from "./keybindings.js";
 import {
   createDashboardViewModel,
@@ -25,6 +26,7 @@ type RuntimeState = Required<Pick<DashboardState, "selectedIndex" | "focusPane" 
 const STATUS_ORDER = ["working", "waiting", "cleanup", "done", "failed", "frozen", "killed", "idle"] as const;
 const PEER_REFRESH_MS = 1000;
 const LOG_REFRESH_MS = 1500;
+const DIFF_REFRESH_MS = 5000;
 
 export async function runOpenTuiDashboard(): Promise<void> {
   const renderer = await createCliRenderer({
@@ -51,6 +53,9 @@ export async function runOpenTuiDashboard(): Promise<void> {
   let cachedLogPeerId: string | undefined;
   let cachedLogText = "";
   let lastLogRefresh = 0;
+  let cachedDiffPeerId: string | undefined;
+  let cachedDiffText: string | undefined;
+  let lastDiffRefresh = 0;
 
   const refresh = (): void => {
     const currentTime = Date.now();
@@ -73,6 +78,23 @@ export async function runOpenTuiDashboard(): Promise<void> {
           state.forceLogRefresh = false;
         }
         return cachedLogText;
+      },
+      diffStatProvider: (peerId, repo, baseRef) => {
+        const peerChanged = cachedDiffPeerId !== peerId;
+        const shouldRefresh = peerChanged || currentTime - lastDiffRefresh >= DIFF_REFRESH_MS;
+        if (shouldRefresh && repo && baseRef) {
+          cachedDiffPeerId = peerId;
+          lastDiffRefresh = currentTime;
+          try {
+            const stat = worktreeDiffStat(repo, baseRef);
+            cachedDiffText = stat
+              ? `${stat.filesChanged} files  +${stat.insertions} -${stat.deletions}`
+              : undefined;
+          } catch {
+            cachedDiffText = undefined;
+          }
+        }
+        return cachedDiffText;
       },
     });
     state.selectedIndex = view.selectedIndex;
@@ -409,7 +431,33 @@ function detailValueChunks(label: string, value: string): TextChunk[] {
     return [textColor(statusColor(value as DashboardStatus))(value)];
   }
   if (label === "model") {
+    const effortIdx = value.indexOf("  effort:");
+    if (effortIdx !== -1) {
+      return [
+        textColor("#22d3ee")(value.slice(0, effortIdx)),
+        dimText("  effort:"),
+        textColor("#94a3b8")(value.slice(effortIdx + 9)),
+      ];
+    }
     return [textColor("#22d3ee")(value)];
+  }
+  if (label === "diff") {
+    if (value === "-") {
+      return [dimText(value)];
+    }
+    // Format: "N files  +I -D" — tokenize on runs of spaces, colour + green and - red
+    const chunks: TextChunk[] = [];
+    const tokens = value.split(/(\s+)/);
+    for (const token of tokens) {
+      if (token.startsWith("+")) {
+        chunks.push(textColor("#34d399")(token));
+      } else if (token.startsWith("-")) {
+        chunks.push(textColor("#f87171")(token));
+      } else {
+        chunks.push(...plainChunks(token));
+      }
+    }
+    return chunks;
   }
   if (label === "question") {
     return [textColor("#facc15")(value)];

@@ -361,3 +361,28 @@ function gitError(repo: string, args: string[], result: GitCommandResult): Error
   const output = `${result.stderr || result.stdout}`.trim();
   return new Error(`git ${args.join(" ")} failed in ${repo}${output ? `: ${output}` : ""}`);
 }
+
+export type DiffStat = {
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+};
+
+export function worktreeDiffStat(repo: string, baseRef: string): DiffStat | undefined {
+  const result = runGit(repo, ["diff", "--shortstat", baseRef, "HEAD"], { allowFailure: true });
+  if (result.status !== 0) {
+    return undefined;
+  }
+  const out = result.stdout.trim();
+  if (!out) {
+    return { filesChanged: 0, insertions: 0, deletions: 0 };
+  }
+  const filesMatch = out.match(/(\d+) files? changed/);
+  const insertMatch = out.match(/(\d+) insertions?\(\+\)/);
+  const deleteMatch = out.match(/(\d+) deletions?\(-\)/);
+  return {
+    filesChanged: filesMatch ? parseInt(filesMatch[1], 10) : 0,
+    insertions: insertMatch ? parseInt(insertMatch[1], 10) : 0,
+    deletions: deleteMatch ? parseInt(deleteMatch[1], 10) : 0,
+  };
+}
