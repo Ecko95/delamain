@@ -8,15 +8,12 @@
 
 set -euo pipefail
 
-if [[ -n "${CODEX_PEERS_AUTOPILOT_DIR:-}" ]]; then
-  CREDS="${CODEX_PEERS_AUTOPILOT_DIR}/secrets/telegram.env"
-else
-  CREDS="${HOME}/.codex-peers/secrets/telegram.env"
-fi
+GLOBAL_CREDS="${HOME}/.codex-peers/secrets/telegram.env"
+CHAIN_CREDS="${CODEX_PEERS_AUTOPILOT_DIR:-}/secrets/telegram.env"
 
-[[ -r "$CREDS" ]] || { echo "missing $CREDS" >&2; exit 1; }
-# shellcheck disable=SC1090
-source "$CREDS"
+# Source global first, then chain-specific overrides (if present).
+[[ -r "$GLOBAL_CREDS" ]] && source "$GLOBAL_CREDS"
+[[ -r "$CHAIN_CREDS" ]] && source "$CHAIN_CREDS"
 : "${TELEGRAM_BOT_TOKEN:?}"
 : "${TELEGRAM_CHAT_ID:?}"
 
