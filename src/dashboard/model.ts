@@ -1,4 +1,5 @@
 import type { PeerRecord, PeerStatus } from "../types.js";
+import type { CodexUsage } from "../codexUsage.js";
 
 export type DashboardStatus = PeerStatus | "cleanup";
 export type WorktreeRisk = "shared-checkout" | "shared-branch";
@@ -43,6 +44,7 @@ export type DashboardViewModel = {
   selectedPeer?: PeerRecord;
   selectedIndex: number;
   counts: Record<DashboardStatus, number>;
+  codexUsage?: CodexUsage;
   warnings: string[];
   details: DashboardDetailRow[];
   logLines: string[];
@@ -59,6 +61,7 @@ export type DashboardViewModelOptions = {
   logLimit?: number;
   logProvider?: (peerId: string, lines: number) => string;
   diffStatProvider?: (peerId: string, repo: string, baseRef: string) => string | undefined;
+  codexUsageProvider?: () => CodexUsage | undefined;
 };
 
 const LOG_LIMIT = 80;
@@ -140,6 +143,7 @@ export function createDashboardViewModel(
     selectedPeer,
     selectedIndex,
     counts: countByDashboardStatus(peers),
+    codexUsage: safeCodexUsage(options),
     warnings: worktrees.warnings,
     details: selectedPeer ? detailRows(selectedPeer, diffStat) : [],
     logLines,
@@ -150,6 +154,14 @@ export function createDashboardViewModel(
     focusPane: state.focusPane || "peers",
     mode,
   };
+}
+
+function safeCodexUsage(options: DashboardViewModelOptions): CodexUsage | undefined {
+  try {
+    return options.codexUsageProvider?.();
+  } catch {
+    return undefined;
+  }
 }
 
 export function defaultCollapsedStatuses(): Partial<Record<DashboardStatus, boolean>> {

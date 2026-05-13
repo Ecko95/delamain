@@ -1,6 +1,7 @@
 import { Box, Text, StyledText, createCliRenderer, fg as textColor, dim as dimText, stringToStyledText, type TextChunk } from "@opentui/core";
 import { killPeer, listPeers, readPeerLog } from "../peerManager.js";
 import { worktreeDiffStat } from "../git.js";
+import { readCodexUsage, type CodexUsageLimit, type CodexUsageLevel } from "../codexUsage.js";
 import { commandForKey, type DashboardCommand } from "./keybindings.js";
 import {
   createDashboardViewModel,
@@ -27,6 +28,7 @@ const STATUS_ORDER = ["working", "waiting", "cleanup", "done", "failed", "frozen
 const PEER_REFRESH_MS = 1000;
 const LOG_REFRESH_MS = 1500;
 const DIFF_REFRESH_MS = 5000;
+const USAGE_REFRESH_MS = 15000;
 
 export async function runOpenTuiDashboard(): Promise<void> {
   const renderer = await createCliRenderer({
@@ -56,6 +58,8 @@ export async function runOpenTuiDashboard(): Promise<void> {
   let cachedDiffPeerId: string | undefined;
   let cachedDiffText: string | undefined;
   let lastDiffRefresh = 0;
+  let cachedUsage = readCodexUsage();
+  let lastUsageRefresh = 0;
 
   const refresh = (): void => {
     const currentTime = Date.now();
@@ -95,6 +99,13 @@ export async function runOpenTuiDashboard(): Promise<void> {
           }
         }
         return cachedDiffText;
+      },
+      codexUsageProvider: () => {
+        if (currentTime - lastUsageRefresh >= USAGE_REFRESH_MS) {
+          cachedUsage = readCodexUsage();
+          lastUsageRefresh = currentTime;
+        }
+        return cachedUsage;
       },
     });
     state.selectedIndex = view.selectedIndex;
@@ -328,10 +339,47 @@ function statusPane(view: DashboardViewModel) {
   if (view.warnings.length > 0) {
     chunks.push(textColor("#f59e0b")(`  ${view.warnings.join(" | ")}`));
   }
+  const usage = usageStatusChunks(view);
+  if (usage.length > 0) {
+    chunks.push(...plainChunks("  "));
+    chunks.push(...usage);
+  }
   return Box(
     paneProps("Status", view.focusPane === "status", { height: 3 }),
     Text({ content: truncateStyled(chunks, 180) }),
   );
+}
+
+function usageStatusChunks(view: DashboardViewModel): TextChunk[] {
+  if (!view.codexUsage || view.codexUsage.limits.length === 0) {
+    return [];
+  }
+  const chunks: TextChunk[] = [dimText("limits ")];
+  view.codexUsage.limits.forEach((limit, index) => {
+    if (index > 0) {
+      chunks.push(dimText(" | "));
+    }
+    chunks.push(...usageLimitChunks(limit));
+  });
+  return chunks;
+}
+
+function usageLimitChunks(limit: CodexUsageLimit): TextChunk[] {
+  const prefix = limit.level === "skull" ? "💀 " : "";
+  const text = `${prefix}${limit.label} ${limit.remainingPercent}% left`;
+  return [textColor(usageLevelColor(limit.level))(text)];
+}
+
+function usageLevelColor(level: CodexUsageLevel): string {
+  switch (level) {
+    case "green":
+      return "#34d399";
+    case "yellow":
+      return "#facc15";
+    case "red":
+    case "skull":
+      return "#f87171";
+  }
 }
 
 function peerPane(view: DashboardViewModel, state: RuntimeState, narrow: boolean, screenWidth: number, screenHeight: number) {

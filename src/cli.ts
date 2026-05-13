@@ -108,7 +108,9 @@ function printHelp(): void {
 Commands:
   server                         Start the MCP server over stdio
   dashboard                      Run the live terminal dashboard
+  dashboard-v2                   Run the v2 grid terminal dashboard
   --d, -d                        Run the live terminal dashboard
+  --d2, -d2                      Run the v2 grid terminal dashboard
   tmux-status                    Print one tmux status-line summary
   spawn --repo <git-repo> --prompt <task> [--start-ref <ref>] [--merge-branch <branch>] [--target-branch <branch>] [--model <codex-model>] [--yolo]
   resume <peer-id> --prompt <message> [--model <codex-model>] [--yolo]

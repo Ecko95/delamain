@@ -58,7 +58,7 @@ test("createDashboardViewModel includes integration detail and bounded logLines"
   });
   assert.deepEqual(view.details.find((row) => row.label === "model"), {
     label: "model",
-    value: "gpt-5.4",
+    value: "gpt-5.4  effort:high",
   });
   assert.equal(view.logLines.length, 80);
 });
@@ -72,6 +72,23 @@ test("createDashboardViewModel keeps default collapsed status groups in view sta
   assert.deepEqual(view.collapsedStatuses, defaultCollapsedStatuses());
   assert.equal(view.peerOffset, 0);
   assert.equal(view.logOffset, 0);
+});
+
+test("createDashboardViewModel includes Codex usage from provider", () => {
+  const view = createDashboardViewModel([], {}, {
+    codexUsageProvider: () => ({
+      limits: [{
+        label: "5h",
+        usedPercent: 81,
+        remainingPercent: 19,
+        windowMinutes: 300,
+        level: "skull",
+      }],
+    }),
+  });
+
+  assert.equal(view.codexUsage?.limits[0].label, "5h");
+  assert.equal(view.codexUsage?.limits[0].level, "skull");
 });
 
 test("project labels prefer source repo path over generated worktree path", () => {
