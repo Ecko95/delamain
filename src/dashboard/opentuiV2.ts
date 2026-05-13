@@ -269,10 +269,7 @@ function togglePane(state: RuntimeState, pane: V2Pane): void {
 
 function moveFocused(state: RuntimeState, direction: 1 | -1): void {
   if (state.focusPane === "logs") {
-    state.logOffset = Math.max(0, state.logOffset - direction);
-    if (state.logOffset === 0) {
-      state.forceLogRefresh = true;
-    }
+    scrollLogs(state, direction === -1 ? "older" : "newer", 1);
     return;
   }
   state.selectedIndex += direction;
@@ -283,14 +280,20 @@ function moveFocused(state: RuntimeState, direction: 1 | -1): void {
 
 function pageFocused(state: RuntimeState, amount: number): void {
   if (state.focusPane === "logs") {
-    state.logOffset = Math.max(0, state.logOffset - amount);
-    if (state.logOffset === 0) {
-      state.forceLogRefresh = true;
-    }
+    scrollLogs(state, amount < 0 ? "older" : "newer", Math.abs(amount));
     return;
   }
   state.peerOffset = Math.max(0, state.peerOffset + amount);
   state.followSelectedPeer = false;
+}
+
+function scrollLogs(state: RuntimeState, direction: "older" | "newer", amount: number): void {
+  state.logOffset = direction === "older"
+    ? state.logOffset + amount
+    : Math.max(0, state.logOffset - amount);
+  if (state.logOffset === 0) {
+    state.forceLogRefresh = true;
+  }
 }
 
 function jumpFocused(state: RuntimeState, target: "top" | "bottom"): void {
