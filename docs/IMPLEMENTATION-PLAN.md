@@ -99,29 +99,120 @@ From Discord + X: persistent memory across runtimes (`gigabrain`-style) is the n
 
 ---
 
-## 4. Hosting plan — codex-peers as a daemon on a separate machine
+## 4. Hosting plan — two paths
 
-Combining gsd-daemon (boundary pattern), gsd-protocol (wire) and self-hosted-infra (deployment) recommendations:
+Two viable hosting paths, presented side-by-side. Start with **Path A** (you already own the box); upgrade to **Path B** only when concurrency or workload grows past what 8 GB can hold.
 
-**Hardware:** Hetzner AX52 or equivalent dedicated (16-core / 64 GB / 2× 1 TB NVMe), Ubuntu 24.04 LTS, ~€60–80/month.
+### Quick comparison
 
-**Stack:**
-- **Supervisor:** `systemd` outer service that owns a rootless Docker Compose stack (one container per agent sandbox, or unprivileged user-per-agent if Docker overhead is too much for short-lived peers)
-- **Network:** Tailscale for private operator access; **never expose the agent port publicly**. Cloudflare Tunnel + Access if browser remote use is needed.
-- **Auth:** start with single-user API key (matches Continue/OpenHands pattern); upgrade to mTLS when a 2nd device joins; add `oauth2-proxy` only if a team forms.
-- **Secrets:** `systemd credentials` for host-level injection; `SOPS/age` for source-controlled config. Provider keys (Anthropic, OpenAI, Cursor, GitHub PAT, Telegram) stay host-only.
-- **Storage:** local clone + `git worktree` per peer (we already do this). Plan for hundreds of GB on a busy host. Schedule `git worktree prune` + `git gc` daily.
-- **Observability:** structured JSON logs per peer → Loki; OTEL traces for tool calls + lifecycle → tempo or Jaeger; Prometheus for host metrics; Grafana for everything. Pattern: copy `disler/claude-code-hooks-multi-agent-observability` (1.4k★) — Claude Code/Codex hooks → Bun/Node server → SQLite → Vue UI.
-- **Sandbox:** rootless Docker container per peer is the minimum bar for `--yolo` peers on a publicly-reachable host. Per-peer VMs/microVMs only if isolation requirements escalate.
+| Dimension | Path A: existing i5 / 8 GB Ubuntu | Path B: dedicated host (Hetzner AX52 or similar) |
+|---|---|---|
+| Hardware | i5 / 8 GB / Ubuntu (own) | 16-core / 64 GB / 2× 1 TB NVMe |
+| Monthly cost | **€0** (own box; ~€2–7 electricity) | ~€60–80/mo + €10–40 ops |
+| Concurrent peers | 2–4 (hard cap 4) | 10–20 |
+| Sandbox model | Unprivileged user-per-peer + ACLs | Rootless Docker container per peer |
+| Process supervisor | `systemd --user` | `systemd` + rootless Docker Compose |
+| Observability | Lightweight in-process + SQLite + thin dashboard | Full Loki + Prometheus + Grafana + OTEL |
+| Network | Tailscale only | Tailscale primary; Cloudflare Tunnel + Access optional |
+| Secrets | `~/.codex-peers/secrets/` files (0600) + systemd creds | systemd credentials + SOPS/age in git |
+| Public exposure safety | LAN/Tailscale-only — never publicly reachable | Same default; can run `--yolo` more safely thanks to per-container isolation |
+| Best for | Solo operator, light–medium workload, getting started fast | Heavy parallel research swarms, multi-day autonomous runs, eventual team use |
+| **Switch trigger** | OOM kills happen, queue depth > 4 sustained, RAM headroom < 1 GB regularly | — |
+
+Both paths share the same daemon shape (M4); the difference is sandboxing + observability stack + concurrency cap. The codebase doesn't need to change to migrate from A to B — just config + deploy.
+
+---
+
+### Path A — codex-peers on the existing 8 GB i5 Ubuntu server (recommended starting point)
+
+**Hardware (target):** existing **i5 / 8 GB RAM / Ubuntu** server. **No monthly infra cost — you own it.**
+
+**Realistic concurrency on 8 GB:**
+- 2–3 concurrent peers comfortably (each codex/cursor-agent run takes ~500 MB–1.5 GB during active tool use)
+- 4–5 if peers stay light (mostly research, no heavy build/test)
+- **Hard cap:** rate-limit `spawn_peer` to 4 concurrent in the daemon config; fail-fast or queue beyond that. Without this guardrail, OOM kills will silently drop peer state.
+- A lightweight monitor (free RAM threshold) that pauses new spawns when RAM < 1 GB free is worth ~50 LOC and prevents bad days
+
+**Stack (RAM-conscious — no Docker, no Loki/Prometheus on the box):**
+- **Supervisor:** `systemd` user service runs the daemon directly; **skip rootless Docker** — the overhead (200–400 MB Docker daemon + per-container memory tax) is too expensive on 8 GB
+- **Sandbox:** unprivileged user-per-peer (`useradd codex-peer-{n}`) with strict filesystem ACLs on worktree paths. Lightweight, near-zero overhead. Acceptable for a private LAN host running your own prompts; would not be acceptable for a publicly-reachable `--yolo` farm.
+- **Network:** **Tailscale** for private operator access — zero overhead, ACLs, magic DNS. **Never expose the daemon port publicly.** Skip Cloudflare Tunnel unless you genuinely need browser access from outside Tailscale.
+- **Auth:** single-user API key model. Pair-once + bearer token in `~/.codex-peers/config.json` (mode 0600). mTLS is overkill for a single-user box; add it later if a 2nd person ever joins.
+- **Secrets:** `systemd` credentials for host-level injection; plain `~/.codex-peers/secrets/` files (mode 0600) are fine for single-user. SOPS/Vault is overkill at this scale.
+- **Storage:** local clone + `git worktree` per peer (we already do this). On 8 GB / single SSD, **schedule aggressive cleanup**:
+  - `git worktree prune` after every peer terminates
+  - `git gc --auto` weekly
+  - Cap on-disk worktrees at ~10 (delete oldest done/failed peers' worktrees automatically)
+  - `node_modules`, browser profiles, build outputs are the real disk hogs — kill them when a peer integrates or fails
+- **Observability:** **lightweight in-process only** — no Prometheus/Loki/Grafana stack on the host itself, they'd eat ~500 MB–1 GB you can't spare. Instead:
+  - Structured JSON logs to local files (existing pattern)
+  - SQLite event store (M2 feature 3 — same DB as M3) for queryable peer history
+  - **One thin web dashboard** (Bun/Node, < 50 MB RAM) reading SQLite → small HTTP page over Tailscale; pattern from `disler/claude-code-hooks-multi-agent-observability` (1.4k★) but minus the heavy stack
+  - If you want metrics later, push them to a free Grafana Cloud account from the host — don't run the metrics stack on the box
 
 **Daemon shape (boring + explicit):**
-- single Go-or-Node binary, started by systemd
-- writes to `~/.codex-peers/{config.json,logs/,daemon.sock,pids/,prompts/,runs/,worktrees/}`
-- **local API:** Unix socket HTTP for `/health`, `/status`, `/peers`, `/workers` (read-only) and `/admin` (write)
-- **remote API:** authenticated WebSocket (or mTLS gRPC) for orchestrator commands when supervisor is on a different machine. **Outbound-first** is the safer default — daemon dials a relay rather than listening publicly.
-- **paired-machine auth:** single `codex-peers pair` command writes a machine ID + bearer token to `~/.codex-peers/config.json` (mode 0600). Per-task control sockets get short-lived tokens.
+- single Node binary, started by `systemd --user` (no root needed)
+- writes to `~/.codex-peers/{config.json,logs/,daemon.sock,pids/,prompts/,runs/,worktrees/,db.sqlite}`
+- **local API:** Unix socket HTTP for `/health`, `/status`, `/peers`, `/workers` (read-only) and `/admin` (write) — accessible only via Tailscale IP or SSH-tunnel
+- **remote API:** authenticated WebSocket on a Tailscale-bound port (e.g. `100.64.x.x:9000`) for orchestrator commands from your laptop / phone. **No public port.** Outbound-first to a relay is overkill for a LAN-only setup.
+- **paired-machine auth:** single `codex-peers pair` command writes a machine ID + bearer token. Per-task control sockets get short-lived tokens.
 
-**Estimated infra cost:** €80–160/month for the host + ops, before model spend.
+**RAM budget (rough):**
+| Component | RAM |
+|---|---|
+| Ubuntu base + Tailscale | ~600 MB |
+| Daemon (Node/Bun) | ~150 MB |
+| Dashboard | ~50 MB |
+| Peer 1 (active) | 500 MB–1.5 GB |
+| Peer 2 (active) | 500 MB–1.5 GB |
+| Peer 3 (active, light) | 300–800 MB |
+| Headroom for cache/IO | ~500 MB |
+| **Total at 3 active peers** | ~6.5–7.5 GB (fits) |
+
+**Skipped (on this hardware):**
+- Docker / Compose / k3s — too expensive
+- Per-peer VMs / microVMs — way too expensive
+- Loki + Prometheus + Grafana on host — push to hosted later if needed
+- Kubernetes anything
+
+**Estimated infra cost:** **€0/month** (you own the box). Power draw of an i5 idle-to-light-load: ~10–30 W = ~€2–7/month in electricity at typical EU rates. Provider model spend is unaffected.
+
+---
+
+### Path B — dedicated host for serious parallel workloads (future scale)
+
+When the i5/8 GB box hits its concurrency ceiling, the cleanest jump is a cheap dedicated server.
+
+**Hardware:** Hetzner AX52 or equivalent dedicated (16-core / 64 GB / 2× 1 TB NVMe), Ubuntu 24.04 LTS, ~€60–80/month. Alternatives: Hetzner AX42 (~€46–52/mo, 6-core/64 GB), OVH SoYouStart, Scaleway Dedibox, used Supermicro on colo. The self-hosted-infra research found AX52 to be the sweet spot for 10–20 concurrent agents; AX42 is the budget floor.
+
+**Stack:**
+- **Supervisor:** `systemd` outer service that owns a **rootless Docker Compose** stack (one container per agent sandbox). Per-container memory tax is acceptable on 64 GB; isolation gain is worth it.
+- **Network:** Tailscale for private operator access; **never expose the agent port publicly**. Cloudflare Tunnel + Access if browser remote use is required from outside Tailscale.
+- **Auth:** start with single-user API key; upgrade to mTLS when a 2nd device joins; add `oauth2-proxy` only if a team forms.
+- **Secrets:** `systemd credentials` for host-level injection; `SOPS/age` for source-controlled config or `Vault` for centralized rotation. Provider keys (Anthropic, OpenAI, Cursor, GitHub PAT, Telegram) stay host-only.
+- **Storage:** local clone + `git worktree` per peer. Plan for hundreds of GB on a busy host. Schedule `git worktree prune` + `git gc` daily.
+- **Observability:** **full stack on-host** since RAM allows it — structured JSON logs per peer → Loki; OTEL traces → Tempo or Jaeger; Prometheus for host metrics; Grafana for dashboards. Pattern: copy `disler/claude-code-hooks-multi-agent-observability` (1.4k★) as the starting template.
+- **Sandbox:** rootless Docker container per peer is the minimum bar for `--yolo` peers. Per-peer VMs/microVMs only if the host becomes publicly reachable or workloads escalate to higher risk.
+- **Concurrency cap:** soft cap at 20, hard cap at 30. Same OOM-aware spawn-pause monitor as Path A, but the threshold is "RAM < 8 GB free" not "1 GB free."
+
+**Daemon shape:** identical to Path A. The daemon doesn't care whether the sandbox is `useradd` or `docker run` — it shells out either way.
+
+**Estimated infra cost:** €60–80/mo (server) + €10–40/mo (backup, observability, tunnel) = **€70–120/month** before model spend.
+
+---
+
+### When to migrate A → B
+
+You don't need to plan the migration upfront — both paths run the same daemon binary. Triggers that signal it's time to switch:
+
+1. OOM kills happen more than 1× per week
+2. Sustained queue depth > 4 (peers are queuing for >5 min before getting a slot)
+3. RAM headroom < 1 GB free regularly during normal operation
+4. Disk pressure: worktrees + node_modules + build artifacts force aggressive cleanup that loses useful state
+5. You start running TripleShot (M2 feature 6) routinely — 3× peer cost per task triples concurrency demand
+6. A second person needs to use the host (multi-user team scenario)
+
+The migration itself is: provision the new host, install the daemon binary, copy `~/.codex-peers/{config.json,db.sqlite}`, run `codex-peers pair` to re-issue the bearer token, point your operator clients at the new Tailscale IP, decommission the old host.
 
 ---
 
@@ -226,7 +317,7 @@ Pick from the Tier-2 table when their triggers fire. None are blocking.
 
 **Net code removed:** ~14–18K LOC of custom Telegram poller (replaced by cc-connect glue). Real diff is closer to **+0 to +5K LOC** for the whole plan if M1 lands cleanly.
 
-**Direct dollar cost:** trivially low for dev work itself. **API spend during dev** maybe $50–200 (testing peers). **Production infra** €80–160/month for the host (M4+).
+**Direct dollar cost:** trivially low for dev work itself. **API spend during dev** maybe $50–200 (testing peers). **Production infra:** **€0/month** on Path A (existing i5/8 GB box, ~€2–7/month electricity); **€70–120/month** on Path B (Hetzner AX52-class) when scale demands it.
 
 ---
 
