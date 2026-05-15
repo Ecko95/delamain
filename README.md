@@ -246,6 +246,40 @@ CODEX_HOME=/custom/path codex-peers spawn --repo /path/to/repo --prompt "..."
 
 **Why this exists:** When codex-peers runs as a cron-driven autopilot supervisor or as an MCP server inside Claude Code, the process environment may not carry the `CODEX_HOME` the user configured interactively. Without explicit forwarding, `codex exec` falls back to `~/.codex/` (or an empty default), finds no auth, and the peer dies with SIGTERM immediately after starting.
 
+## Cursor engine (alternative to Codex)
+
+Peers can be driven by either `codex` (default) or `cursor-agent` via the `engine` field on `spawn_peer` / `spawn_peer_and_wait`. Cursor peers shell out to the `cursor-agent` CLI from [Cursor](https://cursor.com), use your Cursor login (so billing flows through your Cursor seat), and support Cursor's full model catalog.
+
+```jsonc
+{
+  "name": "spawn_peer",
+  "arguments": {
+    "repo": "/path/to/repo",
+    "prompt": "Refactor the auth middleware...",
+    "engine": "cursor",
+    "model": "sonnet",
+    "cursor_options": {
+      "cloud": true,
+      "approve_mcps": false
+    }
+  }
+}
+```
+
+**Model aliases** (cursor engine): `composer-2-fast` (default), `composer-2`, `sonnet`, `sonnet-4.6-thinking`, `opus`, `opus-4.7-max`, `gpt`/`codex`, `grok`, `gemini`, `gemini-flash`. Unknown ids pass through to `cursor-agent` verbatim — run `cursor-agent ls-models` to see the live list.
+
+**`cursor_options`:**
+- `cloud` — run the peer on Cursor's cloud infra (`--cloud`). Doesn't consume local CPU; requires only that the worktree be pushed to a branch Cursor can reach.
+- `approve_mcps` — auto-approve MCP servers (`--approve-mcps`), e.g. for the `chrome-devtools` browser MCP.
+- `force` — pass `--force` (default `true`). Set to `false` to require manual file-edit approvals.
+
+**Setup:**
+1. Install Cursor and the `cursor-agent` CLI: <https://cursor.com/install>
+2. Sign in once: `cursor-agent login` (uses your Cursor account, including work seats)
+3. Override the binary path with `CURSOR_AGENT_BIN` if needed (defaults to `cursor-agent` on `PATH`)
+
+The codex and cursor engines share the same isolated-worktree spawn flow, integration logic, dashboard, and supervisor. Mixing engines per-goal is supported — pick `engine` per `spawn_peer` call.
+
 ## Peer Statuses
 
 - `starting`: runner launched
