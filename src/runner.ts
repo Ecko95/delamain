@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { parseCodexJsonLine, trim } from "./codexEvents.js";
+import { runCursorPeer } from "./cursorRunner.js";
 import { integratePeerWorktree } from "./git.js";
 import { initialTerminalResponseState, updateTerminalResponseState } from "./lifecycle.js";
 import { updatePeer } from "./store.js";
@@ -17,10 +18,31 @@ type RunnerArgs = {
   model?: string;
   sandbox?: string;
   yolo?: boolean;
+  engine?: "codex" | "cursor";
+  cursorCloud?: boolean;
+  cursorApproveMcps?: boolean;
+  cursorForce?: boolean;
 };
 
 export async function runPeer(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
+
+  if (args.engine === "cursor") {
+    await runCursorPeer({
+      peerId: args.peerId,
+      repo: args.repo,
+      promptFile: args.promptFile,
+      logPath: args.logPath,
+      resumeThread: args.resumeThread,
+      mergeBranch: args.mergeBranch,
+      model: args.model,
+      cloud: args.cursorCloud,
+      approveMcps: args.cursorApproveMcps,
+      force: args.cursorForce,
+    });
+    return;
+  }
+
   mkdirSync(dirname(args.logPath), { recursive: true });
   const log = createWriteStream(args.logPath, { flags: "a" });
   const prompt = wrapPrompt(readFileSync(args.promptFile, "utf8"), args.repo, args.mergeBranch, Boolean(args.resumeThread));
@@ -267,6 +289,9 @@ function parseArgs(argv: string[]): RunnerArgs {
   if (!peerId || !repo || !promptFile || !logPath) {
     throw new Error("run-peer requires --peer-id, --repo, --prompt-file, and --log-path");
   }
+  const engineRaw = stringValue(values, "engine");
+  const engine: "codex" | "cursor" | undefined =
+    engineRaw === "cursor" ? "cursor" : engineRaw === "codex" ? "codex" : undefined;
   return {
     peerId,
     repo,
@@ -277,6 +302,10 @@ function parseArgs(argv: string[]): RunnerArgs {
     model: stringValue(values, "model"),
     sandbox: stringValue(values, "sandbox"),
     yolo: Boolean(values.yolo),
+    engine,
+    cursorCloud: Boolean(values["cursor-cloud"]),
+    cursorApproveMcps: Boolean(values["cursor-approve-mcps"]),
+    cursorForce: Boolean(values["no-cursor-force"]) ? false : undefined,
   };
 }
 

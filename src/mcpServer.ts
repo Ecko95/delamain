@@ -19,7 +19,7 @@ const TOOLS = [
   {
     name: "spawn_peer",
     description:
-      "Spawn a supervised headless Codex peer in an isolated linked worktree, then integrate successful changes into the origin default branch or explicit target branch.",
+      "Spawn a supervised headless peer (Codex by default, or Cursor when engine='cursor') in an isolated linked worktree, then integrate successful changes into the origin default branch or explicit target branch.",
     inputSchema: {
       type: "object",
       properties: {
@@ -32,19 +32,37 @@ const TOOLS = [
         mergeBranch: { type: "string", description: "CamelCase alias for merge_branch." },
         target_branch: { type: "string", description: "Legacy alias. If newer fields are omitted, use this origin branch as both the start branch and merge branch." },
         targetBranch: { type: "string", description: "CamelCase alias for target_branch." },
-        model: { type: "string", description: "Optional Codex model override." },
+        model: {
+          type: "string",
+          description:
+            "Optional model override. For codex: any Codex model id. For cursor: composer-2-fast (default), sonnet, opus, gpt/codex, grok, gemini, or any cursor-agent model id.",
+        },
         sandbox: {
           type: "string",
           enum: ["read-only", "workspace-write", "danger-full-access"],
-          description: "Optional Codex sandbox mode.",
+          description: "Optional Codex sandbox mode (codex engine only).",
         },
         yolo: {
           type: "boolean",
-          description: "Run peer with --dangerously-bypass-approvals-and-sandbox.",
+          description: "Codex engine only: run with --dangerously-bypass-approvals-and-sandbox.",
         },
         dangerously_bypass_approvals_and_sandbox: {
           type: "boolean",
-          description: "Alias for yolo. Run peer with --dangerously-bypass-approvals-and-sandbox.",
+          description: "Alias for yolo. Codex engine only.",
+        },
+        engine: {
+          type: "string",
+          enum: ["codex", "cursor"],
+          description: "Which CLI to drive the peer. Defaults to 'codex'. 'cursor' shells out to cursor-agent (uses your Cursor work seat for billing).",
+        },
+        cursor_options: {
+          type: "object",
+          description: "Cursor-engine-only options. Ignored when engine != 'cursor'.",
+          properties: {
+            cloud: { type: "boolean", description: "Run the peer on Cursor's cloud infra (--cloud). Does not consume local CPU." },
+            approve_mcps: { type: "boolean", description: "Auto-approve MCP servers (--approve-mcps), e.g. for chrome-devtools browser MCP." },
+            force: { type: "boolean", description: "Pass --force (default true). Set false to require manual file-edit approvals." },
+          },
         },
       },
       required: ["repo", "prompt"],
@@ -121,7 +139,7 @@ const TOOLS = [
   {
     name: "spawn_peer_and_wait",
     description:
-      "Spawn a supervised headless Codex peer in an isolated linked worktree, then block until it reaches a terminal status or timeout_ms elapses.",
+      "Spawn a supervised headless peer (Codex by default, or Cursor when engine='cursor') in an isolated linked worktree, then block until it reaches a terminal status or timeout_ms elapses.",
     inputSchema: {
       type: "object",
       properties: {
@@ -134,19 +152,33 @@ const TOOLS = [
         mergeBranch: { type: "string", description: "CamelCase alias for merge_branch." },
         target_branch: { type: "string", description: "Legacy alias. If newer fields are omitted, use this origin branch as both the start branch and merge branch." },
         targetBranch: { type: "string", description: "CamelCase alias for target_branch." },
-        model: { type: "string", description: "Optional Codex model override." },
+        model: { type: "string", description: "Optional model override (see spawn_peer)." },
         sandbox: {
           type: "string",
           enum: ["read-only", "workspace-write", "danger-full-access"],
-          description: "Optional Codex sandbox mode.",
+          description: "Optional Codex sandbox mode (codex engine only).",
         },
         yolo: {
           type: "boolean",
-          description: "Run peer with --dangerously-bypass-approvals-and-sandbox.",
+          description: "Codex engine only: run with --dangerously-bypass-approvals-and-sandbox.",
         },
         dangerously_bypass_approvals_and_sandbox: {
           type: "boolean",
-          description: "Alias for yolo. Run peer with --dangerously-bypass-approvals-and-sandbox.",
+          description: "Alias for yolo. Codex engine only.",
+        },
+        engine: {
+          type: "string",
+          enum: ["codex", "cursor"],
+          description: "Which CLI to drive the peer. Defaults to 'codex'.",
+        },
+        cursor_options: {
+          type: "object",
+          description: "Cursor-engine-only options. Ignored when engine != 'cursor'.",
+          properties: {
+            cloud: { type: "boolean" },
+            approve_mcps: { type: "boolean" },
+            force: { type: "boolean" },
+          },
         },
         timeout_ms: {
           type: "number",
@@ -339,6 +371,8 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
         model: optionalString(args, "model"),
         sandbox: optionalString(args, "sandbox") as "read-only" | "workspace-write" | "danger-full-access" | undefined,
         yolo: bypassEnabled(args),
+        engine: engineValue(args),
+        cursorOptions: cursorOptionsValue(args),
       }));
     case "list_peers":
       return json(listPeers());
@@ -367,6 +401,8 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
         model: optionalString(args, "model"),
         sandbox: optionalString(args, "sandbox") as "read-only" | "workspace-write" | "danger-full-access" | undefined,
         yolo: bypassEnabled(args),
+        engine: engineValue(args),
+        cursorOptions: cursorOptionsValue(args),
         ...waitOptions(args),
       }));
     case "kill_peer":
@@ -534,6 +570,26 @@ function bypassEnabled(args: Record<string, unknown>): boolean {
       args.dangerously_bypass_approvals_and_sandbox ||
       args["dangerously-bypass-approvals-and-sandbox"],
   );
+}
+
+function engineValue(args: Record<string, unknown>): "codex" | "cursor" | undefined {
+  const raw = args.engine;
+  if (raw === "cursor" || raw === "codex") return raw;
+  return undefined;
+}
+
+function cursorOptionsValue(
+  args: Record<string, unknown>,
+): { cloud?: boolean; approveMcps?: boolean; force?: boolean } | undefined {
+  const raw = args.cursor_options ?? args.cursorOptions;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const record = raw as Record<string, unknown>;
+  const out: { cloud?: boolean; approveMcps?: boolean; force?: boolean } = {};
+  if (typeof record.cloud === "boolean") out.cloud = record.cloud;
+  const approveMcps = record.approve_mcps ?? record.approveMcps;
+  if (typeof approveMcps === "boolean") out.approveMcps = approveMcps;
+  if (typeof record.force === "boolean") out.force = record.force;
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 type JsonRpcRequest = {

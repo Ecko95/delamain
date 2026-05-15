@@ -21,6 +21,14 @@ export type PeerIntegrationStatus = "pending" | "skipped" | "pushed" | "failed";
 
 export type PeerKind = "generic" | "gsd_phase_batch";
 
+export type PeerEngine = "codex" | "cursor";
+
+export type CursorRunOptions = {
+	cloud?: boolean;
+	approveMcps?: boolean;
+	force?: boolean;
+};
+
 export type GsdPlanningMode = "dynamic" | "frozen";
 
 export type GsdBatchSpawnConfig = {
@@ -49,6 +57,9 @@ export type PeerRecord = {
   status: PeerStatus;
   runnerPid?: number;
   codexPid?: number;
+  enginePid?: number;
+  engine?: PeerEngine;
+  cursorOptions?: CursorRunOptions;
   threadId?: string;
   startedAt: string;
   updatedAt: string;
@@ -76,10 +87,14 @@ export type PeerRecord = {
  * state.json files keep working without migration. Idempotent.
  */
 export function normalizePeerRecord(peer: PeerRecord): PeerRecord {
-  if (peer.kind === undefined) {
-    return { ...peer, kind: "generic" };
+  let next = peer;
+  if (next.kind === undefined) {
+    next = { ...next, kind: "generic" };
   }
-  return peer;
+  if (next.engine === undefined) {
+    next = { ...next, engine: "codex" };
+  }
+  return next;
 }
 
 export type PeerState = {
@@ -103,6 +118,8 @@ export type SpawnPeerOptions = {
   model?: string;
   sandbox?: "read-only" | "workspace-write" | "danger-full-access";
   yolo?: boolean;
+  engine?: PeerEngine;
+  cursorOptions?: CursorRunOptions;
 };
 
 export type ResumePeerOptions = {
