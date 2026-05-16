@@ -1,10 +1,11 @@
 {
-  "name": "codex-mcp-peers-server",
+  "name": "delamain",
   "version": "0.1.0",
-  "description": "MCP server and tmux-friendly dashboard for supervising headless Codex peers across repositories.",
+  "description": "Multi-engine, multi-channel agent supervisor — spawns and integrates headless coding peers (Codex, Cursor, ...) in isolated git worktrees.",
   "type": "module",
   "private": false,
   "bin": {
+    "delamain": "./dist/index.js",
     "codex-peers": "./dist/index.js"
   },
   "scripts": {
@@ -19,10 +20,14 @@
     "test:frozen-eligibility": "vitest run src/frozen-eligibility"
   },
   "keywords": [
+    "delamain",
     "codex",
+    "cursor",
     "mcp",
     "tmux",
-    "agents"
+    "agents",
+    "agent-supervisor",
+    "git-worktree"
   ],
   "license": "MIT",
   "dependencies": {

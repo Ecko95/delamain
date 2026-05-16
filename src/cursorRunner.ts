@@ -89,7 +89,7 @@ export async function runCursorPeer(args: CursorRunnerArgs): Promise<void> {
 	const bin = process.env.CURSOR_AGENT_BIN || "cursor-agent";
 	const cliArgs = buildCursorArgs(args, prompt);
 
-	append(log, `[codex-peers][cursor] starting: ${bin} ${redactArgs(cliArgs).join(" ")}\n`);
+	append(log, `[delamain][cursor] starting: ${bin} ${redactArgs(cliArgs).join(" ")}\n`);
 	updatePeer(args.peerId, (peer) => ({
 		...peer,
 		engine: "cursor",
@@ -157,7 +157,7 @@ export async function runCursorPeer(args: CursorRunnerArgs): Promise<void> {
 	});
 
 	child.on("error", (error) => {
-		append(log, `[codex-peers][cursor] failed to start cursor-agent: ${error.message}\n`);
+		append(log, `[delamain][cursor] failed to start cursor-agent: ${error.message}\n`);
 		updatePeer(args.peerId, (peer) => ({
 			...peer,
 			status: "failed",
@@ -193,19 +193,19 @@ export async function runCursorPeer(args: CursorRunnerArgs): Promise<void> {
 				}));
 				append(
 					log,
-					`[codex-peers][cursor] integrating peer worktree with origin/${args.mergeBranch || "main"}\n`,
+					`[delamain][cursor] integrating peer worktree with origin/${args.mergeBranch || "main"}\n`,
 				);
 				try {
 					const integrated = integratePeerWorktree(args.repo, args.peerId, args.mergeBranch || "main");
 					integrationStatus = integrated.status;
 					integrationEvent = integrated.message;
-					append(log, `[codex-peers][cursor] ${integrated.message}\n`);
+					append(log, `[delamain][cursor] ${integrated.message}\n`);
 				} catch (error) {
 					status = "failed";
 					integrationStatus = "failed";
 					integrationError = error instanceof Error ? error.message : String(error);
 					integrationEvent = "integration failed";
-					append(log, `[codex-peers][cursor] integration failed: ${integrationError}\n`);
+					append(log, `[delamain][cursor] integration failed: ${integrationError}\n`);
 				}
 			}
 
@@ -227,7 +227,7 @@ export async function runCursorPeer(args: CursorRunnerArgs): Promise<void> {
 						? "waiting for orchestrator input"
 						: integrationEvent || `cursor-agent exited code=${code}`,
 			}));
-			append(log, `[codex-peers][cursor] exited code=${code} signal=${signal ?? ""}\n`);
+			append(log, `[delamain][cursor] exited code=${code} signal=${signal ?? ""}\n`);
 			log.end();
 			resolve();
 		});

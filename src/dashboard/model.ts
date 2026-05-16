@@ -286,7 +286,7 @@ function formatDashboardLogLine(line: string): string[] {
   if (!trimmed) {
     return [];
   }
-  if (trimmed.startsWith("[codex-peers]")) {
+  if (trimmed.startsWith("[delamain]")) {
     return [`🧭 ${trimmed}`];
   }
   if (trimmed.startsWith("[stderr]")) {

@@ -48,7 +48,7 @@ export async function runPeer(argv: string[]): Promise<void> {
   const prompt = wrapPrompt(readFileSync(args.promptFile, "utf8"), args.repo, args.mergeBranch, Boolean(args.resumeThread));
   const codexArgs = buildCodexArgs(args);
 
-  append(log, `[codex-peers] starting: codex ${codexArgs.join(" ")}\n`);
+  append(log, `[delamain] starting: codex ${codexArgs.join(" ")}\n`);
   updatePeer(args.peerId, (peer) => ({
     ...peer,
     status: "working",
@@ -58,7 +58,7 @@ export async function runPeer(argv: string[]): Promise<void> {
     lastEvent: "runner started",
   }));
 
-  const codexHome = process.env.CODEX_HOME ?? join(homedir(), ".codex-peers", "peer-codex-home");
+  const codexHome = process.env.CODEX_HOME ?? join(homedir(), ".delamain", "peer-codex-home");
   const child = spawn("codex", codexArgs, {
     cwd: args.repo,
     detached: true,
@@ -119,7 +119,7 @@ export async function runPeer(argv: string[]): Promise<void> {
   });
 
   child.on("error", (error) => {
-    append(log, `[codex-peers] failed to start codex: ${error.message}\n`);
+    append(log, `[delamain] failed to start codex: ${error.message}\n`);
     updatePeer(args.peerId, (peer) => ({
       ...peer,
       status: "failed",
@@ -153,18 +153,18 @@ export async function runPeer(argv: string[]): Promise<void> {
           lastHeartbeatAt: now(),
           lastEvent: `codex exited code=${code}; integrating peer worktree`,
         }));
-        append(log, `[codex-peers] integrating peer worktree with origin/${args.mergeBranch || "main"}\n`);
+        append(log, `[delamain] integrating peer worktree with origin/${args.mergeBranch || "main"}\n`);
         try {
           const integrated = integratePeerWorktree(args.repo, args.peerId, args.mergeBranch || "main");
           integrationStatus = integrated.status;
           integrationEvent = integrated.message;
-          append(log, `[codex-peers] ${integrated.message}\n`);
+          append(log, `[delamain] ${integrated.message}\n`);
         } catch (error) {
           status = "failed";
           integrationStatus = "failed";
           integrationError = error instanceof Error ? error.message : String(error);
           integrationEvent = "integration failed";
-          append(log, `[codex-peers] integration failed: ${integrationError}\n`);
+          append(log, `[delamain] integration failed: ${integrationError}\n`);
         }
       }
 
@@ -183,7 +183,7 @@ export async function runPeer(argv: string[]): Promise<void> {
         integrationError,
         lastEvent: status === "waiting" ? "waiting for orchestrator input" : integrationEvent || `codex exited code=${code}`,
       }));
-      append(log, `[codex-peers] exited code=${code} signal=${signal ?? ""}\n`);
+      append(log, `[delamain] exited code=${code} signal=${signal ?? ""}\n`);
       log.end();
       resolve();
     });

@@ -28,7 +28,7 @@ export function updateTerminalResponseState(
 export function terminalResponseStateFromLog(text: string): TerminalResponseState {
   let state = initialTerminalResponseState();
   for (const line of text.split(/\r?\n/)) {
-    if (!line.trim() || line.startsWith("[codex-peers]") || line.startsWith("[stderr]")) {
+    if (!line.trim() || line.startsWith("[delamain]") || line.startsWith("[stderr]")) {
       continue;
     }
     state = updateTerminalResponseState(state, parseCodexJsonLine(line));

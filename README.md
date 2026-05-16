@@ -1,10 +1,12 @@
-# codex-mcp-peers-server
+# delamain
 
-Spawn and supervise headless Codex peers across repositories from one orchestrator Codex session.
+_Multi-engine, multi-channel agent supervisor — formerly `codex-mcp-peers-server`._
+
+Spawn and supervise headless coding peers (Codex, Cursor, ...) across repositories from one orchestrator Codex session.
 
 The package provides:
 
-- an MCP server with tools for spawning, listing, resuming, logging, and killing Codex peers
+- an MCP server with tools for spawning, listing, resuming, logging, and killing peers
 - detached peer runners backed by `codex exec --json`
 - automatic linked worktree isolation for every new peer
 - automatic successful-run integration: commit remaining peer edits, merge the selected origin branch, then push back to that branch
@@ -21,7 +23,7 @@ npm run build
 Register the MCP server with Codex:
 
 ```bash
-codex mcp add codex-peers -- node /absolute/path/to/codex-mcp-peers-server/dist/index.js server
+codex mcp add delamain -- node /absolute/path/to/delamain/dist/index.js server
 ```
 
 Restart Codex after adding the server. In a Codex session, use the MCP tools:
@@ -42,22 +44,23 @@ npm run mcp:restart
 ```
 
 That command runs `npm install`, builds `dist/`, removes any existing
-`codex-peers` MCP registration, adds the rebuilt server, and smoke-tests the
-Bun dashboard path when `bun` is installed. Set `CODEX_PEERS_MCP_NAME` if you
-registered the server under a different name.
+`delamain` MCP registration, adds the rebuilt server, and smoke-tests the
+Bun dashboard path when `bun` is installed. Set `DELAMAIN_MCP_NAME` (legacy
+`CODEX_PEERS_MCP_NAME` still accepted) if you registered the server under a
+different name.
 
 ## Dashboard
 
 Run the dashboard in another Warp window or tmux pane:
 
 ```bash
-node /absolute/path/to/codex-mcp-peers-server/dist/index.js dashboard
+node /absolute/path/to/delamain/dist/index.js dashboard
 ```
 
 The dashboard path uses OpenTUI and currently requires Bun. The rest of the
 package remains Node-compatible: MCP server, peer CLI commands, tmux status,
 logs, and worktree integration still run through Node. Bun is required only for
-`codex-peers dashboard`, `codex-peers --d`, `codex-peers -d`, and the v2
+`delamain dashboard`, `delamain --d`, `delamain -d`, and the v2
 dashboard aliases because
 `@opentui/core@0.2.4` does not load under Node ESM in this package; Node fails
 while importing OpenTUI's bundled `.scm` assets.
@@ -71,19 +74,19 @@ curl -fsSL https://bun.sh/install | bash
 If installed globally or linked:
 
 ```bash
-codex-peers dashboard
+delamain dashboard
 ```
 
 Short alias:
 
 ```bash
-codex-peers --d
+delamain --d
 ```
 
 V2 grid dashboard:
 
 ```bash
-codex-peers --d2
+delamain --d2
 ```
 
 Dashboard keys:
@@ -126,13 +129,13 @@ worktrees are marked `branch`.
 Add a compact status indicator:
 
 ```tmux
-set -g status-right '#(codex-peers tmux-status)'
+set -g status-right '#(delamain tmux-status)'
 ```
 
 Example:
 
 ```text
-Codex peers: 4 | working 2 | waiting 1 | cleanup 1 | frozen 0
+Delamain peers: 4 | working 2 | waiting 1 | cleanup 1 | frozen 0
 ```
 
 ## CLI
@@ -140,20 +143,20 @@ Codex peers: 4 | working 2 | waiting 1 | cleanup 1 | frozen 0
 Manual spawn:
 
 ```bash
-codex-peers spawn --repo /path/to/repo --prompt "Review the auth routes and report risks."
+delamain spawn --repo /path/to/repo --prompt "Review the auth routes and report risks."
 ```
 
 Choose a Codex model for a peer from the CLI or MCP tool call:
 
 ```bash
-codex-peers spawn --repo /path/to/repo --prompt "Fix the failing test." --model gpt-5.4
+delamain spawn --repo /path/to/repo --prompt "Fix the failing test." --model gpt-5.4
 ```
 
 The MCP `spawn_peer`, `spawn_peer_and_wait`, and `send_peer_reply` tools also
 accept `model`. The selected model is stored on the peer record and shown in
 the dashboard Details pane.
 
-The repo must be a Git repository with `origin`. By default, codex-peers bases
+The repo must be a Git repository with `origin`. By default, delamain bases
 the worktree on the origin default branch and pushes successful changes back to
 that branch. Use `--start-ref <ref>` to choose where the worktree starts, such
 as `origin/main`, `origin/release`, a local branch, `HEAD`, or a commit SHA.
@@ -164,7 +167,7 @@ then `main`, then `master`.
 Example: start from a local worktree branch and merge to `origin/release`:
 
 ```bash
-codex-peers spawn \
+delamain spawn \
   --repo /path/to/repo \
   --prompt "Implement the release fix." \
   --start-ref local-experiment \
@@ -176,18 +179,18 @@ flags are omitted, it means both `--start-ref origin/<branch>` and
 `--merge-branch <branch>`.
 
 Each new peer runs on a fresh `codex-peer/<id>` branch in a linked worktree
-under `~/.codex-peers/worktrees/`, not in the checkout passed with `--repo`.
+under `~/.delamain/worktrees/`, not in the checkout passed with `--repo`.
 
 Run with Codex's bypass flag:
 
 ```bash
-codex-peers spawn --repo /path/to/repo --prompt "Fix the failing test." --yolo
+delamain spawn --repo /path/to/repo --prompt "Fix the failing test." --yolo
 ```
 
 `--yolo` is shorthand for Codex's full flag:
 
 ```bash
-codex-peers spawn \
+delamain spawn \
   --repo /path/to/repo \
   --prompt "Fix the failing test." \
   --dangerously-bypass-approvals-and-sandbox
@@ -196,11 +199,11 @@ codex-peers spawn \
 Inspect and control peers:
 
 ```bash
-codex-peers list
-codex-peers status <peer-id>
-codex-peers log <peer-id> 120
-codex-peers kill <peer-id>
-codex-peers resume <peer-id> --prompt "Use option B and continue." --yolo
+delamain list
+delamain status <peer-id>
+delamain log <peer-id> 120
+delamain kill <peer-id>
+delamain resume <peer-id> --prompt "Use option B and continue." --yolo
 ```
 
 For MCP-driven orchestration, `wait_for_peer` blocks until a peer reaches a terminal status, and `spawn_peer_and_wait` combines spawn plus wait in one tool call. Both accept `timeout_ms`, `poll_interval_ms`, and `log_lines`; timeout returns a structured result without killing the peer.
@@ -219,27 +222,27 @@ is left in place for inspection.
 State and logs live under:
 
 ```text
-~/.codex-peers/
+~/.delamain/
 ```
 
 Override with:
 
 ```bash
-export CODEX_PEERS_HOME=/tmp/codex-peers-test
+export DELAMAIN_HOME=/tmp/delamain-test
 ```
 
 ## CODEX_HOME — Codex config and auth directory
 
-Each spawned peer runner sets `CODEX_HOME` explicitly when launching the `codex` subprocess. This ensures codex can always find its auth credentials and `config.toml` regardless of how codex-peers was started (cron, MCP server, or direct CLI).
+Each spawned peer runner sets `CODEX_HOME` explicitly when launching the `codex` subprocess. This ensures codex can always find its auth credentials and `config.toml` regardless of how delamain was started (cron, MCP server, or direct CLI).
 
-**Default:** `~/.codex-peers/peer-codex-home`
+**Default:** `~/.delamain/peer-codex-home`
 
-If `CODEX_HOME` is already set in the environment when codex-peers starts, that value is forwarded unchanged to every peer. If it is not set, codex-peers falls back to `~/.codex-peers/peer-codex-home`.
+If `CODEX_HOME` is already set in the environment when delamain starts, that value is forwarded unchanged to every peer. If it is not set, delamain falls back to `~/.delamain/peer-codex-home`.
 
 This directory should contain:
 
 ```text
-~/.codex-peers/peer-codex-home/
+~/.delamain/peer-codex-home/
 ├── auth.json        # OpenAI / ChatGPT credentials written by `codex login`
 ├── config.toml      # Default model, reasoning effort, trusted project paths, MCP servers
 ├── sessions/        # Codex thread session files
@@ -249,16 +252,16 @@ This directory should contain:
 To set up the peer-codex-home directory, run `codex login` once with `CODEX_HOME` pointing there:
 
 ```bash
-CODEX_HOME=~/.codex-peers/peer-codex-home codex login
+CODEX_HOME=~/.delamain/peer-codex-home codex login
 ```
 
 To override for a single spawn:
 
 ```bash
-CODEX_HOME=/custom/path codex-peers spawn --repo /path/to/repo --prompt "..."
+CODEX_HOME=/custom/path delamain spawn --repo /path/to/repo --prompt "..."
 ```
 
-**Why this exists:** When codex-peers runs as a cron-driven autopilot supervisor or as an MCP server inside Claude Code, the process environment may not carry the `CODEX_HOME` the user configured interactively. Without explicit forwarding, `codex exec` falls back to `~/.codex/` (or an empty default), finds no auth, and the peer dies with SIGTERM immediately after starting.
+**Why this exists:** When delamain runs as a cron-driven autopilot supervisor or as an MCP server inside Claude Code, the process environment may not carry the `CODEX_HOME` the user configured interactively. Without explicit forwarding, `codex exec` falls back to `~/.codex/` (or an empty default), finds no auth, and the peer dies with SIGTERM immediately after starting.
 
 ## Cursor engine (alternative to Codex)
 
@@ -311,7 +314,7 @@ The dashboard derives one extra display-only status:
 Peer records include git worktree metadata when the peer was spawned:
 `sourceRepo`, `baseRef`, `mergeBranch`, `worktreePath`, `worktreeBranch`,
 `gitDir`, `gitCommonDir`, `isLinkedWorktree`, and `integrationStatus`. Use these fields from
-`codex-peers status <peer-id>` or MCP `peer_status` to confirm a peer is
+`delamain status <peer-id>` or MCP `peer_status` to confirm a peer is
 running in an independent linked worktree and whether it pushed to
 the target origin branch.
 

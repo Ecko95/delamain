@@ -134,7 +134,7 @@ test("formatDashboardLogLines turns Codex JSON events into readable blocks", () 
         status: "completed",
       },
     }),
-    "[codex-peers] exited code=0 signal=",
+    "[delamain] exited code=0 signal=",
   ]);
 
   assert.match(lines.join("\n"), /thread\.started/);

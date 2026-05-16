@@ -8,7 +8,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       const prompt = flagString(args, "prompt") || readStdin();
       const repo = flagString(args, "repo");
       if (!repo || !prompt) {
-        throw new Error("Usage: codex-peers spawn --repo <git-repo> --prompt <task> [--name <name>] [--start-ref <ref>] [--merge-branch <branch>] [--yolo]");
+        throw new Error("Usage: delamain spawn --repo <git-repo> --prompt <task> [--name <name>] [--start-ref <ref>] [--merge-branch <branch>] [--yolo]");
       }
       console.log(JSON.stringify(spawnPeer({
         repo,
@@ -28,7 +28,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       const args = parseFlags(rest);
       const prompt = flagString(args, "prompt") || readStdin();
       if (!peerId || !prompt) {
-        throw new Error("Usage: codex-peers resume <peer-id> --prompt <message>");
+        throw new Error("Usage: delamain resume <peer-id> --prompt <message>");
       }
       console.log(JSON.stringify(resumePeer({ peerId, prompt, model: flagString(args, "model"), yolo: bypassEnabled(args) }), null, 2));
       return;
@@ -39,7 +39,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
     case "status": {
       const peerId = argv[0];
       if (!peerId) {
-        throw new Error("Usage: codex-peers status <peer-id>");
+        throw new Error("Usage: delamain status <peer-id>");
       }
       console.log(JSON.stringify(peerStatus(peerId), null, 2));
       return;
@@ -47,7 +47,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
     case "log": {
       const peerId = argv[0];
       if (!peerId) {
-        throw new Error("Usage: codex-peers log <peer-id> [lines]");
+        throw new Error("Usage: delamain log <peer-id> [lines]");
       }
       console.log(readPeerLog(peerId, Number(argv[1]) || 120));
       return;
@@ -55,7 +55,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
     case "kill": {
       const peerId = argv[0];
       if (!peerId) {
-        throw new Error("Usage: codex-peers kill <peer-id> [SIGTERM|SIGKILL]");
+        throw new Error("Usage: delamain kill <peer-id> [SIGTERM|SIGKILL]");
       }
       console.log(JSON.stringify(killPeer(peerId, argv[1] === "SIGKILL" ? "SIGKILL" : "SIGTERM"), null, 2));
       return;
@@ -103,7 +103,7 @@ function readStdin(): string {
 }
 
 function printHelp(): void {
-  console.log(`codex-peers
+  console.log(`delamain — multi-engine peer supervisor
 
 Commands:
   server                         Start the MCP server over stdio
@@ -120,10 +120,10 @@ Commands:
   kill <peer-id> [SIGTERM|SIGKILL]
 
 Codex MCP registration:
-  codex mcp add codex-peers -- node $(pwd)/dist/index.js server
+  codex mcp add delamain -- node $(pwd)/dist/index.js server
 
 tmux status-line:
-  set -g status-right '#(codex-peers tmux-status)'
+  set -g status-right '#(delamain tmux-status)'
 
 Aliases:
   --yolo is accepted as shorthand for Codex's
@@ -131,8 +131,9 @@ Aliases:
 
 Spawn behavior:
   New peers require a Git repository with origin. Each peer runs on a
-  codex-peer/<id> branch in a linked worktree under CODEX_PEERS_HOME, then
-  successful work is committed if needed, merged with --merge-branch or the
+  codex-peer/<id> branch in a linked worktree under DELAMAIN_HOME (legacy
+  CODEX_PEERS_HOME env var still accepted), then successful work is
+  committed if needed, merged with --merge-branch or the
   origin default branch, and pushed back to that branch. Use --start-ref to
   choose the commit/ref used to create the worktree. The older --target-branch
   option still means both --start-ref origin/<branch> and --merge-branch
