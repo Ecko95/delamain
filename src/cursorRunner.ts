@@ -20,19 +20,22 @@ export type CursorRunnerArgs = {
 	force?: boolean;
 };
 
-export const DEFAULT_CURSOR_MODEL = "composer-2-fast";
+export const DEFAULT_CURSOR_MODEL = "composer-2.5-fast";
 
 // Aliases mirror freema/cursor-plugin-cc so the supervisor can pick a model
 // by short name. Unknown ids pass through verbatim — `cursor-agent` rotates
 // these over time and `cursor-agent ls-models` shows the live list.
 export const CURSOR_MODEL_ALIASES: Record<string, string> = {
-	composer: "composer-2-fast",
-	"composer-fast": "composer-2-fast",
-	fast: "composer-2-fast",
-	"composer-2-fast": "composer-2-fast",
-	"composer-2": "composer-2",
-	"composer-full": "composer-2",
-	"composer-1.5": "composer-1.5",
+	composer: "composer-2.5",
+	"composer-fast": "composer-2.5-fast",
+	fast: "composer-2.5-fast",
+	"composer-2.5": "composer-2.5",
+	"composer-2.5-fast": "composer-2.5-fast",
+	// Legacy composer ids retired by cursor-agent; map to the current composer.
+	"composer-2-fast": "composer-2.5-fast",
+	"composer-2": "composer-2.5",
+	"composer-full": "composer-2.5",
+	"composer-1.5": "composer-2.5",
 	auto: "auto",
 	sonnet: "claude-4.6-sonnet-medium",
 	"sonnet-4.6": "claude-4.6-sonnet-medium",
@@ -52,8 +55,8 @@ export const CURSOR_MODEL_ALIASES: Record<string, string> = {
 	"gpt-5.3-codex-high": "gpt-5.3-codex-high",
 	"gpt-5.2-codex": "gpt-5.2-codex",
 	"gpt-5.2": "gpt-5.2",
-	grok: "grok-4-20",
-	"grok-thinking": "grok-4-20-thinking",
+	grok: "grok-4.3",
+	"grok-thinking": "grok-4.3",
 	gemini: "gemini-3.1-pro",
 	"gemini-pro": "gemini-3.1-pro",
 	"gemini-flash": "gemini-3-flash",
