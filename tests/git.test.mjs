@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPeerWorktree, integratePeerWorktree } from "../dist/git.js";
+import { createPeerWorktree, integratePeerWorktree, resolveBaseBranch } from "../dist/git.js";
 import { projectLabel } from "../dist/dashboard.js";
 
 test("creates peer worktree from origin default branch when default is master", () => {
@@ -113,6 +113,36 @@ test("missing resolvable base branch fails with clear error", () => {
     );
   } finally {
     cleanupFixture(root);
+  }
+});
+
+test("resolveBaseBranch strips a leading origin/ from an explicit target branch", () => {
+  const fixture = createFixture("main", ["release"]);
+  try {
+    process.env.CODEX_PEERS_HOME = join(fixture.root, "home");
+    assert.equal(resolveBaseBranch(fixture.repo, "origin/main"), "main");
+    assert.equal(resolveBaseBranch(fixture.repo, "origin/release"), "release");
+    assert.equal(resolveBaseBranch(fixture.repo, "release"), "release");
+  } finally {
+    cleanupFixture(fixture.root);
+  }
+});
+
+test("explicit origin/-prefixed target integrates back to the plain branch", () => {
+  const fixture = createFixture("main", ["release"]);
+  try {
+    process.env.CODEX_PEERS_HOME = join(fixture.root, "home");
+    const mergeBranch = resolveBaseBranch(fixture.repo, "origin/release");
+    const created = createPeerWorktree(fixture.repo, "prefixed-peer", { startRef: "origin/release" });
+    writeFileSync(join(created.worktreePath, "peer.txt"), "peer change\n", "utf8");
+
+    const integrated = integratePeerWorktree(created.worktreePath, "prefixed-peer", mergeBranch);
+
+    assert.equal(mergeBranch, "release");
+    assert.equal(integrated.status, "pushed");
+    assert.equal(git(["show", "release:peer.txt"], fixture.origin), "peer change\n");
+  } finally {
+    cleanupFixture(fixture.root);
   }
 });
 
