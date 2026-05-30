@@ -1,25 +1,46 @@
 // src/peerIntegration.ts
 //
-// integrate_peer MCP tool implementation: commit + merge + push from a
-// peer's worktree to its target branch. Per Hard Constraint 4 (manual-
-// review default), this is the EXPLICIT invocation path; no other code
-// path in codex-peers triggers a push. Refuses to act on running or
-// failed peers.
+// integrate_peer MCP tool implementation: commit + push the peer's own
+// branch to origin, then open a pull request against the target branch and
+// enable auto-merge (merge when checks pass). This is the EXPLICIT
+// invocation path; it never advances main/master directly — a PR does.
+// Refuses to act on running or failed peers.
 
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { peersHome } from "./paths.js";
 import { getPeer, upsertPeer } from "./store.js";
+import { pushPeerBranch } from "./git.js";
 import type { PeerRecord } from "./types.js";
 
 export type IntegrationOutcome = {
   ok: boolean;
-  commit_sha?: string;
-  merge_commit_sha?: string;
   target_branch?: string;
+  pr_number?: number;
+  pr_url?: string;
+  auto_merge_enabled?: boolean;
   error?: string;
 };
+
+export type OpenPrParams = {
+  /** Directory to run `gh` in (the peer worktree); gh infers the repo from origin. */
+  repoDir: string;
+  base: string;
+  head: string;
+  title: string;
+  body: string;
+  autoMerge: boolean;
+};
+
+export type OpenPrResult = {
+  number?: number;
+  url?: string;
+  autoMergeEnabled: boolean;
+};
+
+/** Injectable so unit tests can drive integration without invoking gh. */
+export type PrOpener = (params: OpenPrParams) => Promise<OpenPrResult> | OpenPrResult;
 
 export class IntegratePeerRefusedError extends Error {
   readonly code = "INTEGRATE_PEER_REFUSED";
@@ -63,7 +84,13 @@ export function classifyForIntegration(peer: { status: string }): "accept" | "re
   return "refuse";
 }
 
-export type IntegratePeerOpts = { auditLogPath: string };
+export type IntegratePeerOpts = {
+  auditLogPath: string;
+  /** PR opener; defaults to the real gh-backed implementation. */
+  openPr?: PrOpener;
+  /** Enable GitHub auto-merge (merge when checks pass). Defaults to true. */
+  autoMerge?: boolean;
+};
 
 /**
  * Module-level integratePeer wrapper used by the MCP tool surface.
@@ -99,120 +126,68 @@ export async function integratePeerWithRecord(
   }
   const worktreePath = peer.worktreePath ?? peer.repo;
   const targetBranch = peer.mergeBranch ?? peer.baseBranch ?? "main";
-
   const ts = new Date().toISOString();
-  const commitMsg = `peer ${peer.id}: integrate ${peer.kind ?? "generic"} (${peer.task.slice(0, 80)})`;
 
-  // Stage tracked-file modifications only. Per Hard Constraint 8 we avoid
-  // the "stage everything" flag; for an integration path the caller has
-  // reviewed, we use `git add -u` (only TRACKED file modifications) —
-  // safer than -A (which adds untracked files) and matches the
-  // "manual-review" posture: the operator has already inspected the diff.
-  const stageR = spawnSync("git", ["-C", worktreePath, "add", "-u"], {
-    encoding: "utf8",
-  });
-  if (stageR.status !== 0) {
-    return await failed(peer, opts, `git add -u failed: ${stageR.stderr}`, ts);
-  }
-  // No-op if nothing staged.
-  const diffR = spawnSync(
-    "git",
-    ["-C", worktreePath, "diff", "--cached", "--quiet"],
-    { encoding: "utf8" },
-  );
-  let commitSha: string | undefined;
-  if (diffR.status === 1) {
-    // diff exit 1 = changes staged. Commit.
-    const commitR = spawnSync(
-      "git",
-      ["-C", worktreePath, "commit", "--quiet", "-m", commitMsg],
-      { encoding: "utf8" },
-    );
-    if (commitR.status !== 0) {
-      return await failed(peer, opts, `commit failed: ${commitR.stderr}`, ts);
-    }
-    commitSha = spawnSync(
-      "git",
-      ["-C", worktreePath, "rev-parse", "HEAD"],
-      { encoding: "utf8" },
-    ).stdout.trim();
-  } else if (diffR.status !== 0) {
-    return await failed(
-      peer,
-      opts,
-      `git diff --cached failed: ${diffR.stderr}`,
-      ts,
-    );
+  // 1. Commit the peer's work and push its OWN branch to origin. This never
+  // advances the target branch — pushPeerBranch syncs the latest base into the
+  // peer branch and pushes the branch only.
+  let push;
+  try {
+    push = pushPeerBranch(worktreePath, peer.id, targetBranch);
+  } catch (error) {
+    return await failed(peer, opts, `push failed: ${errText(error)}`, ts);
   }
 
-  // Merge into target. The merge happens in the main checkout (the worktree
-  // IS the peer branch; merging the peer branch into the target branch from
-  // the target-branch checkout is the natural git operation).
-  const mainCheckoutR = spawnSync(
-    "git",
-    ["-C", worktreePath, "rev-parse", "--git-common-dir"],
-    { encoding: "utf8" },
-  );
-  if (mainCheckoutR.status !== 0) {
-    return await failed(
-      peer,
-      opts,
-      `rev-parse --git-common-dir failed: ${mainCheckoutR.stderr}`,
-      ts,
-    );
+  if (push.status === "skipped") {
+    await audit(opts.auditLogPath, {
+      event: "integrate_peer",
+      peer_id: peer.id,
+      kind: peer.kind ?? "generic",
+      outcome: "skipped",
+      iso8601: ts,
+      target_branch: targetBranch,
+    });
+    return {
+      peer: { ...peer, integrationStatus: "skipped" },
+      outcome: { ok: true, target_branch: targetBranch },
+    };
   }
-  const gitCommonDirRaw = mainCheckoutR.stdout.trim();
-  // git-common-dir can be relative to the worktree path; resolve.
-  const gitCommonDir = gitCommonDirRaw.startsWith("/")
-    ? gitCommonDirRaw
-    : join(worktreePath, gitCommonDirRaw);
-  const mainRepo = join(gitCommonDir, "..");
 
-  const checkoutR = spawnSync(
-    "git",
-    ["-C", mainRepo, "checkout", "--quiet", targetBranch],
-    { encoding: "utf8" },
-  );
-  if (checkoutR.status !== 0) {
-    return await failed(
-      peer,
-      opts,
-      `checkout ${targetBranch} failed: ${checkoutR.stderr}`,
-      ts,
-    );
-  }
-  const peerBranch = peer.worktreeBranch ?? peer.branch;
-  if (!peerBranch) {
-    return await failed(peer, opts, "peer has no branch to merge", ts);
-  }
-  const mergeR = spawnSync(
-    "git",
-    ["-C", mainRepo, "merge", "--no-ff", "--quiet", "-m", commitMsg, peerBranch],
-    { encoding: "utf8" },
-  );
-  if (mergeR.status !== 0) {
-    return await failed(peer, opts, `merge failed: ${mergeR.stderr}`, ts);
-  }
-  const mergeSha = spawnSync(
-    "git",
-    ["-C", mainRepo, "rev-parse", "HEAD"],
-    { encoding: "utf8" },
-  ).stdout.trim();
+  // 2. Open a pull request from the peer branch into the target branch and
+  // enable auto-merge (merge when checks pass).
+  const openPr = opts.openPr ?? ghOpenPullRequest;
+  const autoMerge = opts.autoMerge ?? true;
+  const title = `peer ${peer.id}: ${peer.task.slice(0, 100)}`;
+  const body = [
+    `Automated PR opened by delamain for peer \`${peer.id}\` (${peer.kind ?? "generic"}, engine ${peer.engine ?? "codex"}).`,
+    "",
+    `Branch \`${push.branch}\` → \`${targetBranch}\`.`,
+    "",
+    "Task:",
+    "",
+    peer.task,
+  ].join("\n");
 
-  const pushR = spawnSync(
-    "git",
-    ["-C", mainRepo, "push", "--quiet", "origin", targetBranch],
-    { encoding: "utf8" },
-  );
-  if (pushR.status !== 0) {
-    return await failed(peer, opts, `push failed: ${pushR.stderr}`, ts);
+  let pr: OpenPrResult;
+  try {
+    pr = await openPr({
+      repoDir: worktreePath,
+      base: targetBranch,
+      head: push.branch,
+      title,
+      body,
+      autoMerge,
+    });
+  } catch (error) {
+    return await failed(peer, opts, `open pull request failed: ${errText(error)}`, ts);
   }
 
   const outcome: IntegrationOutcome = {
     ok: true,
-    commit_sha: commitSha,
-    merge_commit_sha: mergeSha,
     target_branch: targetBranch,
+    pr_number: pr.number,
+    pr_url: pr.url,
+    auto_merge_enabled: pr.autoMergeEnabled,
   };
   await audit(opts.auditLogPath, {
     event: "integrate_peer",
@@ -220,19 +195,77 @@ export async function integratePeerWithRecord(
     kind: peer.kind ?? "generic",
     outcome: "pushed",
     iso8601: ts,
-    commit_sha: commitSha,
-    merge_commit_sha: mergeSha,
     target_branch: targetBranch,
+    pr_number: pr.number,
+    pr_url: pr.url,
+    auto_merge_enabled: pr.autoMergeEnabled,
   });
   return {
     peer: {
       ...peer,
       integrationStatus: "pushed",
-      integrationCommitSha: commitSha,
-      integrationMergeCommitSha: mergeSha,
+      integrationPrNumber: pr.number,
+      integrationPrUrl: pr.url,
     },
     outcome,
   };
+}
+
+function errText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Real PR opener: shells out to `gh` inside the peer worktree (gh infers the
+ * repository from origin). Reuses an existing open PR for the same head, then
+ * enables auto-merge. A non-fatal auto-merge failure (e.g. the repo has
+ * auto-merge disabled) leaves the PR open and reports autoMergeEnabled=false.
+ */
+async function ghOpenPullRequest(p: OpenPrParams): Promise<OpenPrResult> {
+  const gh = (args: string[]) => spawnSync("gh", args, { cwd: p.repoDir, encoding: "utf8" });
+
+  let number: number | undefined;
+  let url: string | undefined;
+
+  const existing = gh(["pr", "list", "--head", p.head, "--state", "open", "--json", "number,url", "--limit", "1"]);
+  if (existing.status === 0 && existing.stdout.trim()) {
+    try {
+      const arr = JSON.parse(existing.stdout) as Array<{ number: number; url: string }>;
+      if (arr.length > 0) {
+        number = arr[0].number;
+        url = arr[0].url;
+      }
+    } catch {
+      // fall through to create
+    }
+  }
+
+  if (number === undefined) {
+    const created = gh(["pr", "create", "--base", p.base, "--head", p.head, "--title", p.title, "--body", p.body]);
+    if (created.status !== 0) {
+      throw new Error(`gh pr create failed: ${created.stderr || created.stdout}`);
+    }
+    const view = gh(["pr", "view", p.head, "--json", "number,url"]);
+    if (view.status === 0) {
+      try {
+        const j = JSON.parse(view.stdout) as { number: number; url: string };
+        number = j.number;
+        url = j.url;
+      } catch {
+        url = created.stdout.trim().split(/\s+/).find((s) => s.startsWith("http"));
+      }
+    } else {
+      url = created.stdout.trim().split(/\s+/).find((s) => s.startsWith("http"));
+    }
+  }
+
+  let autoMergeEnabled = false;
+  if (p.autoMerge && number !== undefined) {
+    const merged = gh(["pr", "merge", String(number), "--auto", "--squash"]);
+    autoMergeEnabled = merged.status === 0;
+  }
+
+  return { number, url, autoMergeEnabled };
 }
 
 async function failed(

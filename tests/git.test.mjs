@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPeerWorktree, integratePeerWorktree, resolveBaseBranch } from "../dist/git.js";
+import { createPeerWorktree, integratePeerWorktree, resolveBaseBranch, pushPeerBranch } from "../dist/git.js";
 import { projectLabel } from "../dist/dashboard.js";
 
 test("creates peer worktree from origin default branch when default is master", () => {
@@ -113,6 +113,30 @@ test("missing resolvable base branch fails with clear error", () => {
     );
   } finally {
     cleanupFixture(root);
+  }
+});
+
+test("pushPeerBranch pushes the peer branch to origin without advancing the base", () => {
+  const fixture = createFixture("main");
+  try {
+    process.env.CODEX_PEERS_HOME = join(fixture.root, "home");
+    const mainBefore = git(["rev-parse", "main"], fixture.origin).trim();
+    const created = createPeerWorktree(fixture.repo, "branch-peer");
+    writeFileSync(join(created.worktreePath, "peer.txt"), "peer change\n", "utf8");
+
+    const result = pushPeerBranch(created.worktreePath, "branch-peer", "main");
+
+    assert.equal(result.status, "pushed");
+    assert.equal(result.branch, "codex-peer/branch-peer");
+    // Origin has the peer branch...
+    const branches = git(["branch", "--list", "codex-peer/branch-peer"], fixture.origin);
+    assert.ok(branches.includes("codex-peer/branch-peer"), `origin has peer branch: ${branches}`);
+    assert.equal(git(["show", "codex-peer/branch-peer:peer.txt"], fixture.origin), "peer change\n");
+    // ...and main is untouched.
+    assert.equal(git(["rev-parse", "main"], fixture.origin).trim(), mainBefore);
+    assert.throws(() => git(["show", "main:peer.txt"], fixture.origin));
+  } finally {
+    cleanupFixture(fixture.root);
   }
 });
 

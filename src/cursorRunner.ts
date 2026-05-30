@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { dirname } from "node:path";
 import { trim } from "./codexEvents.js";
 import { parseCursorJsonLine } from "./cursorEvents.js";
-import { integratePeerWorktree } from "./git.js";
+import { pushPeerBranch } from "./git.js";
 import { initialTerminalResponseState, updateTerminalResponseState } from "./lifecycle.js";
 import { updatePeer } from "./store.js";
 
@@ -192,23 +192,23 @@ export async function runCursorPeer(args: CursorRunnerArgs): Promise<void> {
 					...peer,
 					updatedAt: now(),
 					lastHeartbeatAt: now(),
-					lastEvent: `cursor-agent exited code=${code}; integrating peer worktree`,
+					lastEvent: `cursor-agent exited code=${code}; pushing peer branch`,
 				}));
 				append(
 					log,
-					`[delamain][cursor] integrating peer worktree with origin/${args.mergeBranch || "main"}\n`,
+					`[delamain][cursor] pushing peer branch to origin (base origin/${args.mergeBranch || "main"})\n`,
 				);
 				try {
-					const integrated = integratePeerWorktree(args.repo, args.peerId, args.mergeBranch || "main");
-					integrationStatus = integrated.status;
-					integrationEvent = integrated.message;
-					append(log, `[delamain][cursor] ${integrated.message}\n`);
+					const pushed = pushPeerBranch(args.repo, args.peerId, args.mergeBranch || "main");
+					integrationStatus = pushed.status;
+					integrationEvent = pushed.message;
+					append(log, `[delamain][cursor] ${pushed.message}\n`);
 				} catch (error) {
 					status = "failed";
 					integrationStatus = "failed";
 					integrationError = error instanceof Error ? error.message : String(error);
-					integrationEvent = "integration failed";
-					append(log, `[delamain][cursor] integration failed: ${integrationError}\n`);
+					integrationEvent = "branch push failed";
+					append(log, `[delamain][cursor] branch push failed: ${integrationError}\n`);
 				}
 			}
 
