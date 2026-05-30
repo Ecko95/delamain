@@ -19,7 +19,7 @@ const TOOLS = [
   {
     name: "spawn_peer",
     description:
-      "Spawn a supervised headless peer (Codex by default, or Cursor when engine='cursor') in an isolated linked worktree, then integrate successful changes into the origin default branch or explicit target branch.",
+      "Spawn a supervised headless peer (Codex by default, or Cursor when engine='cursor') in an isolated linked worktree. On success the peer pushes its own branch to origin (syncing the latest base first); it NEVER advances main/master directly. Use integrate_peer to open a pull request from that branch into the target branch.",
     inputSchema: {
       type: "object",
       properties: {
@@ -211,7 +211,7 @@ const TOOLS = [
   {
     name: "spawn_gsd_phase_batch",
     description:
-      "Spawn a peer that drives /gsd-autonomous (dynamic mode) or /gsd-execute-phase (frozen mode) one phase at a time inside Codex CLI. Phase 33 plan 01 creates the spawn record only; the runner (plans 33-02/03) picks gsd_pending peers off the queue. Does NOT auto-integrate; use integrate_peer for review-then-merge.",
+      "Spawn a peer that drives /gsd-autonomous (dynamic mode) or /gsd-execute-phase (frozen mode) one phase at a time inside Codex CLI. Phase 33 plan 01 creates the spawn record only; the runner (plans 33-02/03) picks gsd_pending peers off the queue. Does NOT auto-push; use integrate_peer to push the branch and open a PR.",
     inputSchema: {
       type: "object",
       properties: {
@@ -265,7 +265,7 @@ const TOOLS = [
   {
     name: "integrate_peer",
     description:
-      "Integrate a completed peer: stage tracked-file changes in the peer's worktree, commit, merge --no-ff into the target branch, and push to origin. Refuses peers in running/halted/failed states. Per Hard Constraint 4 this is the explicit-invocation path; no other tool in delamain triggers a push.",
+      "Integrate a completed peer via pull request: commit and push the peer's own branch to origin, then open a PR into the target branch (main/master by default) and enable GitHub auto-merge so it lands once checks pass. Never advances the target branch directly. Refuses peers in running/halted/failed states. Requires gh authenticated for the repo's owner. Returns pr_number/pr_url/auto_merge_enabled.",
     inputSchema: {
       type: "object",
       properties: {

@@ -27,6 +27,13 @@ export type PeerIntegrationResult = {
   pushed: boolean;
 };
 
+export type PeerBranchPushResult = {
+  status: "skipped" | "pushed";
+  branch: string;
+  committed: boolean;
+  message: string;
+};
+
 export type CreatePeerWorktreeOptions = {
   startRef?: string;
   targetBranch?: string;
@@ -261,6 +268,54 @@ function mergeOriginBranch(repo: string, baseBranch: string): void {
     return;
   }
   runGit(repo, ["merge", "--no-edit", `origin/${baseBranch}`]);
+}
+
+function pushBranchToOrigin(repo: string, branch: string): void {
+  const args = ["push", "-u", "origin", `HEAD:refs/heads/${branch}`];
+  const result = runGit(repo, args, { allowFailure: true });
+  if (result.status !== 0) {
+    throw gitError(repo, args, result);
+  }
+}
+
+/**
+ * Sync the latest base into the peer's own branch and push that branch to
+ * origin — WITHOUT merging into the base branch. This is the safe default for
+ * a peer that finished work: its branch lands on origin so a PR can ship it to
+ * main/master, but main is never advanced directly.
+ */
+export function pushPeerBranch(repo: string, peerId: string, baseBranch = "main"): PeerBranchPushResult {
+  const worktreePath = gitRoot(repo);
+  if (!worktreePath) {
+    throw new Error(`Cannot push peer ${peerId} branch: ${repo} is not inside a git repository.`);
+  }
+  const branch = gitBranch(worktreePath);
+  if (!branch) {
+    throw new Error(`Cannot push peer ${peerId} branch: no current branch in ${worktreePath}.`);
+  }
+
+  const committed = commitWorkingTree(worktreePath, peerId);
+  ensureOrigin(worktreePath);
+  // Pull the latest base into the peer branch so the eventual PR is current.
+  fetchOriginBranch(worktreePath, baseBranch);
+  mergeOriginBranch(worktreePath, baseBranch);
+
+  if (aheadCount(worktreePath, `origin/${baseBranch}`, "HEAD") === 0) {
+    return {
+      status: "skipped",
+      branch,
+      committed,
+      message: `No peer changes ahead of origin/${baseBranch}; nothing to push.`,
+    };
+  }
+
+  pushBranchToOrigin(worktreePath, branch);
+  return {
+    status: "pushed",
+    branch,
+    committed,
+    message: `Pushed peer ${peerId} branch ${branch} to origin (base origin/${baseBranch}).`,
+  };
 }
 
 function pushHeadToOriginBranch(repo: string, baseBranch: string): void {

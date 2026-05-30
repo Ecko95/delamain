@@ -70,9 +70,17 @@ test("classifyForIntegration refuses unknown statuses (safe default)", () => {
   assert.equal(classifyForIntegration({ status: "totally_unknown" }), "refuse");
 });
 
-test("integratePeerWithRecord commits + merges + pushes for a gsd_completed peer", async () => {
+test("integratePeerWithRecord pushes the peer branch + opens a PR (no direct main push)", async () => {
   const env = await makePeerEnv();
   const auditLog = join(env.repoDir, ".integration-audit.jsonl");
+  const mainBefore = spawnSync("git", ["-C", env.bareDir, "rev-parse", "main"], {
+    encoding: "utf8",
+  }).stdout.trim();
+  const prCalls = [];
+  const openPr = (params) => {
+    prCalls.push(params);
+    return { number: 42, url: "https://example.test/pr/42", autoMergeEnabled: true };
+  };
   try {
     const peer = {
       id: "abc",
@@ -89,12 +97,30 @@ test("integratePeerWithRecord commits + merges + pushes for a gsd_completed peer
       baseBranch: "main",
       mergeBranch: "main",
     };
-    const r = await integratePeerWithRecord(peer, { auditLogPath: auditLog });
+    const r = await integratePeerWithRecord(peer, { auditLogPath: auditLog, openPr });
     assert.equal(r.outcome.ok, true);
     assert.equal(r.peer.integrationStatus, "pushed");
-    assert.ok(r.outcome.commit_sha, "commit sha set");
-    assert.ok(r.outcome.merge_commit_sha, "merge sha set");
     assert.equal(r.outcome.target_branch, "main");
+    assert.equal(r.outcome.pr_number, 42);
+    assert.equal(r.outcome.pr_url, "https://example.test/pr/42");
+    assert.equal(r.outcome.auto_merge_enabled, true);
+    assert.equal(r.peer.integrationPrNumber, 42);
+    assert.equal(r.peer.integrationPrUrl, "https://example.test/pr/42");
+    // PR opener was called with the right base/head.
+    assert.equal(prCalls.length, 1);
+    assert.equal(prCalls[0].base, "main");
+    assert.equal(prCalls[0].head, "peer/abc");
+    assert.equal(prCalls[0].autoMerge, true);
+    // The peer branch (not main) landed on origin.
+    const branches = spawnSync("git", ["-C", env.bareDir, "branch", "--list", "peer/abc"], {
+      encoding: "utf8",
+    }).stdout;
+    assert.ok(branches.includes("peer/abc"), `origin has peer branch: ${branches}`);
+    // main is untouched on origin.
+    const mainAfter = spawnSync("git", ["-C", env.bareDir, "rev-parse", "main"], {
+      encoding: "utf8",
+    }).stdout.trim();
+    assert.equal(mainAfter, mainBefore, "origin main must not advance");
     // Audit log line.
     const entries = (await readFile(auditLog, "utf8"))
       .trim()
@@ -104,12 +130,7 @@ test("integratePeerWithRecord commits + merges + pushes for a gsd_completed peer
     assert.equal(entries[0].outcome, "pushed");
     assert.equal(entries[0].peer_id, "abc");
     assert.equal(entries[0].event, "integrate_peer");
-    assert.equal(entries[0].kind, "gsd_phase_batch");
-    // Origin received the push.
-    const log = spawnSync("git", ["-C", env.bareDir, "log", "--oneline", "main"], {
-      encoding: "utf8",
-    }).stdout;
-    assert.ok(log.includes("integrate"), `bare repo got the merge: ${log}`);
+    assert.equal(entries[0].pr_number, 42);
   } finally {
     await rm(env.bareDir, { recursive: true, force: true });
     await rm(env.repoDir, { recursive: true, force: true });
