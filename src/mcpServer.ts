@@ -70,13 +70,13 @@ const TOOLS = [
   },
   {
     name: "list_peers",
-    description: "List all known Codex peers and their current status.",
+    description: "List all known peers and their current status.",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "wait_for_peer",
     description:
-      "Block until an existing Codex peer reaches a terminal status, or until timeout_ms elapses.",
+      "Block until an existing peer reaches a terminal status, or until timeout_ms elapses.",
     inputSchema: {
       type: "object",
       properties: {
@@ -265,7 +265,7 @@ const TOOLS = [
   {
     name: "integrate_peer",
     description:
-      "Integrate a completed peer: stage tracked-file changes in the peer's worktree, commit, merge --no-ff into the target branch, and push to origin. Refuses peers in running/halted/failed states. Per Hard Constraint 4 this is the explicit-invocation path; no other tool in codex-peers triggers a push.",
+      "Integrate a completed peer: stage tracked-file changes in the peer's worktree, commit, merge --no-ff into the target branch, and push to origin. Refuses peers in running/halted/failed states. Per Hard Constraint 4 this is the explicit-invocation path; no other tool in delamain triggers a push.",
     inputSchema: {
       type: "object",
       properties: {
@@ -292,7 +292,7 @@ const TOOLS = [
           type: "string",
           description:
             "Absolute filesystem path to the repository root (where .planning/ lives). " +
-            "For codex-peers usage this is typically a peer worktree path.",
+            "For delamain usage this is typically a peer worktree path.",
         },
         phase_ids: {
           type: "array",
@@ -338,12 +338,12 @@ async function handleRequest(request: JsonRpcRequest): Promise<unknown> {
         protocolVersion: request.params?.protocolVersion || "2024-11-05",
         capabilities: { tools: {} },
         serverInfo: {
-          name: "codex-mcp-peers-server",
-          title: "Codex MCP Peers",
+          name: "delamain",
+          title: "Delamain — multi-engine peer supervisor",
           version: "0.1.0",
         },
         instructions:
-          "Use this MCP server to spawn and supervise headless Codex peers across repositories. New peers run in isolated linked worktrees. By default they start from the origin default branch and merge successful changes back there; callers can choose a separate start_ref and merge_branch. Use list_peers and read_peer_log to monitor progress; use send_peer_reply when a peer reports CODEX_PEERS_STATUS: WAITING.",
+          "Use this MCP server (delamain) to spawn and supervise headless coding peers — Codex or Cursor — across repositories. New peers run in isolated linked worktrees. By default they start from the origin default branch and merge successful changes back there; callers can choose a separate start_ref, merge_branch, and engine ('codex' or 'cursor'). Use list_peers and read_peer_log to monitor progress; use send_peer_reply when a peer reports CODEX_PEERS_STATUS: WAITING.",
       };
     case "notifications/initialized":
       return undefined;
@@ -688,7 +688,7 @@ class StdioJsonRpcTransport {
     try {
       request = JSON.parse(line) as JsonRpcRequest;
     } catch (error) {
-      console.error(`[codex-peers] invalid JSON-RPC message: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`[delamain] invalid JSON-RPC message: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
     void this.onRequest(request);

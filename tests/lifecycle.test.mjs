@@ -53,7 +53,7 @@ test("peer status reconciles stale finished waiting records from the terminal lo
         commandExecution("old peer JSON still says CODEX_PEERS_STATUS: WAITING QUESTION: Use Bun or fallback?"),
         agentMessage("Implemented and committed the resumed work.\n\nVerified: npm test passed."),
         JSON.stringify({ type: "turn.completed" }),
-        "[codex-peers] exited code=0 signal=",
+        "[delamain] exited code=0 signal=",
       ].join("\n"),
       "utf8",
     );
