@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { worktreesDir } from "./paths.js";
 
@@ -72,6 +72,7 @@ export function createPeerWorktree(
   const worktreePath = join(worktreesDir(), repoKey(sourceRepo), peerId);
   mkdirSync(dirname(worktreePath), { recursive: true });
   runGit(sourceRepo, ["worktree", "add", "-b", branch, worktreePath, startPoint.baseRef]);
+  installWorktreeDeps(worktreePath);
 
   return {
     sourceRepo,
@@ -81,6 +82,22 @@ export function createPeerWorktree(
     baseRef: startPoint.baseRef,
     info: gitWorktreeInfo(worktreePath),
   };
+}
+
+function installWorktreeDeps(worktreePath: string): void {
+	const pkg = join(worktreePath, "package.json");
+	if (!existsSync(pkg)) return;
+	const lockfiles: [string, string, string[]][] = [
+		["pnpm-lock.yaml", "pnpm", ["install", "--frozen-lockfile", "--prefer-offline"]],
+		["yarn.lock", "yarn", ["install", "--frozen-lockfile"]],
+		["package-lock.json", "npm", ["install", "--prefer-offline", "--no-audit", "--no-fund"]],
+	];
+	for (const [lockfile, cmd, args] of lockfiles) {
+		if (existsSync(join(worktreePath, lockfile))) {
+			spawnSync(cmd, args, { cwd: worktreePath, stdio: "ignore" });
+			return;
+		}
+	}
 }
 
 export function integratePeerWorktree(repo: string, peerId: string, baseBranch = "main"): PeerIntegrationResult {
@@ -360,4 +377,29 @@ function runGit(
 function gitError(repo: string, args: string[], result: GitCommandResult): Error {
   const output = `${result.stderr || result.stdout}`.trim();
   return new Error(`git ${args.join(" ")} failed in ${repo}${output ? `: ${output}` : ""}`);
+}
+
+export type DiffStat = {
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+};
+
+export function worktreeDiffStat(repo: string, baseRef: string): DiffStat | undefined {
+  const result = runGit(repo, ["diff", "--shortstat", baseRef, "HEAD"], { allowFailure: true });
+  if (result.status !== 0) {
+    return undefined;
+  }
+  const out = result.stdout.trim();
+  if (!out) {
+    return { filesChanged: 0, insertions: 0, deletions: 0 };
+  }
+  const filesMatch = out.match(/(\d+) files? changed/);
+  const insertMatch = out.match(/(\d+) insertions?\(\+\)/);
+  const deleteMatch = out.match(/(\d+) deletions?\(-\)/);
+  return {
+    filesChanged: filesMatch ? parseInt(filesMatch[1], 10) : 0,
+    insertions: insertMatch ? parseInt(insertMatch[1], 10) : 0,
+    deletions: deleteMatch ? parseInt(deleteMatch[1], 10) : 0,
+  };
 }

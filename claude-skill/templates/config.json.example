@@ -1,0 +1,36 @@
+{
+  "_comment": "codex-peers-autopilot config. Lives at <state-dir>/config.json. Re-read on every supervisor tick.",
+
+  "repo_path": "/home/USER/dev/projects/REPO",
+  "default_branch": "main",
+
+  "merge_strategy": "rebase",
+  "delete_branch_on_merge": true,
+
+  "pr_title_prefix": "chore",
+  "peer_name_prefix": "autopilot",
+
+  "_path_prefix_help": "PATHs prepended to cron's minimal env so codex-peers, node, gh, npm, npx, git resolve. Adjust to your nvm or system install.",
+  "path_prefix": [
+    "/home/USER/.nvm/versions/node/vX.Y.Z/bin",
+    "/usr/local/bin",
+    "/usr/bin"
+  ],
+
+  "_forbidden_paths_help": "Files or directory prefixes the autopilot refuses to let a peer modify. If a peer's diff touches any of these, the chain halts. Use a trailing slash for directory matches.",
+  "forbidden_paths": [
+    "src/legacy/",
+    "src/critical-file.ts"
+  ],
+
+  "_forbidden_exception_slices_help": "Slice IDs that are allowed to touch forbidden_paths (e.g. a slice whose explicit job is to migrate legacy code). Empty array means strict enforcement everywhere.",
+  "forbidden_exception_slices": [],
+
+  "_verification_commands_help": "Mechanical checks run in the peer's worktree before opening a PR. Each entry: label (string), cmd (argv array), timeout_seconds (optional, default 600). All must exit 0 or the chain halts.",
+  "verification_commands": [
+    {"label": "npm run lint",      "cmd": ["npm", "run", "lint"]},
+    {"label": "tsc --noEmit",       "cmd": ["npx", "tsc", "--noEmit"]},
+    {"label": "npm test -- --run",  "cmd": ["npm", "test", "--", "--run"]},
+    {"label": "npm run build",      "cmd": ["npm", "run", "build"], "timeout_seconds": 900}
+  ]
+}

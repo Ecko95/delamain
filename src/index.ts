@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { startDashboard, printTmuxStatus } from "./dashboard.js";
+import { startDashboard, startDashboardV2, printTmuxStatus } from "./dashboard.js";
 import { startMcpServer } from "./mcpServer.js";
 import { runPeer } from "./runner.js";
 import { runCliCommand } from "./cli.js";
@@ -11,11 +11,18 @@ async function main(): Promise<void> {
     case "-d":
       startDashboard();
       return;
+    case "--d2":
+    case "-d2":
+      startDashboardV2();
+      return;
     case "server":
       await startMcpServer();
       return;
     case "dashboard":
       startDashboard();
+      return;
+    case "dashboard-v2":
+      startDashboardV2();
       return;
     case "tmux-status":
       printTmuxStatus();

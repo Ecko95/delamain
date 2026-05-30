@@ -1,4 +1,5 @@
 import type { PeerRecord, PeerStatus } from "../types.js";
+import type { CodexUsage } from "../codexUsage.js";
 
 export type DashboardStatus = PeerStatus | "cleanup";
 export type WorktreeRisk = "shared-checkout" | "shared-branch";
@@ -43,6 +44,7 @@ export type DashboardViewModel = {
   selectedPeer?: PeerRecord;
   selectedIndex: number;
   counts: Record<DashboardStatus, number>;
+  codexUsage?: CodexUsage;
   warnings: string[];
   details: DashboardDetailRow[];
   logLines: string[];
@@ -58,6 +60,8 @@ export type DashboardViewModelOptions = {
   now?: Date;
   logLimit?: number;
   logProvider?: (peerId: string, lines: number) => string;
+  diffStatProvider?: (peerId: string, repo: string, baseRef: string) => string | undefined;
+  codexUsageProvider?: () => CodexUsage | undefined;
 };
 
 const LOG_LIMIT = 80;
@@ -130,14 +134,18 @@ export function createDashboardViewModel(
   const mode = state.mode || "normal";
   const logLines = selectedPeer ? formatDashboardLogLines(safeLogTail(selectedPeer.id, options)) : [];
   const logOffset = Math.max(0, state.logOffset || 0);
+  const diffStat = selectedPeer && options.diffStatProvider
+    ? options.diffStatProvider(selectedPeer.id, selectedPeer.worktreePath || selectedPeer.repo, selectedPeer.baseRef || "")
+    : undefined;
 
   return {
     peers: rows,
     selectedPeer,
     selectedIndex,
     counts: countByDashboardStatus(peers),
+    codexUsage: safeCodexUsage(options),
     warnings: worktrees.warnings,
-    details: selectedPeer ? detailRows(selectedPeer) : [],
+    details: selectedPeer ? detailRows(selectedPeer, diffStat) : [],
     logLines,
     logOffset,
     peerOffset: Math.max(0, state.peerOffset || 0),
@@ -146,6 +154,14 @@ export function createDashboardViewModel(
     focusPane: state.focusPane || "peers",
     mode,
   };
+}
+
+function safeCodexUsage(options: DashboardViewModelOptions): CodexUsage | undefined {
+  try {
+    return options.codexUsageProvider?.();
+  } catch {
+    return undefined;
+  }
 }
 
 export function defaultCollapsedStatuses(): Partial<Record<DashboardStatus, boolean>> {
@@ -412,11 +428,11 @@ function knightRiderPosition(frame: number, width: number): number {
   return position <= distance ? position : cycle - position;
 }
 
-function detailRows(peer: PeerRecord): DashboardDetailRow[] {
+function detailRows(peer: PeerRecord, diffStat?: string): DashboardDetailRow[] {
   const rows: DashboardDetailRow[] = [
     { label: "id", value: peer.id },
     { label: "status", value: dashboardStatus(peer) },
-    { label: "model", value: peer.model || "default" },
+    { label: "model", value: modelWithEffort(peer.model) },
     { label: "project", value: projectLabel(peer) },
     { label: "source", value: valueOrDash(peer.sourceRepo) },
     { label: "worktree", value: valueOrDash(peer.worktreePath || peer.repo) },
@@ -425,6 +441,7 @@ function detailRows(peer: PeerRecord): DashboardDetailRow[] {
     { label: "peer branch", value: valueOrDash(peer.worktreeBranch || peer.branch) },
     { label: "task", value: valueOrDash(peer.task) },
     { label: "integration", value: integrationLabel(peer) },
+    { label: "diff", value: diffStat ?? "-" },
     { label: "log", value: valueOrDash(peer.logPath) },
   ];
   if (peer.question) {
@@ -437,6 +454,12 @@ function detailRows(peer: PeerRecord): DashboardDetailRow[] {
 function integrationLabel(peer: PeerRecord): string {
   const status = peer.integrationStatus || "pending";
   return peer.integrationError ? `${status} (${peer.integrationError})` : status;
+}
+
+function modelWithEffort(model?: string): string {
+  const m = model || "default";
+  const effort = model && model !== "gpt-5.5" ? "high" : "default";
+  return `${m}  effort:${effort}`;
 }
 
 function countByDashboardStatus(peers: PeerRecord[]): Record<DashboardStatus, number> {

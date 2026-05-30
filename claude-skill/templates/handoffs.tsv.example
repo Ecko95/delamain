@@ -1,0 +1,11 @@
+# slice_id	title	merge_branch	model	yolo
+# Tab-separated. Lines starting with # are comments. Order matters — slice 0 runs first.
+# Columns:
+#   slice_id     — short stable id, e.g. H0.0, H1.1, M1.2; used in branch and PR names
+#   title        — human-readable title shown in Telegram and PR
+#   merge_branch — feature branch on origin that the peer's success pushes to
+#   model        — codex model (e.g. gpt-5.4)
+#   yolo         — 1 to pass --yolo to the peer (full sandbox bypass), 0 to require sandboxed execution
+H0.0	Bootstrap and tooling baseline	autopilot/h0.0-bootstrap	gpt-5.4	1
+H0.1	Design tokens and theme	autopilot/h0.1-design-tokens	gpt-5.4	1
+H0.2	App shell	autopilot/h0.2-app-shell	gpt-5.4	1

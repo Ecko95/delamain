@@ -57,7 +57,8 @@ node /absolute/path/to/codex-mcp-peers-server/dist/index.js dashboard
 The dashboard path uses OpenTUI and currently requires Bun. The rest of the
 package remains Node-compatible: MCP server, peer CLI commands, tmux status,
 logs, and worktree integration still run through Node. Bun is required only for
-`codex-peers dashboard`, `codex-peers --d`, and `codex-peers -d` because
+`codex-peers dashboard`, `codex-peers --d`, `codex-peers -d`, and the v2
+dashboard aliases because
 `@opentui/core@0.2.4` does not load under Node ESM in this package; Node fails
 while importing OpenTUI's bundled `.scm` assets.
 
@@ -79,6 +80,12 @@ Short alias:
 codex-peers --d
 ```
 
+V2 grid dashboard:
+
+```bash
+codex-peers --d2
+```
+
 Dashboard keys:
 
 - `tab`/`shift+tab`: focus panes
@@ -90,6 +97,13 @@ Dashboard keys:
 - `Enter`: confirm kill while in kill confirmation
 - `Escape`: cancel modes
 - `q`: quit
+
+V2 dashboard extras:
+
+- auto-arranged OpenTUI grid that adapts from wide to narrow terminals
+- animated spinners for live/active surfaces
+- `1`-`7`: collapse or expand Overview, Limits, Telegram, Warnings, Peers, Details, Logs
+- `c`: collapse or expand the focused window
 
 Dashboard status notes:
 
