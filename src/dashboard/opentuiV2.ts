@@ -361,7 +361,7 @@ function headerPane(view: DashboardViewModel, state: RuntimeState, spinner: stri
   const waiting = view.counts.waiting || 0;
   const failed = (view.counts.failed || 0) + (view.counts.gsd_failed || 0);
   const chunks: TextChunk[] = [
-    textColor("#22d3ee")(`${spinner} codex-peers v2  `),
+    textColor("#22d3ee")(`${spinner} delamain  `),
     dimText("fleet "),
     textColor("#34d399")(`${view.peers.length}`),
     dimText("  active "),

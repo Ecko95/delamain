@@ -146,7 +146,7 @@ test("formatDashboardLogLines turns Codex JSON events into readable blocks", () 
 test("Bun missing message is actionable for dashboard users", () => {
   const message = bunMissingMessage();
   assert.match(message, /requires Bun/);
-  assert.match(message, /codex-peers tmux-status/);
+  assert.match(message, /delamain tmux-status/);
 });
 
 function peer(overrides) {

@@ -20,7 +20,7 @@ export async function runOpenTuiCompatibilitySmoke(): Promise<void> {
           height: "100%",
           flexDirection: "column",
         },
-        opentui.Text({ content: "codex-peers OpenTUI smoke" }),
+        opentui.Text({ content: "delamain OpenTUI smoke" }),
       ),
     );
     renderer.requestRender();
