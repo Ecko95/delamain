@@ -63,11 +63,13 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
     task: firstLine(options.prompt),
     status: "starting",
     integrationStatus: "pending",
+    engine: options.engine || "codex",
+    cursorOptions: options.engine === "cursor" ? options.cursorOptions : undefined,
     startedAt: now(),
     updatedAt: now(),
     lastHeartbeatAt: now(),
     logPath,
-    lastEvent: `queued in ${isolated.branch}; merge target origin/${mergeBranch}`,
+    lastEvent: `queued in ${isolated.branch}; merge target origin/${mergeBranch} (engine=${options.engine || "codex"})`,
   };
   upsertPeer(peer);
 
@@ -80,6 +82,8 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
     model: options.model,
     sandbox: options.sandbox,
     yolo: options.yolo,
+    engine: peer.engine,
+    cursorOptions: peer.cursorOptions,
   });
 
   updatePeer(id, (current) => ({
@@ -153,7 +157,7 @@ export function resumePeer(options: ResumePeerOptions): PeerRecord {
     throw new Error(`Unknown peer: ${options.peerId}`);
   }
   if (!peer.threadId) {
-    throw new Error(`Peer ${peer.id} has no known Codex thread id yet.`);
+    throw new Error(`Peer ${peer.id} has no known thread id yet.`);
   }
   if (isActive(peer)) {
     throw new Error(`Peer ${peer.id} is still active (${peer.status}). Kill it or wait before resuming.`);
@@ -172,6 +176,8 @@ export function resumePeer(options: ResumePeerOptions): PeerRecord {
     mergeBranch: peer.mergeBranch || peer.baseBranch,
     model: options.model,
     yolo: options.yolo,
+    engine: peer.engine,
+    cursorOptions: peer.cursorOptions,
   });
 
   const updated = updatePeer(peer.id, (current) => ({
@@ -243,6 +249,7 @@ export function readPeerLog(peerId: string, lines = 120): string {
 export function killPeer(peerId: string, signal: NodeJS.Signals = "SIGTERM"): PeerRecord {
   const peer = peerStatus(peerId);
   killProcessGroup(peer.codexPid, signal);
+  killProcessGroup(peer.enginePid, signal);
   killPid(peer.runnerPid, signal);
   const updated = updatePeer(peer.id, (current) => ({
     ...current,
@@ -351,6 +358,8 @@ function spawnRunner(args: {
   model?: string;
   sandbox?: string;
   yolo?: boolean;
+  engine?: "codex" | "cursor";
+  cursorOptions?: { cloud?: boolean; approveMcps?: boolean; force?: boolean };
 }) {
   const entry = join(dirname(fileURLToPath(import.meta.url)), "index.js");
   const runnerArgs = [
@@ -379,6 +388,14 @@ function spawnRunner(args: {
   }
   if (args.yolo) {
     runnerArgs.push("--yolo");
+  }
+  if (args.engine) {
+    runnerArgs.push("--engine", args.engine);
+  }
+  if (args.engine === "cursor") {
+    if (args.cursorOptions?.cloud) runnerArgs.push("--cursor-cloud");
+    if (args.cursorOptions?.approveMcps) runnerArgs.push("--cursor-approve-mcps");
+    if (args.cursorOptions?.force === false) runnerArgs.push("--no-cursor-force");
   }
 
   const child = spawn(process.execPath, runnerArgs, {
