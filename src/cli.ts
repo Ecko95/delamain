@@ -8,7 +8,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       const prompt = flagString(args, "prompt") || readStdin();
       const repo = flagString(args, "repo");
       if (!repo || !prompt) {
-        throw new Error("Usage: delamain spawn --repo <git-repo> --prompt <task> [--name <name>] [--start-ref <ref>] [--merge-branch <branch>] [--yolo]");
+        throw new Error("Usage: delamain spawn --repo <git-repo> --prompt <task> [--name <name>] [--start-ref <ref>] [--merge-branch <branch>] [--engine codex|cursor] [--model <model>] [--yolo]");
       }
       console.log(JSON.stringify(spawnPeer({
         repo,
@@ -20,6 +20,8 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
         model: flagString(args, "model"),
         sandbox: flagString(args, "sandbox") as "read-only" | "workspace-write" | "danger-full-access" | undefined,
         yolo: bypassEnabled(args),
+        engine: flagString(args, "engine") as "codex" | "cursor" | undefined,
+        cursorOptions: buildCursorOptions(args),
       }), null, 2));
       return;
     }
@@ -94,6 +96,22 @@ function bypassEnabled(args: Record<string, string | boolean>): boolean {
   return Boolean(args.yolo || args["dangerously-bypass-approvals-and-sandbox"]);
 }
 
+function buildCursorOptions(
+  args: Record<string, string | boolean>,
+): { cloud?: boolean; approveMcps?: boolean; force?: boolean } | undefined {
+  const cloud = Boolean(args["cursor-cloud"]);
+  const approveMcps = Boolean(args["cursor-approve-mcps"]);
+  const force = args["no-cursor-force"] ? false : undefined;
+  if (!cloud && !approveMcps && force === undefined) {
+    return undefined;
+  }
+  return {
+    cloud: cloud || undefined,
+    approveMcps: approveMcps || undefined,
+    force,
+  };
+}
+
 function readStdin(): string {
   try {
     return readFileSync(0, "utf8").trim();
@@ -112,8 +130,9 @@ Commands:
   --d, -d                        Run the live terminal dashboard
   --d2, -d2                      Run the v2 grid terminal dashboard
   tmux-status                    Print one tmux status-line summary
-  spawn --repo <git-repo> --prompt <task> [--start-ref <ref>] [--merge-branch <branch>] [--target-branch <branch>] [--model <codex-model>] [--yolo]
-  resume <peer-id> --prompt <message> [--model <codex-model>] [--yolo]
+  spawn --repo <git-repo> --prompt <task> [--start-ref <ref>] [--merge-branch <branch>] [--target-branch <branch>] [--engine codex|cursor] [--model <model>] [--sandbox <mode>] [--yolo]
+        cursor engine: [--cursor-cloud] [--cursor-approve-mcps] [--no-cursor-force]
+  resume <peer-id> --prompt <message> [--model <model>] [--yolo]
   list
   status <peer-id>
   log <peer-id> [lines]
