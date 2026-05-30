@@ -132,7 +132,11 @@ export function integratePeerWorktree(repo: string, peerId: string, baseBranch =
 
 export function resolveBaseBranch(repo: string, targetBranch?: string): string {
   if (targetBranch?.trim()) {
-    return validateBranchName(targetBranch.trim(), "target branch");
+    const trimmed = targetBranch.trim();
+    // Callers commonly pass "origin/main"; the branch name is what we store and
+    // re-prefix with origin/ downstream, so strip a leading remote prefix here.
+    const branch = trimmed.startsWith("origin/") ? trimmed.slice("origin/".length) : trimmed;
+    return validateBranchName(branch, "target branch");
   }
 
   const remoteDefault = remoteDefaultBranch(repo);

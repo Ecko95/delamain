@@ -12,8 +12,10 @@ test("resolveCursorModel maps short aliases to full model ids", () => {
 	assert.equal(resolveCursorModel("sonnet"), "claude-4.6-sonnet-medium");
 	assert.equal(resolveCursorModel("opus"), "claude-opus-4-7-high");
 	assert.equal(resolveCursorModel("gpt"), "gpt-5.3-codex");
-	assert.equal(resolveCursorModel("fast"), "composer-2-fast");
-	assert.equal(resolveCursorModel("Composer-2"), "composer-2");
+	assert.equal(resolveCursorModel("fast"), "composer-2.5-fast");
+	assert.equal(resolveCursorModel("composer"), "composer-2.5");
+	assert.equal(resolveCursorModel("Composer-2"), "composer-2.5");
+	assert.equal(resolveCursorModel("grok"), "grok-4.3");
 });
 
 test("resolveCursorModel passes unknown ids through verbatim", () => {
@@ -25,7 +27,7 @@ test("buildCursorArgs assembles base args with model + force by default", () => 
 		{ peerId: "p1", repo: "/r", promptFile: "/p", logPath: "/l" },
 		"do the thing",
 	);
-	assert.deepEqual(args.slice(0, 4), ["-p", "--output-format", "stream-json", "--trust"]);
+	assert.deepEqual(args.slice(0, 3), ["-p", "--output-format", "stream-json"]);
 	assert.ok(args.includes("--model"));
 	assert.ok(args.includes(DEFAULT_CURSOR_MODEL));
 	assert.ok(args.includes("--force"));
