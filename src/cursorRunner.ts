@@ -66,7 +66,7 @@ export function resolveCursorModel(input: string | undefined): string {
 }
 
 export function buildCursorArgs(args: CursorRunnerArgs, prompt: string): string[] {
-	const cliArgs = ["-p", "--output-format", "stream-json", "--trust"];
+	const cliArgs = ["-p", "--output-format", "stream-json"];
 	const model = resolveCursorModel(args.model);
 	cliArgs.push("--model", model);
 	if (args.force !== false) cliArgs.push("--force");

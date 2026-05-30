@@ -25,7 +25,7 @@ test("buildCursorArgs assembles base args with model + force by default", () => 
 		{ peerId: "p1", repo: "/r", promptFile: "/p", logPath: "/l" },
 		"do the thing",
 	);
-	assert.deepEqual(args.slice(0, 4), ["-p", "--output-format", "stream-json", "--trust"]);
+	assert.deepEqual(args.slice(0, 3), ["-p", "--output-format", "stream-json"]);
 	assert.ok(args.includes("--model"));
 	assert.ok(args.includes(DEFAULT_CURSOR_MODEL));
 	assert.ok(args.includes("--force"));
