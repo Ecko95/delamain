@@ -81,6 +81,10 @@ export type PeerRecord = {
   // Phase 33 additions:
   kind?: PeerKind; // missing → treat as "generic"
   gsdBatch?: GsdBatchSpawnConfig; // present only when kind === "gsd_phase_batch"
+  // Archive additions: archived peers live in state.archive.json and drop out
+  // of the live list/dashboard. Reversible via unarchive.
+  archived?: boolean;
+  archivedAt?: string;
 };
 
 /**

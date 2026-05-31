@@ -8,12 +8,21 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createPeerWorktree, gitBranch, gitRoot, gitWorktreeInfo, resolveBaseBranch } from "./git.js";
 import { reconcileFinishedWaitingPeer } from "./lifecycle.js";
 import { promptsDir, runsDir } from "./paths.js";
-import { getPeer, readState, updatePeer, upsertPeer } from "./store.js";
+import {
+  archivePeersByIds,
+  getPeer,
+  readArchivedPeers,
+  readState,
+  unarchivePeersByIds,
+  updatePeer,
+  upsertPeer,
+} from "./store.js";
 import { killPid, killProcessGroup, pidAlive } from "./processes.js";
 import { runGsdPhaseBatch } from "./gsdRunner.js";
 import type {
   GsdBatchSpawnConfig,
   PeerRecord,
+  PeerStatus,
   ResumePeerOptions,
   SpawnPeerAndWaitOptions,
   SpawnPeerOptions,
@@ -207,6 +216,67 @@ export function peerStatus(peerId: string): PeerRecord {
     throw new Error(`Unknown peer: ${peerId}`);
   }
   return reconciledPeer(peer);
+}
+
+// Statuses that represent a still-live peer. These are never archived in bulk
+// and are refused when archiving by explicit id, so archiving can't hide a
+// peer that is still doing work.
+const LIVE_STATUSES = new Set<PeerStatus>([
+  "starting",
+  "working",
+  "waiting",
+  "idle",
+  "gsd_pending",
+  "gsd_running_phase",
+  "gsd_polling_state",
+  "gsd_running_gate_check",
+]);
+
+export function isArchivable(peer: PeerRecord): boolean {
+  return !LIVE_STATUSES.has(peer.status);
+}
+
+export type ArchivePeersResult = {
+  archived: string[];
+  missing: string[];
+  skippedActive: string[];
+};
+
+/**
+ * Archive peers out of the live list. Pass `allFinished: true` to archive every
+ * non-live peer, or `ids` to archive specific peers (id or prefix). Live peers
+ * are never archived — they come back in `skippedActive`.
+ */
+export function archivePeers(options: { ids?: string[]; allFinished?: boolean }): ArchivePeersResult {
+  const peers = readState().peers;
+  let targetIds: string[];
+  let skippedActive: string[] = [];
+
+  if (options.allFinished) {
+    targetIds = peers.filter(isArchivable).map((peer) => peer.id);
+  } else {
+    const queries = options.ids ?? [];
+    const resolved = queries
+      .map((query) => peers.find((peer) => peer.id === query || peer.id.startsWith(query)))
+      .filter((peer): peer is PeerRecord => Boolean(peer));
+    skippedActive = resolved.filter((peer) => !isArchivable(peer)).map((peer) => peer.id);
+    targetIds = resolved.filter(isArchivable).map((peer) => peer.id);
+  }
+
+  const { archived, missing } = archivePeersByIds(targetIds);
+  return { archived, missing, skippedActive };
+}
+
+export function unarchivePeers(ids: string[]): { restored: string[]; missing: string[] } {
+  const archived = readArchivedPeers();
+  const resolved = ids
+    .map((query) => archived.find((peer) => peer.id === query || peer.id.startsWith(query))?.id)
+    .filter((id): id is string => Boolean(id));
+  return unarchivePeersByIds(resolved);
+}
+
+export function listArchivedPeers(): PeerRecord[] {
+  return readArchivedPeers();
 }
 
 export async function waitForPeer(options: WaitPeerOptions): Promise<WaitPeerResult> {

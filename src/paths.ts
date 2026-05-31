@@ -40,6 +40,10 @@ export function statePath(): string {
 	return join(peersHome(), "state.json");
 }
 
+export function archiveStatePath(): string {
+	return join(peersHome(), "state.archive.json");
+}
+
 export function runsDir(): string {
 	return join(peersHome(), "runs");
 }

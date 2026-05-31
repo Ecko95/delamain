@@ -1,5 +1,7 @@
 import {
+  archivePeers,
   killPeer,
+  listArchivedPeers,
   listPeers,
   peerStatus,
   readPeerLog,
@@ -7,6 +9,7 @@ import {
   spawnGsdPhaseBatch,
   spawnPeer,
   spawnPeerAndWait,
+  unarchivePeers,
   waitForPeer,
 } from "./peerManager.js";
 import { expandSelectedPhases } from "./gsdPhaseList.js";
@@ -71,6 +74,52 @@ const TOOLS = [
   {
     name: "list_peers",
     description: "List all known peers and their current status.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "archive_peers",
+    description:
+      "Move finished peers off the live list (and dashboard) into state.archive.json. " +
+      "Pass all_finished=true to archive every non-live peer at once, or peer_ids to archive " +
+      "specific peers by id/prefix. Live peers (starting/working/waiting/idle and in-progress " +
+      "GSD states) are never archived and are returned in skipped_active. Reversible with " +
+      "unarchive_peers. Returns { archived, missing, skipped_active }.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        all_finished: {
+          type: "boolean",
+          description: "Archive every non-live peer. Mutually sufficient with peer_ids.",
+        },
+        peer_ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "Specific peer ids or prefixes to archive.",
+        },
+      },
+    },
+  },
+  {
+    name: "unarchive_peers",
+    description:
+      "Restore archived peers from state.archive.json back to the live list. Accepts ids or prefixes. " +
+      "Returns { restored, missing }.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        peer_ids: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          description: "Archived peer ids or prefixes to restore.",
+        },
+      },
+      required: ["peer_ids"],
+    },
+  },
+  {
+    name: "list_archived_peers",
+    description: "List peers currently in the archive (state.archive.json).",
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -376,6 +425,31 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
       }));
     case "list_peers":
       return json(listPeers());
+    case "archive_peers": {
+      const rawIds = args.peer_ids;
+      const ids = Array.isArray(rawIds) ? rawIds.filter((v): v is string => typeof v === "string") : undefined;
+      const allFinished = Boolean(args.all_finished);
+      if (!allFinished && (!ids || ids.length === 0)) {
+        throw new Error("archive_peers: provide all_finished=true or a non-empty peer_ids array");
+      }
+      const result = archivePeers({ ids, allFinished });
+      return json({
+        archived: result.archived,
+        missing: result.missing,
+        skipped_active: result.skippedActive,
+        archived_count: result.archived.length,
+      });
+    }
+    case "unarchive_peers": {
+      const rawIds = args.peer_ids;
+      const ids = Array.isArray(rawIds) ? rawIds.filter((v): v is string => typeof v === "string") : [];
+      if (ids.length === 0) {
+        throw new Error("unarchive_peers: 'peer_ids' must be a non-empty array of strings");
+      }
+      return json(unarchivePeers(ids));
+    }
+    case "list_archived_peers":
+      return json(listArchivedPeers());
     case "wait_for_peer":
       return json(await waitForPeer({
         peerId: requiredString(args, "peer_id"),

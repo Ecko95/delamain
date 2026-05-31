@@ -1,5 +1,15 @@
 import { readFileSync } from "node:fs";
-import { killPeer, listPeers, peerStatus, readPeerLog, resumePeer, spawnPeer } from "./peerManager.js";
+import {
+  archivePeers,
+  killPeer,
+  listArchivedPeers,
+  listPeers,
+  peerStatus,
+  readPeerLog,
+  resumePeer,
+  spawnPeer,
+  unarchivePeers,
+} from "./peerManager.js";
 
 export async function runCliCommand(command: string, argv: string[]): Promise<void> {
   switch (command) {
@@ -37,6 +47,27 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
     }
     case "list":
       console.log(JSON.stringify(listPeers(), null, 2));
+      return;
+    case "archive": {
+      const args = parseFlags(argv);
+      const allFinished = Boolean(args["all-finished"]);
+      const ids = argv.filter((a) => !a.startsWith("--"));
+      if (!allFinished && ids.length === 0) {
+        throw new Error("Usage: delamain archive [--all-finished | <peer-id>...]");
+      }
+      console.log(JSON.stringify(archivePeers({ ids: ids.length ? ids : undefined, allFinished }), null, 2));
+      return;
+    }
+    case "unarchive": {
+      const ids = argv.filter((a) => !a.startsWith("--"));
+      if (ids.length === 0) {
+        throw new Error("Usage: delamain unarchive <peer-id>...");
+      }
+      console.log(JSON.stringify(unarchivePeers(ids), null, 2));
+      return;
+    }
+    case "archived":
+      console.log(JSON.stringify(listArchivedPeers(), null, 2));
       return;
     case "status": {
       const peerId = argv[0];
@@ -134,6 +165,9 @@ Commands:
         cursor engine: [--cursor-cloud] [--cursor-approve-mcps] [--no-cursor-force]
   resume <peer-id> --prompt <message> [--model <model>] [--yolo]
   list
+  archive [--all-finished | <peer-id>...]   Move finished peers off the live list
+  unarchive <peer-id>...                     Restore archived peers to the live list
+  archived                                   List archived peers
   status <peer-id>
   log <peer-id> [lines]
   kill <peer-id> [SIGTERM|SIGKILL]
