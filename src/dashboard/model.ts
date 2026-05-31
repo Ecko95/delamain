@@ -1,4 +1,4 @@
-import type { PeerRecord, PeerStatus } from "../types.js";
+import type { PeerEngine, PeerRecord, PeerStatus } from "../types.js";
 import type { CodexUsage } from "../codexUsage.js";
 
 export type DashboardStatus = PeerStatus | "cleanup";
@@ -22,6 +22,7 @@ export type DashboardPeerRow = {
   id: string;
   index: number;
   status: DashboardStatus;
+  engine: PeerEngine;
   activity: string;
   project: string;
   branch: string;
@@ -120,6 +121,7 @@ export function createDashboardViewModel(
     id: peer.id,
     index,
     status: dashboardStatus(peer),
+    engine: peer.engine ?? "codex",
     activity: statusActivity(dashboardStatus(peer), frame),
     project: projectLabel(peer),
     branch: valueOrDash(peer.mergeBranch || peer.baseBranch || peer.branch),
@@ -432,6 +434,7 @@ function detailRows(peer: PeerRecord, diffStat?: string): DashboardDetailRow[] {
   const rows: DashboardDetailRow[] = [
     { label: "id", value: peer.id },
     { label: "status", value: dashboardStatus(peer) },
+    { label: "engine", value: peer.engine ?? "codex" },
     { label: "model", value: modelWithEffort(peer.model) },
     { label: "project", value: projectLabel(peer) },
     { label: "source", value: valueOrDash(peer.sourceRepo) },

@@ -15,6 +15,7 @@ import {
   type DashboardStatus,
   type DashboardViewModel,
 } from "./model.js";
+import { engineCell, engineIconStyle } from "./engineIcon.js";
 
 type V2Pane = "overview" | "limits" | "telegram" | "warnings" | "peers" | "details" | "logs";
 type V2Mode = "normal" | "kill-confirm";
@@ -664,14 +665,17 @@ function peerDisplayLine(line: PeerDisplayLine, paneWidth: number, spinner: stri
   }
   const peer = line.peer;
   const contentWidth = Math.max(36, paneWidth - 4);
-  const projectWidth = Math.max(12, contentWidth - 34);
+  const projectWidth = Math.max(12, contentWidth - 37);
+  const engine = engineCell(peer.engine, engineIconStyle());
   const activity = peer.status === "working" || peer.status === "starting" || peer.status === "gsd_running_phase"
     ? spinner.padEnd(4)
     : peer.activity.slice(0, 4).padEnd(4);
   return [
     peer.selected ? textColor("#facc15")("● ") : dimText("  "),
     textColor(statusColor(peer.status))(activity),
-    ...plainChunks(` ${peer.id.padEnd(8)} ${peer.elapsed.padEnd(7)} `),
+    ...plainChunks(" "),
+    textColor(engine.color)(engine.text),
+    ...plainChunks(`${peer.id.padEnd(8)} ${peer.elapsed.padEnd(7)} `),
     textColor(statusColor(peer.status))(peer.status.slice(0, 10).padEnd(10)),
     ...plainChunks(` ${truncate(peer.project, projectWidth).padEnd(projectWidth)}`),
   ];
