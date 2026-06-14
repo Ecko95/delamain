@@ -84,6 +84,8 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
     yolo: options.yolo,
     engine: peer.engine,
     cursorOptions: peer.cursorOptions,
+    confine: options.confine,
+    egress: options.egress,
   });
 
   updatePeer(id, (current) => ({
@@ -360,6 +362,8 @@ function spawnRunner(args: {
   yolo?: boolean;
   engine?: "codex" | "cursor";
   cursorOptions?: { cloud?: boolean; approveMcps?: boolean; force?: boolean };
+  confine?: boolean;
+  egress?: string;
 }) {
   const entry = join(dirname(fileURLToPath(import.meta.url)), "index.js");
   const runnerArgs = [
@@ -396,6 +400,12 @@ function spawnRunner(args: {
     if (args.cursorOptions?.cloud) runnerArgs.push("--cursor-cloud");
     if (args.cursorOptions?.approveMcps) runnerArgs.push("--cursor-approve-mcps");
     if (args.cursorOptions?.force === false) runnerArgs.push("--no-cursor-force");
+  }
+  if (args.confine) {
+    runnerArgs.push("--confine");
+  }
+  if (args.egress) {
+    runnerArgs.push("--egress", args.egress);
   }
 
   const child = spawn(process.execPath, runnerArgs, {

@@ -122,6 +122,10 @@ export type SpawnPeerOptions = {
   yolo?: boolean;
   engine?: PeerEngine;
   cursorOptions?: CursorRunOptions;
+  /** When true, run the codex child jailed via gits-confine.sh (H0b). */
+  confine?: boolean;
+  /** Egress mode for the confined jail ("host" | "off"); defaults to "host" when confine is on. */
+  egress?: string;
 };
 
 export type ResumePeerOptions = {

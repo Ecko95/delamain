@@ -8,8 +8,9 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       const prompt = flagString(args, "prompt") || readStdin();
       const repo = flagString(args, "repo");
       if (!repo || !prompt) {
-        throw new Error("Usage: delamain spawn --repo <git-repo> --prompt <task> [--name <name>] [--start-ref <ref>] [--merge-branch <branch>] [--engine codex|cursor] [--model <model>] [--yolo]");
+        throw new Error("Usage: delamain spawn --repo <git-repo> --prompt <task> [--name <name>] [--start-ref <ref>] [--merge-branch <branch>] [--engine codex|cursor] [--model <model>] [--yolo] [--confine] [--egress host|off]");
       }
+      const confine = Boolean(args.confine);
       console.log(JSON.stringify(spawnPeer({
         repo,
         prompt,
@@ -22,6 +23,8 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
         yolo: bypassEnabled(args),
         engine: flagString(args, "engine") as "codex" | "cursor" | undefined,
         cursorOptions: buildCursorOptions(args),
+        confine,
+        egress: confine ? (flagString(args, "egress") ?? "host") : flagString(args, "egress"),
       }), null, 2));
       return;
     }
@@ -130,8 +133,9 @@ Commands:
   --d, -d                        Run the live terminal dashboard
   --d2, -d2                      Run the v2 grid terminal dashboard
   tmux-status                    Print one tmux status-line summary
-  spawn --repo <git-repo> --prompt <task> [--start-ref <ref>] [--merge-branch <branch>] [--target-branch <branch>] [--engine codex|cursor] [--model <model>] [--sandbox <mode>] [--yolo]
+  spawn --repo <git-repo> --prompt <task> [--start-ref <ref>] [--merge-branch <branch>] [--target-branch <branch>] [--engine codex|cursor] [--model <model>] [--sandbox <mode>] [--yolo] [--confine] [--egress host|off]
         cursor engine: [--cursor-cloud] [--cursor-approve-mcps] [--no-cursor-force]
+        confine (codex only): [--confine] jails the codex child via gits-confine.sh (worktree-only, single-cred); [--egress host|off] defaults to host
   resume <peer-id> --prompt <message> [--model <model>] [--yolo]
   list
   status <peer-id>
