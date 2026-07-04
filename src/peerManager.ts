@@ -65,6 +65,9 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
     integrationStatus: "pending",
     engine: options.engine || "codex",
     cursorOptions: options.engine === "cursor" ? options.cursorOptions : undefined,
+    reasoningEffort: options.reasoningEffort,
+    developerInstructions: options.developerInstructions,
+    codexConfig: options.codexConfig,
     startedAt: now(),
     updatedAt: now(),
     lastHeartbeatAt: now(),
@@ -84,6 +87,9 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
     yolo: options.yolo,
     engine: peer.engine,
     cursorOptions: peer.cursorOptions,
+    reasoningEffort: peer.reasoningEffort,
+    developerInstructions: peer.developerInstructions,
+    codexConfig: peer.codexConfig,
   });
 
   updatePeer(id, (current) => ({
@@ -113,6 +119,7 @@ export function spawnGsdPhaseBatch(options: {
   name?: string;
   branch?: string;
   model?: string;
+  reasoningEffort?: string;
   gsdBatch: GsdBatchSpawnConfig;
 }): PeerRecord {
   const id = randomUUID().slice(0, 8);
@@ -128,6 +135,7 @@ export function spawnGsdPhaseBatch(options: {
     repo: resolve(options.repo),
     branch: options.branch,
     model: options.model,
+    reasoningEffort: options.reasoningEffort as PeerRecord["reasoningEffort"],
     task: `GSD ${options.gsdBatch.planning_mode} batch: ${options.gsdBatch.selected_phases.join(", ")}`,
     status: "gsd_pending",
     startedAt,
@@ -178,6 +186,11 @@ export function resumePeer(options: ResumePeerOptions): PeerRecord {
     yolo: options.yolo,
     engine: peer.engine,
     cursorOptions: peer.cursorOptions,
+    // Resume keeps the tuning knobs pinned at spawn time; there is no
+    // send_peer_reply param to override them mid-flight (not requested).
+    reasoningEffort: peer.reasoningEffort,
+    developerInstructions: peer.developerInstructions,
+    codexConfig: peer.codexConfig,
   });
 
   const updated = updatePeer(peer.id, (current) => ({
@@ -348,7 +361,7 @@ export function tmuxStatusLine(): string {
   return `Codex peers: ${peers.length} | working ${active} | waiting ${waiting} | cleanup ${cleanup} | frozen ${frozen}`;
 }
 
-function spawnRunner(args: {
+export type RunnerSpawnArgs = {
   peerId: string;
   repo: string;
   promptFile: string;
@@ -360,7 +373,17 @@ function spawnRunner(args: {
   yolo?: boolean;
   engine?: "codex" | "cursor";
   cursorOptions?: { cloud?: boolean; approveMcps?: boolean; force?: boolean };
-}) {
+  reasoningEffort?: string;
+  developerInstructions?: string;
+  codexConfig?: string[];
+};
+
+/**
+ * Pure argv builder for the `run-peer` child process, split out from
+ * spawnRunner so the CLI serialization round trip (option → argv →
+ * runner.ts parseArgs) is unit-testable without actually spawning a process.
+ */
+export function buildRunnerArgv(args: RunnerSpawnArgs): string[] {
   const entry = join(dirname(fileURLToPath(import.meta.url)), "index.js");
   const runnerArgs = [
     entry,
@@ -397,6 +420,22 @@ function spawnRunner(args: {
     if (args.cursorOptions?.approveMcps) runnerArgs.push("--cursor-approve-mcps");
     if (args.cursorOptions?.force === false) runnerArgs.push("--no-cursor-force");
   }
+  if (args.reasoningEffort) {
+    runnerArgs.push("--reasoning-effort", args.reasoningEffort);
+  }
+  if (args.developerInstructions) {
+    runnerArgs.push("--developer-instructions", args.developerInstructions);
+  }
+  if (args.codexConfig) {
+    for (const pair of args.codexConfig) {
+      runnerArgs.push("--codex-config", pair);
+    }
+  }
+  return runnerArgs;
+}
+
+function spawnRunner(args: RunnerSpawnArgs) {
+  const runnerArgs = buildRunnerArgv(args);
 
   const child = spawn(process.execPath, runnerArgs, {
     detached: true,

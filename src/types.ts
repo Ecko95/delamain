@@ -23,6 +23,8 @@ export type PeerKind = "generic" | "gsd_phase_batch";
 
 export type PeerEngine = "codex" | "cursor";
 
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+
 export type CursorRunOptions = {
 	cloud?: boolean;
 	approveMcps?: boolean;
@@ -60,6 +62,10 @@ export type PeerRecord = {
   enginePid?: number;
   engine?: PeerEngine;
   cursorOptions?: CursorRunOptions;
+  // Codex-engine-only tuning knobs (persisted so resume reuses them).
+  reasoningEffort?: ReasoningEffort;
+  developerInstructions?: string;
+  codexConfig?: string[];
   threadId?: string;
   startedAt: string;
   updatedAt: string;
@@ -122,6 +128,10 @@ export type SpawnPeerOptions = {
   yolo?: boolean;
   engine?: PeerEngine;
   cursorOptions?: CursorRunOptions;
+  // Codex-engine-only tuning knobs; validated + engine-guarded at the MCP boundary.
+  reasoningEffort?: ReasoningEffort;
+  developerInstructions?: string;
+  codexConfig?: string[];
 };
 
 export type ResumePeerOptions = {

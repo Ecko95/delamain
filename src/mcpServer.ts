@@ -15,6 +15,16 @@ import { integratePeer, IntegratePeerRefusedError } from "./peerIntegration.js";
 import { classifyFrozenBatch } from "./frozen-eligibility/index.js";
 import type { GsdPlanningMode } from "./types.js";
 
+// Codex peer tuning knobs (reasoning_effort, developer_instructions, codex_config).
+// Declared before TOOLS since its schema literals reference them at module load.
+export const REASONING_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const;
+type ReasoningEffortValue = (typeof REASONING_EFFORTS)[number];
+
+export const DEVELOPER_INSTRUCTIONS_MAX = 32_768; // codex's own project_doc default bound
+export const CODEX_CONFIG_MAX_ENTRIES = 16;
+export const CODEX_CONFIG_MAX_ENTRY_LEN = 2000;
+export const CODEX_CONFIG_ENTRY_RE = /^[A-Za-z0-9_.-]+=.+$/s;
+
 const TOOLS = [
   {
     name: "spawn_peer",
@@ -63,6 +73,25 @@ const TOOLS = [
             approve_mcps: { type: "boolean", description: "Auto-approve MCP servers (--approve-mcps), e.g. for chrome-devtools browser MCP." },
             force: { type: "boolean", description: "Pass --force (default true). Set false to require manual file-edit approvals." },
           },
+        },
+        reasoning_effort: {
+          type: "string",
+          enum: REASONING_EFFORTS,
+          description:
+            "Codex engine only. Overrides Codex's model_reasoning_effort for any model (including gpt-5.5). Omit to keep today's default (high, except gpt-5.5).",
+        },
+        developer_instructions: {
+          type: "string",
+          maxLength: DEVELOPER_INSTRUCTIONS_MAX,
+          description:
+            `Codex engine only. Extra developer_instructions passed via -c (max ${DEVELOPER_INSTRUCTIONS_MAX} chars, codex's own project_doc bound).`,
+        },
+        codex_config: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: CODEX_CONFIG_MAX_ENTRIES,
+          description:
+            `Codex engine only. Extra 'key=value' pairs passed as -c flags after delamain's own, in order (so these win on conflict). Each entry must match ${CODEX_CONFIG_ENTRY_RE.source}, max ${CODEX_CONFIG_MAX_ENTRIES} entries, max ${CODEX_CONFIG_MAX_ENTRY_LEN} chars each.`,
         },
       },
       required: ["repo", "prompt"],
@@ -180,6 +209,22 @@ const TOOLS = [
             force: { type: "boolean" },
           },
         },
+        reasoning_effort: {
+          type: "string",
+          enum: REASONING_EFFORTS,
+          description: "Codex engine only. See spawn_peer.",
+        },
+        developer_instructions: {
+          type: "string",
+          maxLength: DEVELOPER_INSTRUCTIONS_MAX,
+          description: "Codex engine only. See spawn_peer.",
+        },
+        codex_config: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: CODEX_CONFIG_MAX_ENTRIES,
+          description: "Codex engine only. See spawn_peer.",
+        },
         timeout_ms: {
           type: "number",
           description: "Maximum time to wait. Defaults to 30 minutes.",
@@ -234,6 +279,11 @@ const TOOLS = [
         milestone: { type: "string", description: "Informational milestone tag." },
         name: { type: "string", description: "Optional display name for the peer." },
         model: { type: "string", description: "Optional Codex model override for the runner." },
+        reasoning_effort: {
+          type: "string",
+          enum: REASONING_EFFORTS,
+          description: "Overrides Codex's model_reasoning_effort for any model. Omit to keep today's default (high, except gpt-5.5). See spawn_peer.",
+        },
       },
       required: ["repo_url", "planning_mode", "selected_phases"],
     },
@@ -373,6 +423,7 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
         yolo: bypassEnabled(args),
         engine: engineValue(args),
         cursorOptions: cursorOptionsValue(args),
+        ...codexTuningOptions(args, engineValue(args)),
       }));
     case "list_peers":
       return json(listPeers());
@@ -403,6 +454,7 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
         yolo: bypassEnabled(args),
         engine: engineValue(args),
         cursorOptions: cursorOptionsValue(args),
+        ...codexTuningOptions(args, engineValue(args)),
         ...waitOptions(args),
       }));
     case "kill_peer":
@@ -425,6 +477,7 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
         name: optionalString(args, "name"),
         branch: optionalString(args, "branch_name") ?? optionalString(args, "branchName"),
         model: optionalString(args, "model"),
+        reasoningEffort: reasoningEffortValue(args),
         gsdBatch: {
           planning_mode: planningMode,
           selected_phases: expanded,
@@ -590,6 +643,67 @@ function cursorOptionsValue(
   if (typeof approveMcps === "boolean") out.approveMcps = approveMcps;
   if (typeof record.force === "boolean") out.force = record.force;
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+// --- Codex peer tuning knobs (reasoning_effort, developer_instructions, codex_config) ---
+// Validated at the MCP boundary: fail loud with a clear message rather than
+// silently dropping or truncating a bad value.
+// (Constants live near the top of the file — TOOLS's schema literals below
+// reference them and are evaluated at module load, before this point.)
+
+export function reasoningEffortValue(args: Record<string, unknown>): ReasoningEffortValue | undefined {
+  const raw = args.reasoning_effort ?? args.reasoningEffort;
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string" || !(REASONING_EFFORTS as readonly string[]).includes(raw)) {
+    throw new Error(`Invalid reasoning_effort: ${JSON.stringify(raw)}. Expected one of: ${REASONING_EFFORTS.join(", ")}`);
+  }
+  return raw as ReasoningEffortValue;
+}
+
+export function developerInstructionsValue(args: Record<string, unknown>): string | undefined {
+  const raw = args.developer_instructions ?? args.developerInstructions;
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string") {
+    throw new Error("developer_instructions must be a string");
+  }
+  if (raw.length > DEVELOPER_INSTRUCTIONS_MAX) {
+    throw new Error(`developer_instructions exceeds ${DEVELOPER_INSTRUCTIONS_MAX} chars (got ${raw.length})`);
+  }
+  return raw;
+}
+
+export function codexConfigValue(args: Record<string, unknown>): string[] | undefined {
+  const raw = args.codex_config ?? args.codexConfig;
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) {
+    throw new Error("codex_config must be an array of 'key=value' strings");
+  }
+  if (raw.length > CODEX_CONFIG_MAX_ENTRIES) {
+    throw new Error(`codex_config has ${raw.length} entries; max ${CODEX_CONFIG_MAX_ENTRIES}`);
+  }
+  for (const entry of raw) {
+    if (typeof entry !== "string" || entry.length > CODEX_CONFIG_MAX_ENTRY_LEN || !CODEX_CONFIG_ENTRY_RE.test(entry)) {
+      throw new Error(
+        `codex_config entry invalid (must match key=value, <=${CODEX_CONFIG_MAX_ENTRY_LEN} chars): ${JSON.stringify(entry)}`,
+      );
+    }
+  }
+  return raw as string[];
+}
+
+export function codexTuningOptions(
+  args: Record<string, unknown>,
+  engine: "codex" | "cursor" | undefined,
+): { reasoningEffort?: ReasoningEffortValue; developerInstructions?: string; codexConfig?: string[] } {
+  const reasoningEffort = reasoningEffortValue(args);
+  const developerInstructions = developerInstructionsValue(args);
+  const codexConfig = codexConfigValue(args);
+  if (engine === "cursor" && (reasoningEffort !== undefined || developerInstructions !== undefined || codexConfig !== undefined)) {
+    throw new Error(
+      "reasoning_effort, developer_instructions, and codex_config are codex-engine-only; do not pass them with engine='cursor'",
+    );
+  }
+  return { reasoningEffort, developerInstructions, codexConfig };
 }
 
 type JsonRpcRequest = {
