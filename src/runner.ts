@@ -2,6 +2,7 @@ import { createWriteStream, mkdirSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { checkCodexPeerAuth, codexAuthReloginMessage, isCodexAuthRefreshFailure } from "./codexAuth.js";
 import { parseCodexJsonLine, trim } from "./codexEvents.js";
 import { runCursorPeer } from "./cursorRunner.js";
 import { pushPeerBranch } from "./git.js";
@@ -59,6 +60,25 @@ export async function runPeer(argv: string[]): Promise<void> {
   }));
 
   const codexHome = process.env.CODEX_HOME ?? join(homedir(), ".delamain", "peer-codex-home");
+
+  const preflight = checkCodexPeerAuth(codexHome);
+  if (!preflight.ok) {
+    append(log, `[delamain] ${preflight.error}\n`);
+    updatePeer(args.peerId, (peer) => ({
+      ...peer,
+      status: "failed",
+      error: preflight.error,
+      finishedAt: now(),
+      updatedAt: now(),
+      lastEvent: "codex auth preflight failed",
+    }));
+    log.end();
+    return;
+  }
+  if (preflight.warning) {
+    append(log, `[delamain] WARNING ${preflight.warning}\n`);
+  }
+
   const child = spawn("codex", codexArgs, {
     cwd: args.repo,
     detached: true,
@@ -86,6 +106,7 @@ export async function runPeer(argv: string[]): Promise<void> {
 
   let stdoutBuffer = "";
   let stderrBuffer = "";
+  let stderrText = "";
   let collectedText = "";
   let terminalResponse = initialTerminalResponseState();
 
@@ -104,6 +125,7 @@ export async function runPeer(argv: string[]): Promise<void> {
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => {
     stderrBuffer += chunk;
+    stderrText = trim(`${stderrText}${chunk}`, 20_000);
     let index = stderrBuffer.indexOf("\n");
     while (index !== -1) {
       const line = stderrBuffer.slice(0, index);
@@ -168,6 +190,14 @@ export async function runPeer(argv: string[]): Promise<void> {
         }
       }
 
+      const authRemedy =
+        status === "failed" && isCodexAuthRefreshFailure(`${stderrText}\n${collectedText}`)
+          ? codexAuthReloginMessage(codexHome)
+          : undefined;
+      if (authRemedy) {
+        append(log, `[delamain] ${authRemedy}\n`);
+      }
+
       updatePeer(args.peerId, (peer) => ({
         ...peer,
         status: peer.status === "killed" ? "killed" : status,
@@ -178,10 +208,14 @@ export async function runPeer(argv: string[]): Promise<void> {
         finishedAt: now(),
         lastHeartbeatAt: now(),
         updatedAt: now(),
-        error: integrationError || peer.error,
+        error: authRemedy || integrationError || peer.error,
         integrationStatus: integrationStatus || peer.integrationStatus,
         integrationError,
-        lastEvent: status === "waiting" ? "waiting for orchestrator input" : integrationEvent || `codex exited code=${code}`,
+        lastEvent: authRemedy
+          ? "codex auth refresh failed — re-login required"
+          : status === "waiting"
+            ? "waiting for orchestrator input"
+            : integrationEvent || `codex exited code=${code}`,
       }));
       append(log, `[delamain] exited code=${code} signal=${signal ?? ""}\n`);
       log.end();
