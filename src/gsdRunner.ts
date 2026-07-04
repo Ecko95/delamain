@@ -20,6 +20,7 @@
 // transitions for frozen mode.
 
 import { spawn } from "node:child_process";
+import { reasoningEffortArgs } from "./runner.js";
 import type { GsdBatchSpawnConfig, PeerRecord } from "./types.js";
 import {
   GsdStateMalformedError,
@@ -161,6 +162,7 @@ export async function runGsdPhaseBatch(
         phaseId,
         planningMode,
         current.model,
+        current.reasoningEffort,
         async (chunk) => {
           await deps.appendLog(current, chunk);
         },
@@ -258,14 +260,12 @@ export async function invokeCodexExec(
   phaseId: string,
   mode: "dynamic" | "frozen",
   model: string | undefined,
+  reasoningEffort: string | undefined,
   onChunk: (chunk: string) => Promise<void>,
 ): Promise<CodexExecResult> {
   const args = ["exec", "--cwd", repo, "--json"];
   if (model) args.push("--model", model);
-  args.push("-c", "features.codex_hooks=false");
-  if (model && model !== "gpt-5.5") {
-    args.push("-c", 'model_reasoning_effort="high"');
-  }
+  args.push("-c", "features.codex_hooks=false", ...reasoningEffortArgs(model, reasoningEffort));
   args.push("--");
   if (mode === "dynamic") {
     args.push("/gsd-autonomous", "--only", phaseId);

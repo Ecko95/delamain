@@ -23,6 +23,9 @@ type RunnerArgs = {
   cursorCloud?: boolean;
   cursorApproveMcps?: boolean;
   cursorForce?: boolean;
+  reasoningEffort?: string;
+  developerInstructions?: string;
+  codexConfig?: string[];
 };
 
 export async function runPeer(argv: string[]): Promise<void> {
@@ -254,7 +257,24 @@ export async function runPeer(argv: string[]): Promise<void> {
   }
 }
 
-function buildCodexArgs(args: RunnerArgs): string[] {
+/**
+ * Shared `-c model_reasoning_effort=...` logic for both the long-running peer
+ * runner (this file) and the one-shot GSD phase runner (gsdRunner.ts).
+ * Explicit `effort` wins for any model; absent `effort` preserves the legacy
+ * default (`high` unless model is gpt-5.5, which already reasons well at
+ * its own default).
+ */
+export function reasoningEffortArgs(model: string | undefined, effort: string | undefined): string[] {
+  if (effort) {
+    return ["-c", `model_reasoning_effort="${effort}"`];
+  }
+  if (model && model !== "gpt-5.5") {
+    return ["-c", 'model_reasoning_effort="high"'];
+  }
+  return [];
+}
+
+export function buildCodexArgs(args: RunnerArgs): string[] {
   const codexArgs = args.resumeThread
     ? ["exec", "resume", "--json", args.resumeThread, "-"]
     : ["exec", "--json", "-C", args.repo, "-"];
@@ -270,10 +290,20 @@ function buildCodexArgs(args: RunnerArgs): string[] {
   }
 
   const promptArgIndex = codexArgs.lastIndexOf("-");
-  codexArgs.splice(promptArgIndex, 0, "-c", "features.codex_hooks=false");
-  if (args.model && args.model !== "gpt-5.5") {
-    codexArgs.splice(promptArgIndex + 2, 0, "-c", 'model_reasoning_effort="high"');
+  const configArgs = ["-c", "features.codex_hooks=false", ...reasoningEffortArgs(args.model, args.reasoningEffort)];
+  if (args.developerInstructions) {
+    // JSON.stringify produces a valid TOML basic string (same quoting/escaping rules).
+    configArgs.push("-c", `developer_instructions=${JSON.stringify(args.developerInstructions)}`);
   }
+  // ponytail: format-validated passthrough, no key allowlist — the MCP caller
+  // is already a trusted supervisor that can pass --yolo. Upgrade to an
+  // allowlist if an untrusted caller ever gets a path to this option.
+  if (args.codexConfig) {
+    for (const pair of args.codexConfig) {
+      configArgs.push("-c", pair);
+    }
+  }
+  codexArgs.splice(promptArgIndex, 0, ...configArgs);
   return codexArgs;
 }
 
@@ -299,8 +329,9 @@ ${prompt}
 `;
 }
 
-function parseArgs(argv: string[]): RunnerArgs {
+export function parseArgs(argv: string[]): RunnerArgs {
   const values: Record<string, string | boolean> = {};
+  const codexConfig: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (!arg.startsWith("--")) {
@@ -308,10 +339,18 @@ function parseArgs(argv: string[]): RunnerArgs {
     }
     const key = arg.slice(2);
     const next = argv[i + 1];
-    if (!next || next.startsWith("--")) {
+    // developer-instructions/codex-config values are free-form and may
+    // legitimately start with "--" (e.g. a bullet list); always consume the
+    // next token as their value instead of treating it as a new flag.
+    const alwaysConsumesNext = key === "developer-instructions" || key === "codex-config";
+    if (!next || (!alwaysConsumesNext && next.startsWith("--"))) {
       values[key] = true;
     } else {
-      values[key] = next;
+      if (key === "codex-config") {
+        codexConfig.push(next);
+      } else {
+        values[key] = next;
+      }
       i += 1;
     }
   }
@@ -340,6 +379,9 @@ function parseArgs(argv: string[]): RunnerArgs {
     cursorCloud: Boolean(values["cursor-cloud"]),
     cursorApproveMcps: Boolean(values["cursor-approve-mcps"]),
     cursorForce: Boolean(values["no-cursor-force"]) ? false : undefined,
+    reasoningEffort: stringValue(values, "reasoning-effort"),
+    developerInstructions: stringValue(values, "developer-instructions"),
+    codexConfig: codexConfig.length > 0 ? codexConfig : undefined,
   };
 }
 
