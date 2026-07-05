@@ -265,7 +265,7 @@ export async function invokeCodexExec(
 ): Promise<CodexExecResult> {
   const args = ["exec", "--cwd", repo, "--json"];
   if (model) args.push("--model", model);
-  args.push("-c", "features.codex_hooks=false", ...reasoningEffortArgs(model, reasoningEffort));
+  args.push("--disable", "hooks", ...reasoningEffortArgs(model, reasoningEffort));
   args.push("--");
   if (mode === "dynamic") {
     args.push("/gsd-autonomous", "--only", phaseId);
