@@ -25,11 +25,14 @@ A spawned peer produces `{"type":"turn.started"}` in its log and then emits no f
 
 **What happens.** The GSD toolkit installs a `[[hooks.SessionStart]]` entry in `~/.codex/config.toml` that runs `gsd-check-update.js` on every session start. The hook command's sha256 hash is stored alongside it under `[hooks.state]`. When GSD updates the hook script, the stored hash becomes stale. In interactive mode codex prompts the user to re-approve the changed command; in non-interactive `codex exec` (how peers run), it silently waits for that approval forever — the peer hangs.
 
-**Fixed in `src/runner.ts` and `src/gsdRunner.ts` (same commit).** The spawn now injects `-c features.codex_hooks=false` for all peers. Peers have no need for GSD session hooks, so disabling the feature entirely is correct and safe.
+**Fixed in `src/runner.ts` and `src/gsdRunner.ts` (same commit).** The spawn now passes `--disable hooks` for all peers. Peers have no need for GSD session hooks, so disabling the feature entirely is correct and safe.
 
 ```
 // Injected at spawn time for all peers:
--c features.codex_hooks=false
+--disable hooks
+
+// Equivalent config override:
+-c features.hooks=false
 ```
 
 **Manual recovery (before the fix).** Create a minimal peer `CODEX_HOME` directory containing only `auth.json` and a `config.toml` that omits the `[[hooks.SessionStart]]` / `[hooks.state]` sections, then set `CODEX_HOME` in the environment before calling `codex-peers spawn`:
@@ -76,4 +79,4 @@ If a peer is stuck at `turn.started`:
 
 4. **Check `model_reasoning_effort`.** If `config.toml` contains `model_reasoning_effort = "xhigh"` and the peer is using a non-gpt5.5 model, upgrade to the fixed version of this package. As a temporary fix, override at spawn time: `CODEX_HOME=/path/to/minimal-home codex-peers spawn ...`.
 
-5. **Check hooks.** If the `[hooks.state]` section has a `trusted_hash` and GSD was recently updated, the hash may be stale. Either update the hash or add `-c features.codex_hooks=false` to your spawn invocation.
+5. **Check hooks.** If the `[hooks.state]` section has a `trusted_hash` and GSD was recently updated, the hash may be stale. Either update the hash or add `--disable hooks` or `-c features.hooks=false` to your spawn invocation.

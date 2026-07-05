@@ -290,7 +290,7 @@ export function buildCodexArgs(args: RunnerArgs): string[] {
   }
 
   const promptArgIndex = codexArgs.lastIndexOf("-");
-  const configArgs = ["-c", "features.codex_hooks=false", ...reasoningEffortArgs(args.model, args.reasoningEffort)];
+  const configArgs = ["--disable", "hooks", ...reasoningEffortArgs(args.model, args.reasoningEffort)];
   if (args.developerInstructions) {
     // JSON.stringify produces a valid TOML basic string (same quoting/escaping rules).
     configArgs.push("-c", `developer_instructions=${JSON.stringify(args.developerInstructions)}`);

@@ -28,15 +28,16 @@ test("reasoningEffortArgs: explicit effort wins for ANY model, including gpt-5.5
 
 test("buildCodexArgs: legacy byte-for-byte behavior when reasoningEffort absent (non-gpt-5.5)", () => {
   const args = buildCodexArgs({ peerId: "p", repo: "/r", promptFile: "/f", logPath: "/l", model: "gpt-5" });
-  const cIdx = args.indexOf("-c");
-  assert.equal(args[cIdx + 1], "features.codex_hooks=false");
-  assert.equal(args[cIdx + 2], "-c");
-  assert.equal(args[cIdx + 3], 'model_reasoning_effort="high"');
+  const hooksIdx = args.indexOf("--disable");
+  assert.equal(args[hooksIdx + 1], "hooks");
+  assert.equal(args[hooksIdx + 2], "-c");
+  assert.equal(args[hooksIdx + 3], 'model_reasoning_effort="high"');
 });
 
 test("buildCodexArgs: legacy byte-for-byte behavior when reasoningEffort absent (gpt-5.5 gets no effort override)", () => {
   const args = buildCodexArgs({ peerId: "p", repo: "/r", promptFile: "/f", logPath: "/l", model: "gpt-5.5" });
-  assert.ok(args.includes("features.codex_hooks=false"));
+  const hooksIdx = args.indexOf("--disable");
+  assert.equal(args[hooksIdx + 1], "hooks");
   assert.ok(!args.some((a) => typeof a === "string" && a.startsWith("model_reasoning_effort")));
 });
 
@@ -73,7 +74,7 @@ test("buildCodexArgs: codex_config entries are appended after delamain's own -c 
     model: "gpt-5",
     codexConfig: ['sandbox_permissions=["disk-full-read-access"]', "shell_environment_policy.inherit=all"],
   });
-  const hooksIdx = args.indexOf("features.codex_hooks=false");
+  const hooksIdx = args.indexOf("--disable");
   const effortIdx = args.indexOf('model_reasoning_effort="high"');
   const firstCustomIdx = args.indexOf('sandbox_permissions=["disk-full-read-access"]');
   const secondCustomIdx = args.indexOf("shell_environment_policy.inherit=all");
