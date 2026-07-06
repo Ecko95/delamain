@@ -1,3 +1,5 @@
+import type { CodexContextLevel } from "./codexContext.js";
+
 export type PeerStatus =
   | "starting"
   | "working"
@@ -84,6 +86,12 @@ export type PeerRecord = {
   integrationMergeCommitSha?: string;
   integrationPrNumber?: number;
   integrationPrUrl?: string;
+  // S1/S2 context-window observability (codex engine). SEPARATE from `status`;
+  // computed from the peer's session JSONL in codexContext.ts. Absent until the
+  // first token_count event is seen.
+  contextPercent?: number; // current-turn input_tokens as % of the context window
+  contextLevel?: CodexContextLevel; // green/yellow/red/skull, thresholds in codexContext.ts
+  compacted?: boolean; // codex auto-compacted (lossy) at least once during the run
   // Phase 33 additions:
   kind?: PeerKind; // missing → treat as "generic"
   gsdBatch?: GsdBatchSpawnConfig; // present only when kind === "gsd_phase_batch"
