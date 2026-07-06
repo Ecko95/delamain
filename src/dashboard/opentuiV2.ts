@@ -15,6 +15,7 @@ import {
   type DashboardStatus,
   type DashboardViewModel,
 } from "./model.js";
+import { cyberpunkTheme, defaultTheme, type Theme } from "./theme.js";
 
 type V2Pane = "overview" | "limits" | "telegram" | "warnings" | "peers" | "details" | "logs";
 type V2Mode = "normal" | "kill-confirm";
@@ -31,6 +32,7 @@ type RuntimeState = {
   collapsedPanes: Partial<Record<V2Pane, boolean>>;
   followSelectedPeer: boolean;
   forceLogRefresh: boolean;
+  theme: Theme;
 };
 
 const STATUS_ORDER: DashboardStatus[] = [
@@ -77,6 +79,7 @@ export async function runOpenTuiDashboardV2(): Promise<void> {
     collapsedPanes: {},
     followSelectedPeer: true,
     forceLogRefresh: false,
+    theme: initialThemeFromEnv(),
   };
 
   let interval: ReturnType<typeof setInterval> | undefined;
@@ -246,6 +249,8 @@ function handleInput(sequence: string, state: RuntimeState, refresh: () => void,
   } else if (sequence === "r") {
     state.forceLogRefresh = true;
     state.message = "Refreshed";
+  } else if (sequence === "t") {
+    cycleTheme(state);
   } else if (sequence === "x") {
     state.mode = "kill-confirm";
     state.message = "Kill selected peer? enter confirms, escape cancels";
@@ -260,6 +265,15 @@ function focusPane(state: RuntimeState, direction: 1 | -1): void {
   const current = PANES.indexOf(state.focusPane);
   state.focusPane = PANES[(current + direction + PANES.length) % PANES.length];
   state.message = `Focus: ${state.focusPane}`;
+}
+
+function initialThemeFromEnv(): Theme {
+  return process.env.DELAMAIN_THEME === "cyberpunk" ? cyberpunkTheme : defaultTheme;
+}
+
+function cycleTheme(state: RuntimeState): void {
+  state.theme = state.theme === cyberpunkTheme ? defaultTheme : cyberpunkTheme;
+  state.message = `Theme: ${state.theme === cyberpunkTheme ? "cyberpunk" : "default"}`;
 }
 
 function togglePane(state: RuntimeState, pane: V2Pane): void {
@@ -374,7 +388,7 @@ function headerPane(view: DashboardViewModel, state: RuntimeState, spinner: stri
     textColor("#facc15")(view.selectedPeer?.id || "-"),
   ];
   return Box(
-    paneProps("Command Deck", state.focusPane === "overview", { height: 4 }),
+    paneProps("Command Deck", state.focusPane === "overview", state.theme, { height: 4 }),
     Text({ content: styledText(...chunks) }),
   );
 }
@@ -461,7 +475,7 @@ function overviewPane(view: DashboardViewModel, state: RuntimeState, spinner: st
         chunks.push(...plainChunks("  "));
       }
       const label = status === "working" || status === "gsd_running_phase" ? `${spinner} ${status}` : status;
-      chunks.push(textColor(statusColor(status))(`${label} ${view.counts[status]}`));
+      chunks.push(textColor(statusColor(status, state.theme))(`${label} ${view.counts[status]}`));
     });
     if (chunks.length === 0) {
       chunks.push(dimText("No peers yet"));
@@ -556,7 +570,7 @@ function detailsPane(view: DashboardViewModel, state: RuntimeState, width: numbe
     if (!view.selectedPeer || view.details.length === 0) {
       return styledText(dimText("No peer selected"));
     }
-    return groupedDetails(view.selectedPeer, view, width);
+    return groupedDetails(view.selectedPeer, view, width, state.theme);
   });
 }
 
@@ -564,11 +578,15 @@ function logsPane(view: DashboardViewModel, state: RuntimeState, visibleRows: nu
   const content = visibleLogContent(view.logLines, state.logOffset, Math.max(3, visibleRows));
   state.logOffset = content.offset;
   return card(`7 Logs ${content.position}`, "logs", state, { flexGrow: 1 }, () => {
-    const lines = [
-      logProgressLine(content.offset, content.visibleRows, content.totalRows),
-      ...withScrollbar(content.lines.length > 0 ? content.lines : ["No recent log lines"], content.offset, content.visibleRows, content.totalRows),
-    ];
-    return styledText(...plainChunks(lines.join("\n")));
+    const lines = withScrollbar(
+      content.lines.length > 0 ? content.lines : ["No recent log lines"],
+      content.offset,
+      content.visibleRows,
+      content.totalRows,
+    );
+    const chunks: TextChunk[] = [...plainChunks(`${logProgressLine(content.offset, content.visibleRows, content.totalRows)}\n`)];
+    appendThemedLines(chunks, lines, state.theme, Math.max(24, longestLine(lines)));
+    return styledText(...chunks);
   });
 }
 
@@ -577,7 +595,7 @@ function footerPane(state: RuntimeState) {
     ? state.message
     : `${state.message} | tab focus | 1-7/c collapse | j/k | pg | b logs | r | x kill | q`;
   return Box(
-    paneProps("Keys", false, { height: 3 }),
+    paneProps("Keys", false, state.theme, { height: 3 }),
     Text({ content: truncate(text, 180) }),
   );
 }
@@ -585,7 +603,7 @@ function footerPane(state: RuntimeState) {
 function card(title: string, pane: V2Pane, state: RuntimeState, extra: Record<string, unknown>, renderContent: () => StyledText) {
   const collapsed = state.collapsedPanes[pane];
   return Box(
-    paneProps(`${collapsed ? "▸" : "▾"} ${title}`, state.focusPane === pane, {
+    paneProps(`${collapsed ? "▸" : "▾"} ${title}`, state.focusPane === pane, state.theme, {
       minHeight: collapsed ? 3 : 5,
       ...extra,
     }),
@@ -593,12 +611,12 @@ function card(title: string, pane: V2Pane, state: RuntimeState, extra: Record<st
   );
 }
 
-function paneProps(title: string, focused: boolean, extra: Record<string, unknown> = {}) {
+function paneProps(title: string, focused: boolean, theme: Theme, extra: Record<string, unknown> = {}) {
   return {
     title,
     border: true,
     borderStyle: "rounded" as const,
-    borderColor: focused ? "#facc15" : "#475569",
+    borderColor: focused ? theme.borderFocused : theme.border,
     paddingX: 1,
     ...extra,
   };
@@ -626,10 +644,15 @@ function peerContent(view: DashboardViewModel, state: RuntimeState, paneWidth: n
   state.peerOffset = offset;
 
   const chunks: TextChunk[] = [];
-  lines.slice(offset, offset + visibleRows).forEach((line, index) => {
-    chunks.push(...peerDisplayLine(line, paneWidth, spinner));
-    if (index < Math.min(visibleRows, lines.length) - 1) {
+  const visibleLines = lines.slice(offset, offset + visibleRows);
+  visibleLines.forEach((line, index) => {
+    chunks.push(...peerDisplayLine(line, paneWidth, spinner, state.theme));
+    if (index < visibleLines.length - 1) {
       chunks.push(...plainChunks("\n"));
+      if (state.theme.rowRule) {
+        chunks.push(...rowRuleChunks(state.theme, Math.max(12, paneWidth - 4)));
+        chunks.push(...plainChunks("\n"));
+      }
     }
   });
   return {
@@ -655,9 +678,9 @@ function peerDisplayLines(view: DashboardViewModel): PeerDisplayLine[] {
   return lines;
 }
 
-function peerDisplayLine(line: PeerDisplayLine, paneWidth: number, spinner: string): TextChunk[] {
+function peerDisplayLine(line: PeerDisplayLine, paneWidth: number, spinner: string, theme: Theme): TextChunk[] {
   if (line.kind === "group") {
-    return [textColor(statusColor(line.status))(line.text || line.status)];
+    return [textColor(statusColor(line.status, theme))(line.text || line.status)];
   }
   if (!line.peer) {
     return [];
@@ -669,11 +692,11 @@ function peerDisplayLine(line: PeerDisplayLine, paneWidth: number, spinner: stri
     ? spinner.padEnd(4)
     : peer.activity.slice(0, 4).padEnd(4);
   return [
-    peer.selected ? textColor("#facc15")("● ") : dimText("  "),
-    textColor(statusColor(peer.status))(activity),
-    ...plainChunks(` ${peer.id.padEnd(8)} ${peer.elapsed.padEnd(7)} `),
-    textColor(statusColor(peer.status))(peer.status.slice(0, 10).padEnd(10)),
-    ...plainChunks(` ${truncate(peer.project, projectWidth).padEnd(projectWidth)}`),
+    ...(peer.selected ? [textColor(theme.borderFocused)("● ")] : dimmedChunks("  ", theme)),
+    textColor(statusColor(peer.status, theme))(activity),
+    ...bodyChunks(` ${peer.id.padEnd(8)} ${peer.elapsed.padEnd(7)} `, theme),
+    textColor(statusColor(peer.status, theme))(peer.status.slice(0, 10).padEnd(10)),
+    ...bodyChunks(` ${truncate(peer.project, projectWidth).padEnd(projectWidth)}`, theme),
   ];
 }
 
@@ -724,7 +747,7 @@ function resetLabel(limit: CodexUsageLimit): string {
   return limit.label === "weekly" ? `resets ${weekday} ${time}` : `resets ${time}`;
 }
 
-function groupedDetails(peer: PeerRecord, view: DashboardViewModel, width: number): StyledText {
+function groupedDetails(peer: PeerRecord, view: DashboardViewModel, width: number, theme: Theme): StyledText {
   const detail = (label: string) => view.details.find((row) => row.label === label)?.value || "-";
   const end = peer.finishedAt || undefined;
   const rows: Array<{ kind: "section"; label: string } | { kind: "row"; label: string; value: string }> = [
@@ -763,7 +786,7 @@ function groupedDetails(peer: PeerRecord, view: DashboardViewModel, width: numbe
     } else {
       chunks.push(dimText(row.label.padStart(labelWidth)));
       chunks.push(dimText("  "));
-      chunks.push(...detailValue(row.label, truncateMiddle(row.value, valueWidth)));
+      chunks.push(...detailValue(row.label, truncateMiddle(row.value, valueWidth), theme));
     }
     if (index < rows.length - 1) {
       chunks.push(...plainChunks("\n"));
@@ -837,9 +860,9 @@ function withScrollbar(lines: string[], offset: number, visibleRows: number, tot
   return lines.map((line, index) => `${line} ${index === thumb ? "█" : "│"}`);
 }
 
-function detailValue(label: string, value: string): TextChunk[] {
+function detailValue(label: string, value: string, theme: Theme): TextChunk[] {
   if (label === "status") {
-    return [textColor(statusColor(value as DashboardStatus))(value)];
+    return [textColor(statusColor(value as DashboardStatus, theme))(value)];
   }
   if (label === "question") {
     return [textColor("#facc15")(value)];
@@ -855,10 +878,10 @@ function detailValue(label: string, value: string): TextChunk[] {
       if (token.startsWith("-")) {
         return [textColor("#f87171")(token)];
       }
-      return plainChunks(token);
+      return bodyChunks(token, theme);
     });
   }
-  return plainChunks(value);
+  return bodyChunks(value, theme);
 }
 
 function usageLevelColor(level: CodexUsageLevel): string {
@@ -877,8 +900,56 @@ function styledText(...chunks: TextChunk[]): StyledText {
   return new StyledText(chunks);
 }
 
+function bodyChunks(text: string, theme: Theme): TextChunk[] {
+  if (theme === defaultTheme) {
+    return plainChunks(text);
+  }
+  return [textColor(theme.text)(text)];
+}
+
+function dimmedChunks(text: string, theme: Theme): TextChunk[] {
+  if (theme === defaultTheme) {
+    return [dimText(text)];
+  }
+  return [textColor(theme.textDim)(text)];
+}
+
 function plainChunks(text: string): TextChunk[] {
   return stringToStyledText(text).chunks;
+}
+
+function rowRuleChunks(theme: Theme, width: number): TextChunk[] {
+  if (!theme.rowRule) {
+    return [];
+  }
+  return [textColor(theme.textDim)(theme.rowRule.repeat(width))];
+}
+
+function appendThemedLines(chunks: TextChunk[], lines: string[], theme: Theme, rowRuleWidth: number): void {
+  lines.forEach((line, index) => {
+    chunks.push(...logLineChunks(line, theme));
+    if (index < lines.length - 1) {
+      chunks.push(...plainChunks("\n"));
+      if (theme.rowRule) {
+        chunks.push(...rowRuleChunks(theme, rowRuleWidth));
+        chunks.push(...plainChunks("\n"));
+      }
+    }
+  });
+}
+
+function logLineChunks(line: string, theme: Theme): TextChunk[] {
+  if (theme === defaultTheme) {
+    return plainChunks(line);
+  }
+  if (/(error|failed|fatal|halted|kill(ed)?)/i.test(line)) {
+    return [textColor(theme.statusColors.failed)(line)];
+  }
+  return [textColor(theme.text)(line)];
+}
+
+function longestLine(lines: string[]): number {
+  return lines.reduce((max, line) => Math.max(max, line.length), 0);
 }
 
 function scrollPosition(offset: number, visibleRows: number, totalRows: number): string {

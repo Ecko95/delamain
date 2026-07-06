@@ -15,6 +15,7 @@ export type DashboardCommand =
   | "log-bottom"
   | "toggle-status-group"
   | "refresh"
+  | "cycle-theme"
   | "enter-kill-mode"
   | "confirm-kill"
   | "cancel-mode"
@@ -69,6 +70,9 @@ export function commandForKey(key: string, mode: DashboardMode = "normal", focus
   }
   if (key === "r") {
     return "refresh";
+  }
+  if (key === "t") {
+    return "cycle-theme";
   }
   if (key === "x") {
     return "enter-kill-mode";

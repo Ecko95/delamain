@@ -1,5 +1,6 @@
 import type { PeerRecord, PeerStatus } from "../types.js";
 import type { CodexUsage } from "../codexUsage.js";
+import { defaultTheme, type Theme } from "./theme.js";
 
 export type DashboardStatus = PeerStatus | "cleanup";
 export type WorktreeRisk = "shared-checkout" | "shared-branch";
@@ -67,26 +68,6 @@ export type DashboardViewModelOptions = {
 const LOG_LIMIT = 80;
 const FORMATTED_LOG_LIMIT = 220;
 const FOCUS_PANES: DashboardFocusPane[] = ["peers", "details", "logs", "status"];
-const STATUS_COLORS: Record<DashboardStatus, string> = {
-  starting: "#60a5fa",
-  working: "#22d3ee",
-  waiting: "#facc15",
-  idle: "#94a3b8",
-  done: "#a3a3a3",
-  cleanup: "#34d399",
-  failed: "#f87171",
-  frozen: "#c084fc",
-  killed: "#fb923c",
-  // Phase 33 — GSD peer state machine colors (palette aligned with generic
-  // states: pending/idle blue, running cyan, halted purple, completed green).
-  gsd_pending: "#818cf8",
-  gsd_running_phase: "#22d3ee",
-  gsd_polling_state: "#60a5fa",
-  gsd_running_gate_check: "#fbbf24",
-  gsd_halted_on_gate_failure: "#c084fc",
-  gsd_completed: "#34d399",
-  gsd_failed: "#f87171",
-};
 const STATIC_ACTIVITY: Record<Exclude<DashboardStatus, "starting" | "working">, string> = {
   waiting: "WAIT",
   idle: "IDLE",
@@ -196,8 +177,8 @@ export function dashboardStatus(peer: PeerRecord): DashboardStatus {
   return peer.status;
 }
 
-export function statusColor(status: DashboardStatus): string {
-  return STATUS_COLORS[status];
+export function statusColor(status: DashboardStatus, theme: Theme = defaultTheme): string {
+  return theme.statusColors[status];
 }
 
 export function statusActivity(status: DashboardStatus, frame = 0): string {
