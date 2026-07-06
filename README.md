@@ -101,13 +101,22 @@ Dashboard keys:
 - `Escape`: cancel modes
 - `q`: quit
 
-V2 dashboard extras:
+The dashboard runs the v3 "Operator Deck" UI by default (set `DELAMAIN_DASHBOARD=v2`
+to fall back to the previous grid):
+
+- icon rail with five routes — `1` FLEET · `2` MAP · `3` LIMITS · `4` UPLINK · `5` ALERTS
+- `Enter` on a peer opens a modal popup with INFO/LOG/GIT tabs and ANSWER / VIEW LOG / KILL buttons (answer and kill flows live in the modal)
+- `:` or `Ctrl+K`: command palette — fuzzy-jump to any peer or action
+- `` ` `` toggles the logs drawer; `tab` switches focus between the main area and the drawer
+- toasts report actions; CRT scanline sweeps animate route changes and modal opens
+- "Signal Room" cyberpunk theme by default (amber body, cyan focus, inverse-video selection); `t` cycles themes, `DELAMAIN_THEME=default` restores the classic palette
+
+V2 dashboard extras (with `DELAMAIN_DASHBOARD=v2`):
 
 - auto-arranged OpenTUI grid that adapts from wide to narrow terminals
 - animated spinners for live/active surfaces
 - `1`-`7`: collapse or expand Overview, Limits, Telegram, Warnings, Peers, Details, Logs
 - `c`: collapse or expand the focused window
-- "Signal Room" cyberpunk theme by default (amber body, cyan focus, filled highlight bars); `t` cycles themes, `DELAMAIN_THEME=default` restores the classic palette
 
 Dashboard status notes:
 

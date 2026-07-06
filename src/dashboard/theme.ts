@@ -10,6 +10,10 @@ export type Theme = {
   selFg: string;
   statusColors: Record<DashboardStatus, string>;
   rowRule?: string;
+  ramp: [string, string, string];
+  cyanBand: string;
+  chipBg: string;
+  chipFg: string;
 };
 
 export const defaultTheme = {
@@ -38,6 +42,10 @@ export const defaultTheme = {
     gsd_completed: "#34d399",
     gsd_failed: "#f87171",
   },
+  ramp: ["#0b1220", "#131c2e", "#1b2740"],
+  cyanBand: "#1e293b",
+  chipBg: "#334155",
+  chipFg: "#e5e7eb",
 } satisfies Theme;
 
 export const cyberpunkTheme = {
@@ -67,4 +75,39 @@ export const cyberpunkTheme = {
     gsd_failed: "#ff4433",
   },
   rowRule: "─",
+  ramp: ["#100a04", "#1a1006", "#2a1808"],
+  cyanBand: "#0e2624",
+  chipBg: "#3a2410",
+  chipFg: "#ffb066",
 } satisfies Theme;
+
+const mutedCache = new Map<Theme, Theme>();
+
+export function mutedTheme(theme: Theme): Theme {
+  const cached = mutedCache.get(theme);
+  if (cached) {
+    return cached;
+  }
+  const cyberpunk = theme === cyberpunkTheme;
+  const fg = cyberpunk ? "#2a1808" : "#1e293b";
+  const rule = cyberpunk ? "#1a1006" : "#111827";
+  const status = cyberpunk ? "#3a2410" : "#1f2937";
+  const sel = cyberpunk ? "#0d0702" : "#0b1220";
+  const mutedStatus = {} as Theme["statusColors"];
+  for (const key of Object.keys(theme.statusColors) as Array<keyof Theme["statusColors"]>) {
+    mutedStatus[key] = status;
+  }
+  const muted: Theme = {
+    ...theme,
+    text: fg,
+    textDim: fg,
+    accent: fg,
+    border: rule,
+    borderFocused: rule,
+    selFg: fg,
+    selBg: sel,
+    statusColors: mutedStatus,
+  };
+  mutedCache.set(theme, muted);
+  return muted;
+}
