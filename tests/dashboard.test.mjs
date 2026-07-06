@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { commandForKey } from "../dist/dashboard/keybindings.js";
-import { handleDashboardV2Input, v2CommandForKey } from "../dist/dashboard/v2Input.js";
+import { handleDashboardV2Input, initialThemeFromEnv, v2CommandForKey } from "../dist/dashboard/v2Input.js";
 import { LogBuffer, formatLogEvent, parseLogChunk } from "../dist/dashboard/logEvents.js";
 import { createDashboardViewModel, defaultCollapsedStatuses, fleetGridCells, formatDashboardLogLines, projectLabel, statusActivity, statusColor } from "../dist/dashboard/model.js";
 import { cyberpunkTheme, defaultTheme } from "../dist/dashboard/theme.js";
@@ -132,6 +132,21 @@ test("status colors give each dashboard state a distinct visible color", () => {
   assert.match(statusColor("waiting"), /^#/);
   assert.match(statusColor("failed"), /^#/);
   assert.match(statusColor("cleanup"), /^#/);
+});
+
+test("signal room (cyberpunk) theme is the startup default; DELAMAIN_THEME=default opts out", () => {
+  assert.equal(initialThemeFromEnv(undefined), cyberpunkTheme);
+  assert.equal(initialThemeFromEnv("cyberpunk"), cyberpunkTheme);
+  assert.equal(initialThemeFromEnv("default"), defaultTheme);
+});
+
+test("themes define filled-highlight cell colors for selected rows", () => {
+  for (const theme of [defaultTheme, cyberpunkTheme]) {
+    assert.match(theme.accent, /^#/);
+    assert.match(theme.selBg, /^#/);
+    assert.match(theme.selFg, /^#/);
+  }
+  assert.notEqual(cyberpunkTheme.selBg, defaultTheme.selBg);
 });
 
 test("cyberpunk theme remaps working status away from the default palette", () => {

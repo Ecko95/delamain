@@ -162,7 +162,7 @@ function togglePane(state: RuntimeState, pane: V2Pane): void {
 }
 
 export function initialThemeFromEnv(themeName: string | undefined = process.env.DELAMAIN_THEME): Theme {
-  return themeName === "cyberpunk" ? cyberpunkTheme : defaultTheme;
+  return themeName === "default" ? defaultTheme : cyberpunkTheme;
 }
 
 export function cycleTheme(state: RuntimeState): void {
