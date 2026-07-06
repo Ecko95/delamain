@@ -333,6 +333,53 @@ QUESTION: <one concise question>
 
 when they need orchestrator input. `send_peer_reply` resumes the known Codex thread.
 
+## Task Sizing Contract
+
+**One peer = one context-sized slice.** A peer shares a single Codex context
+window; overfilling it triggers auto-compaction and degraded work. Size each
+brief so it fits. A slice fits when ALL of:
+
+1. **Files touched ≤ 8** (edited files — reading is cheaper, but a peer typically
+   reads 3–5× the files it edits, and each read still costs context).
+2. **One package / one directory cluster.** The brief names a single package or
+   sibling-directory cluster as its blast radius. Cross-package work is split
+   one peer per package, or kept single-peer only under the fixture rule below.
+3. **Brief ≤ ~12k chars (~3k tokens).** A longer brief is usually smuggling
+   multiple tasks — split it.
+4. **One verification target.** A single test command scoped to the changed
+   directories (`npx vitest run src/foo/`). Two unrelated suites = two peers.
+
+**Cross-package fixture rule (mandatory).** Whenever a brief touches a shared
+contract, exported type, schema, or wire format, it MUST enumerate the
+downstream consumer files and fixtures it will update — **by path, across every
+package** — produced by the orchestrator grepping consumers *before* spawning.
+A peer told "update the contract" updates the contract and misses the fixture in
+another package (caught only by CI); a peer told "update the contract AND these
+3 fixtures in `packages/x`" fixes CI too. If you can't enumerate the downstream
+impacts, the task isn't sliced yet.
+
+These limits are enforced softly at spawn time (warn-only) via the `scope` and
+`size_override` args on `spawn_peer` / `spawn_peer_and_wait`:
+
+```jsonc
+{
+  "repo": "…",
+  "prompt": "…",
+  "scope": {
+    "files": 5,                                  // files the peer will EDIT
+    "packages": 2,                               // clusters touched (>1 = cross-package)
+    "downstream": ["packages/web/fixtures/a.json"] // required when packages > 1
+  },
+  "size_override": false                          // true = spawn anyway, logged on lastEvent
+}
+```
+
+`scope` is optional and backward-compatible — omitting it warns only on brief
+length. When a task looks oversized the warning is attached to the peer's
+`lastEvent` (visible in `peer_status` and the dashboard); the spawn still
+proceeds. Thresholds are env-tunable: `DELAMAIN_SIZING_PROMPT_WARN`,
+`DELAMAIN_SIZING_FILES_WARN`, `DELAMAIN_SIZING_PACKAGES_WARN`.
+
 ## Notes
 
 This does not inject messages into an already-open Codex TUI. It supervises headless Codex peer workers, which gives stronger process control, logs, dashboard status, and kill behavior.
