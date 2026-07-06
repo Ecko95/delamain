@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { checkCodexPeerAuth, codexAuthReloginMessage, isCodexAuthRefreshFailure } from "./codexAuth.js";
 import { parseCodexJsonLine, trim } from "./codexEvents.js";
+import { readPeerContext, contextTransitionNote, type CodexContextLevel } from "./codexContext.js";
 import { runCursorPeer } from "./cursorRunner.js";
 import { pushPeerBranch } from "./git.js";
 import { initialTerminalResponseState, updateTerminalResponseState } from "./lifecycle.js";
@@ -99,12 +100,30 @@ export async function runPeer(argv: string[]): Promise<void> {
   child.stdin.write(prompt);
   child.stdin.end();
 
+  // S2: context-window budget tracking. threadId (== session UUID) is captured
+  // from stdout; once known we poll the session JSONL on each heartbeat.
+  let latestThreadId: string | undefined = args.resumeThread;
+  let lastContextLevel: CodexContextLevel | undefined;
+  let compactionNoticed = false;
+
   const heartbeat = setInterval(() => {
+    const ctx = readPeerContext(latestThreadId, { home: codexHome });
+    const note = ctx ? contextTransitionNote(ctx, lastContextLevel, compactionNoticed) : undefined;
     updatePeer(args.peerId, (peer) => ({
       ...peer,
       lastHeartbeatAt: now(),
       updatedAt: now(),
+      contextPercent: ctx ? ctx.usedPercent : peer.contextPercent,
+      contextLevel: ctx ? ctx.level : peer.contextLevel,
+      compacted: ctx ? ctx.compacted : peer.compacted,
+      lastEvent: note || peer.lastEvent,
     }));
+    if (ctx) {
+      lastContextLevel = ctx.level;
+      if (ctx.compacted) {
+        compactionNoticed = true;
+      }
+    }
   }, 5000);
 
   let stdoutBuffer = "";
@@ -232,6 +251,9 @@ export async function runPeer(argv: string[]): Promise<void> {
     }
     append(log, `${line}\n`);
     const parsed = parseCodexJsonLine(line);
+    if (parsed.threadId) {
+      latestThreadId = parsed.threadId;
+    }
     if (parsed.text) {
       collectedText = trim(`${collectedText}\n${parsed.text}`, 20_000);
     }
