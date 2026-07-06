@@ -1,10 +1,13 @@
 import type { PeerRecord, PeerStatus } from "../types.js";
 import type { CodexUsage } from "../codexUsage.js";
+import { formatLogEvent, parseLogChunk, type LogEvent } from "./logEvents.js";
+import { defaultTheme, type Theme } from "./theme.js";
 
 export type DashboardStatus = PeerStatus | "cleanup";
 export type WorktreeRisk = "shared-checkout" | "shared-branch";
-export type DashboardMode = "normal" | "kill-confirm" | "help";
+export type DashboardMode = "normal" | "kill-confirm" | "answer" | "help";
 export type DashboardFocusPane = "peers" | "details" | "logs" | "status";
+export type FleetStage = "spawn" | "work" | "wait" | "integrate" | "done";
 
 export type DashboardState = {
   selectedIndex?: number;
@@ -48,6 +51,7 @@ export type DashboardViewModel = {
   warnings: string[];
   details: DashboardDetailRow[];
   logLines: string[];
+  logEvents: LogEvent[];
   logOffset: number;
   peerOffset: number;
   collapsedStatuses: Partial<Record<DashboardStatus, boolean>>;
@@ -60,33 +64,16 @@ export type DashboardViewModelOptions = {
   now?: Date;
   logLimit?: number;
   logProvider?: (peerId: string, lines: number) => string;
+  logEventsProvider?: (peerId: string, events: number) => LogEvent[];
   diffStatProvider?: (peerId: string, repo: string, baseRef: string) => string | undefined;
   codexUsageProvider?: () => CodexUsage | undefined;
 };
 
 const LOG_LIMIT = 80;
 const FORMATTED_LOG_LIMIT = 220;
+const LOG_EVENT_LIMIT = 2000;
+const FLEET_STAGES: FleetStage[] = ["spawn", "work", "wait", "integrate", "done"];
 const FOCUS_PANES: DashboardFocusPane[] = ["peers", "details", "logs", "status"];
-const STATUS_COLORS: Record<DashboardStatus, string> = {
-  starting: "#60a5fa",
-  working: "#22d3ee",
-  waiting: "#facc15",
-  idle: "#94a3b8",
-  done: "#a3a3a3",
-  cleanup: "#34d399",
-  failed: "#f87171",
-  frozen: "#c084fc",
-  killed: "#fb923c",
-  // Phase 33 — GSD peer state machine colors (palette aligned with generic
-  // states: pending/idle blue, running cyan, halted purple, completed green).
-  gsd_pending: "#818cf8",
-  gsd_running_phase: "#22d3ee",
-  gsd_polling_state: "#60a5fa",
-  gsd_running_gate_check: "#fbbf24",
-  gsd_halted_on_gate_failure: "#c084fc",
-  gsd_completed: "#34d399",
-  gsd_failed: "#f87171",
-};
 const STATIC_ACTIVITY: Record<Exclude<DashboardStatus, "starting" | "working">, string> = {
   waiting: "WAIT",
   idle: "IDLE",
@@ -132,7 +119,8 @@ export function createDashboardViewModel(
     expanded: state.expandedPeerId === peer.id,
   }));
   const mode = state.mode || "normal";
-  const logLines = selectedPeer ? formatDashboardLogLines(safeLogTail(selectedPeer.id, options)) : [];
+  const logEvents = selectedPeer ? safeLogEvents(selectedPeer.id, options) : [];
+  const logLines = selectedPeer ? formatDashboardLogEvents(logEvents) : [];
   const logOffset = Math.max(0, state.logOffset || 0);
   const diffStat = selectedPeer && options.diffStatProvider
     ? options.diffStatProvider(selectedPeer.id, selectedPeer.worktreePath || selectedPeer.repo, selectedPeer.baseRef || "")
@@ -147,6 +135,7 @@ export function createDashboardViewModel(
     warnings: worktrees.warnings,
     details: selectedPeer ? detailRows(selectedPeer, diffStat) : [],
     logLines,
+    logEvents,
     logOffset,
     peerOffset: Math.max(0, state.peerOffset || 0),
     collapsedStatuses: state.collapsedStatuses || defaultCollapsedStatuses(),
@@ -196,8 +185,8 @@ export function dashboardStatus(peer: PeerRecord): DashboardStatus {
   return peer.status;
 }
 
-export function statusColor(status: DashboardStatus): string {
-  return STATUS_COLORS[status];
+export function statusColor(status: DashboardStatus, theme: Theme = defaultTheme): string {
+  return theme.statusColors[status];
 }
 
 export function statusActivity(status: DashboardStatus, frame = 0): string {
@@ -208,11 +197,52 @@ export function statusActivity(status: DashboardStatus, frame = 0): string {
 }
 
 export function formatDashboardLogLines(lines: string[]): string[] {
+  return formatDashboardLogEvents(parseLogChunk(lines.join("\n")));
+}
+
+export function formatDashboardLogEvents(events: LogEvent[]): string[] {
   const formatted: string[] = [];
-  for (const line of lines) {
-    formatted.push(...formatDashboardLogLine(line));
+  for (const event of events) {
+    formatted.push(...formatLogEvent(event));
   }
   return formatted.slice(-FORMATTED_LOG_LIMIT);
+}
+
+export type FleetGridCell = {
+  project: string;
+  stage: FleetStage;
+  peers: DashboardPeerRow[];
+};
+
+export function fleetGridCells(peers: DashboardPeerRow[]): FleetGridCell[] {
+  const projects = Array.from(new Set(peers.map((peer) => peer.project))).sort((a, b) => a.localeCompare(b));
+  const cells: FleetGridCell[] = [];
+  for (const stage of FLEET_STAGES) {
+    for (const project of projects) {
+      cells.push({
+        project,
+        stage,
+        peers: peers.filter((peer) => peer.project === project && fleetStageForStatus(peer.status) === stage),
+      });
+    }
+  }
+  return cells;
+}
+
+export function fleetStageForStatus(status: DashboardStatus): FleetStage {
+  if (status === "starting" || status === "gsd_pending") {
+    return "spawn";
+  }
+  if (status === "working" || status === "gsd_running_phase" || status === "gsd_polling_state" || status === "gsd_running_gate_check") {
+    return "work";
+  }
+  if (status === "waiting" || status === "frozen" || status === "gsd_halted_on_gate_failure") {
+    return "wait";
+  }
+  if (status === "cleanup") {
+    return "integrate";
+  }
+  return "done";
 }
 
 export function projectLabel(peer: Pick<PeerRecord, "sourceRepo" | "repo" | "worktreePath">): string {
@@ -263,7 +293,24 @@ function messageForState(state: DashboardState, selected: PeerRecord | undefined
   if (mode === "kill-confirm") {
     return "Kill selected peer? No peer selected - escape cancels";
   }
+  if (mode === "answer" && selected) {
+    return `Reply to ${selected.id}: enter sends, escape cancels`;
+  }
+  if (mode === "answer") {
+    return "Reply: no peer selected - escape cancels";
+  }
   return state.message || "Ready";
+}
+
+function safeLogEvents(peerId: string, options: DashboardViewModelOptions): LogEvent[] {
+  if (options.logEventsProvider) {
+    try {
+      return options.logEventsProvider(peerId, LOG_EVENT_LIMIT).slice(-LOG_EVENT_LIMIT);
+    } catch {
+      return [];
+    }
+  }
+  return parseLogChunk(safeLogTail(peerId, options).join("\n")).slice(-LOG_EVENT_LIMIT);
 }
 
 function safeLogTail(peerId: string, options: DashboardViewModelOptions): string[] {
