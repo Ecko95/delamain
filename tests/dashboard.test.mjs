@@ -7,6 +7,7 @@ import { commandForKey } from "../dist/dashboard/keybindings.js";
 import { handleDashboardV2Input, v2CommandForKey } from "../dist/dashboard/v2Input.js";
 import { LogBuffer, formatLogEvent, parseLogChunk } from "../dist/dashboard/logEvents.js";
 import { createDashboardViewModel, defaultCollapsedStatuses, fleetGridCells, formatDashboardLogLines, projectLabel, statusActivity, statusColor } from "../dist/dashboard/model.js";
+import { cyberpunkTheme, defaultTheme } from "../dist/dashboard/theme.js";
 import { bunMissingMessage } from "../dist/dashboard.js";
 
 test("commandForKey maps dashboard shortcuts", () => {
@@ -30,6 +31,7 @@ test("commandForKey maps dashboard shortcuts", () => {
   assert.equal(commandForKey("G"), "jump-bottom");
   assert.equal(commandForKey("b"), "log-bottom");
   assert.equal(commandForKey("\x1b[F"), "log-bottom");
+  assert.equal(commandForKey("t"), "cycle-theme");
 });
 
 test("V2 command routing agrees with commandForKey", () => {
@@ -132,6 +134,33 @@ test("status colors give each dashboard state a distinct visible color", () => {
   assert.match(statusColor("cleanup"), /^#/);
 });
 
+test("cyberpunk theme remaps working status away from the default palette", () => {
+  assert.notEqual(statusColor("working", cyberpunkTheme), statusColor("working", defaultTheme));
+});
+
+test("default theme preserves the pre-theme dashboard palette exactly", () => {
+  assert.equal(defaultTheme.border, "#475569");
+  assert.equal(defaultTheme.borderFocused, "#facc15");
+  assert.deepEqual(defaultTheme.statusColors, {
+    starting: "#60a5fa",
+    working: "#22d3ee",
+    waiting: "#facc15",
+    idle: "#94a3b8",
+    done: "#a3a3a3",
+    cleanup: "#34d399",
+    failed: "#f87171",
+    frozen: "#c084fc",
+    killed: "#fb923c",
+    gsd_pending: "#818cf8",
+    gsd_running_phase: "#22d3ee",
+    gsd_polling_state: "#60a5fa",
+    gsd_running_gate_check: "#fbbf24",
+    gsd_halted_on_gate_failure: "#c084fc",
+    gsd_completed: "#34d399",
+    gsd_failed: "#f87171",
+  });
+});
+
 test("status activity uses OpenCode-style sweep for active peers and stable labels for terminal states", () => {
   assert.equal(statusActivity("working", 0), "■⬝⬝⬝⬝⬝⬝⬝");
   assert.equal(statusActivity("working", 1), "⬝■⬝⬝⬝⬝⬝⬝");
@@ -227,6 +256,7 @@ test("answer mode submits selected waiting peer through send_peer_reply path", (
   const actions = {
     refresh: () => {},
     quit: () => {},
+    killPeer: (peerId) => ({ id: peerId }),
     sendPeerReply: (peerId, text) => {
       calls.push({ peerId, text });
       return { id: peerId };
@@ -279,6 +309,7 @@ function dashboardRuntimeState(overrides = {}) {
     collapsedPanes: {},
     followSelectedPeer: true,
     forceLogRefresh: false,
+    theme: defaultTheme,
     visiblePeers: [],
     logEventLevels: [],
     ...overrides,

@@ -6,6 +6,7 @@ import {
   type DashboardPeerRow,
   type DashboardStatus,
 } from "./model.js";
+import { cyberpunkTheme, defaultTheme, type Theme } from "./theme.js";
 
 export type V2Pane = "overview" | "limits" | "telegram" | "warnings" | "peers" | "details" | "logs";
 
@@ -22,6 +23,7 @@ export type RuntimeState = {
   collapsedPanes: Partial<Record<V2Pane, boolean>>;
   followSelectedPeer: boolean;
   forceLogRefresh: boolean;
+  theme: Theme;
   visiblePeers: DashboardPeerRow[];
   logEventLevels: Array<"info" | "warn" | "error">;
 };
@@ -103,6 +105,9 @@ export function handleDashboardV2Input(sequence: string, state: RuntimeState, ac
       state.forceLogRefresh = true;
       state.message = "Refreshed";
       break;
+    case "cycle-theme":
+      cycleTheme(state);
+      break;
     case "enter-kill-mode":
       state.mode = "kill-confirm";
       state.message = "Kill selected peer? enter confirms, escape cancels";
@@ -154,6 +159,15 @@ function focusPane(state: RuntimeState, direction: 1 | -1): void {
 function togglePane(state: RuntimeState, pane: V2Pane): void {
   state.collapsedPanes[pane] = !state.collapsedPanes[pane];
   state.message = `${state.collapsedPanes[pane] ? "Collapsed" : "Expanded"} ${pane}`;
+}
+
+export function initialThemeFromEnv(themeName: string | undefined = process.env.DELAMAIN_THEME): Theme {
+  return themeName === "cyberpunk" ? cyberpunkTheme : defaultTheme;
+}
+
+export function cycleTheme(state: RuntimeState): void {
+  state.theme = state.theme === cyberpunkTheme ? defaultTheme : cyberpunkTheme;
+  state.message = `Theme: ${state.theme === cyberpunkTheme ? "cyberpunk" : "default"}`;
 }
 
 function moveFocused(state: RuntimeState, direction: 1 | -1): void {
