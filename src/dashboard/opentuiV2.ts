@@ -1,12 +1,15 @@
 import { Box, Text, StyledText, createCliRenderer, fg as textColor, dim as dimText, stringToStyledText, type TextChunk } from "@opentui/core";
 import { worktreeDiffStat } from "../git.js";
-import { killPeer, listPeers, readPeerLog } from "../peerManager.js";
+import { killPeer, listPeers, resumePeer } from "../peerManager.js";
 import { readCodexUsage, type CodexUsageLimit, type CodexUsageLevel } from "../codexUsage.js";
 import { formatSupervisorTime, readSupervisorTelegramStatus, type SupervisorTelegramStatus } from "../supervisorStatus.js";
 import type { PeerRecord } from "../types.js";
+import { LogBuffer } from "./logEvents.js";
+import { handleDashboardV2Input, type RuntimeState, type V2Pane } from "./v2Input.js";
 import {
   createDashboardViewModel,
   defaultCollapsedStatuses,
+  fleetGridCells,
   statusColor,
   truncate,
   truncateMiddle,
@@ -15,23 +18,6 @@ import {
   type DashboardStatus,
   type DashboardViewModel,
 } from "./model.js";
-
-type V2Pane = "overview" | "limits" | "telegram" | "warnings" | "peers" | "details" | "logs";
-type V2Mode = "normal" | "kill-confirm";
-
-type RuntimeState = {
-  selectedIndex: number;
-  selectedPeerId?: string;
-  focusPane: V2Pane;
-  mode: V2Mode;
-  message: string;
-  logOffset: number;
-  peerOffset: number;
-  collapsedStatuses: Partial<Record<DashboardStatus, boolean>>;
-  collapsedPanes: Partial<Record<V2Pane, boolean>>;
-  followSelectedPeer: boolean;
-  forceLogRefresh: boolean;
-};
 
 const STATUS_ORDER: DashboardStatus[] = [
   "working",
@@ -53,7 +39,6 @@ const STATUS_ORDER: DashboardStatus[] = [
 const PANES: V2Pane[] = ["overview", "limits", "telegram", "warnings", "peers", "details", "logs"];
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const PEER_REFRESH_MS = 1000;
-const LOG_REFRESH_MS = 1500;
 const DIFF_REFRESH_MS = 5000;
 const USAGE_REFRESH_MS = 15000;
 const SUPERVISOR_REFRESH_MS = 5000;
@@ -71,21 +56,22 @@ export async function runOpenTuiDashboardV2(): Promise<void> {
     focusPane: "peers",
     mode: "normal",
     message: "Ready",
+    answerInput: "",
     logOffset: 0,
     peerOffset: 0,
     collapsedStatuses: defaultCollapsedStatuses(),
     collapsedPanes: {},
     followSelectedPeer: true,
     forceLogRefresh: false,
+    visiblePeers: [],
+    logEventLevels: [],
   };
 
   let interval: ReturnType<typeof setInterval> | undefined;
   let destroyed = false;
   let cachedPeers = listPeers();
   let lastPeerRefresh = 0;
-  let cachedLogPeerId: string | undefined;
-  let cachedLogText = "";
-  let lastLogRefresh = 0;
+  const logBuffers = new Map<string, { path: string; buffer: LogBuffer }>();
   let cachedDiffPeerId: string | undefined;
   let cachedDiffText: string | undefined;
   let lastDiffRefresh = 0;
@@ -103,18 +89,18 @@ export async function runOpenTuiDashboardV2(): Promise<void> {
     }
     const view = createDashboardViewModel(cachedPeers, dashboardState(state), {
       logLimit: 80,
-      logProvider: (peerId, lines) => {
-        const peerChanged = cachedLogPeerId !== peerId;
-        const shouldRefresh = state.forceLogRefresh
-          || peerChanged
-          || (state.logOffset === 0 && currentTime - lastLogRefresh >= LOG_REFRESH_MS);
-        if (shouldRefresh) {
-          cachedLogPeerId = peerId;
-          cachedLogText = readPeerLog(peerId, lines);
-          lastLogRefresh = currentTime;
-          state.forceLogRefresh = false;
+      logEventsProvider: (peerId, events) => {
+        const peer = cachedPeers.find((candidate) => candidate.id === peerId);
+        if (!peer?.logPath) {
+          return [];
         }
-        return cachedLogText;
+        let cached = logBuffers.get(peerId);
+        if (!cached || cached.path !== peer.logPath) {
+          cached = { path: peer.logPath, buffer: new LogBuffer(peer.logPath) };
+          logBuffers.set(peerId, cached);
+        }
+        state.forceLogRefresh = false;
+        return cached.buffer.tail(events);
       },
       diffStatProvider: (peerId, repo, baseRef) => {
         const peerChanged = cachedDiffPeerId !== peerId;
@@ -143,6 +129,8 @@ export async function runOpenTuiDashboardV2(): Promise<void> {
     });
     state.selectedIndex = view.selectedIndex;
     state.selectedPeerId = view.selectedPeer?.id;
+    state.visiblePeers = view.peers;
+    state.logEventLevels = view.logEvents.map((event) => event.level);
     const supervisorPeerChanged = cachedSupervisorPeerId !== view.selectedPeer?.id;
     if (supervisorPeerChanged || currentTime - lastSupervisorRefresh >= SUPERVISOR_REFRESH_MS) {
       cachedSupervisorPeerId = view.selectedPeer?.id;
@@ -197,128 +185,18 @@ function dashboardState(state: RuntimeState): DashboardState {
     peerOffset: state.peerOffset,
     logOffset: state.logOffset,
     collapsedStatuses: state.collapsedStatuses,
+    mode: state.mode,
     message: state.message,
   };
 }
 
 function handleInput(sequence: string, state: RuntimeState, refresh: () => void, quit: () => void): boolean {
-  if (sequence === "\u0003" || (state.mode === "normal" && sequence === "q")) {
-    quit();
-    return true;
-  }
-  if (state.mode === "kill-confirm") {
-    if (sequence === "\r" || sequence === "\n") {
-      confirmKill(state);
-      refresh();
-      return true;
-    }
-    if (sequence === "\x1b") {
-      state.mode = "normal";
-      state.message = "Cancelled";
-      refresh();
-      return true;
-    }
-    return false;
-  }
-
-  if (sequence === "\t" || sequence === "\x1b[Z") {
-    focusPane(state, sequence === "\t" ? 1 : -1);
-  } else if (sequence === "c") {
-    togglePane(state, state.focusPane);
-  } else if (/^[1-7]$/.test(sequence)) {
-    togglePane(state, PANES[Number(sequence) - 1]);
-  } else if (sequence === "\x1b[B" || sequence === "j") {
-    moveFocused(state, 1);
-  } else if (sequence === "\x1b[A" || sequence === "k") {
-    moveFocused(state, -1);
-  } else if (sequence === "\x1b[6~") {
-    pageFocused(state, 10);
-  } else if (sequence === "\x1b[5~") {
-    pageFocused(state, -10);
-  } else if (sequence === "g") {
-    jumpFocused(state, "top");
-  } else if (sequence === "G") {
-    jumpFocused(state, "bottom");
-  } else if (sequence === "b" || sequence === "\x1b[F" || sequence === "\x1b[4~") {
-    state.logOffset = 0;
-    state.forceLogRefresh = true;
-    state.message = "Logs: latest";
-  } else if (sequence === "r") {
-    state.forceLogRefresh = true;
-    state.message = "Refreshed";
-  } else if (sequence === "x") {
-    state.mode = "kill-confirm";
-    state.message = "Kill selected peer? enter confirms, escape cancels";
-  } else {
-    return false;
-  }
-  refresh();
-  return true;
-}
-
-function focusPane(state: RuntimeState, direction: 1 | -1): void {
-  const current = PANES.indexOf(state.focusPane);
-  state.focusPane = PANES[(current + direction + PANES.length) % PANES.length];
-  state.message = `Focus: ${state.focusPane}`;
-}
-
-function togglePane(state: RuntimeState, pane: V2Pane): void {
-  state.collapsedPanes[pane] = !state.collapsedPanes[pane];
-  state.message = `${state.collapsedPanes[pane] ? "Collapsed" : "Expanded"} ${pane}`;
-}
-
-function moveFocused(state: RuntimeState, direction: 1 | -1): void {
-  if (state.focusPane === "logs") {
-    scrollLogs(state, direction === -1 ? "older" : "newer", 1);
-    return;
-  }
-  state.selectedIndex += direction;
-  state.selectedPeerId = undefined;
-  state.logOffset = 0;
-  state.followSelectedPeer = true;
-}
-
-function pageFocused(state: RuntimeState, amount: number): void {
-  if (state.focusPane === "logs") {
-    scrollLogs(state, amount < 0 ? "older" : "newer", Math.abs(amount));
-    return;
-  }
-  state.peerOffset = Math.max(0, state.peerOffset + amount);
-  state.followSelectedPeer = false;
-}
-
-function scrollLogs(state: RuntimeState, direction: "older" | "newer", amount: number): void {
-  state.logOffset = direction === "older"
-    ? state.logOffset + amount
-    : Math.max(0, state.logOffset - amount);
-  if (state.logOffset === 0) {
-    state.forceLogRefresh = true;
-  }
-}
-
-function jumpFocused(state: RuntimeState, target: "top" | "bottom"): void {
-  if (state.focusPane === "logs") {
-    state.logOffset = target === "top" ? Number.MAX_SAFE_INTEGER : 0;
-    state.forceLogRefresh = target === "bottom";
-    return;
-  }
-  state.peerOffset = target === "top" ? 0 : Number.MAX_SAFE_INTEGER;
-  state.followSelectedPeer = false;
-}
-
-function confirmKill(state: RuntimeState): void {
-  if (!state.selectedPeerId) {
-    state.message = "No peer selected";
-    state.mode = "normal";
-    return;
-  }
-  try {
-    const killed = killPeer(state.selectedPeerId);
-    state.message = `Killed ${killed.id}`;
-  } catch (error) {
-    state.message = error instanceof Error ? error.message : String(error);
-  }
-  state.mode = "normal";
+  return handleDashboardV2Input(sequence, state, {
+    refresh,
+    quit,
+    killPeer,
+    sendPeerReply: (peerId, text) => resumePeer({ peerId, prompt: text }),
+  });
 }
 
 function render(
@@ -455,19 +333,41 @@ function narrowGrid(
 
 function overviewPane(view: DashboardViewModel, state: RuntimeState, spinner: string) {
   return card("1 Overview", "overview", state, { height: state.collapsedPanes.overview ? 3 : 8, flexGrow: 1 }, () => {
-    const chunks: TextChunk[] = [];
-    STATUS_ORDER.filter((status) => view.counts[status]).slice(0, 8).forEach((status, index) => {
-      if (index > 0) {
-        chunks.push(...plainChunks("  "));
-      }
-      const label = status === "working" || status === "gsd_running_phase" ? `${spinner} ${status}` : status;
-      chunks.push(textColor(statusColor(status))(`${label} ${view.counts[status]}`));
-    });
-    if (chunks.length === 0) {
-      chunks.push(dimText("No peers yet"));
-    }
-    return styledText(...chunks);
+    return fleetGrid(view, spinner);
   });
+}
+
+function fleetGrid(view: DashboardViewModel, spinner: string): StyledText {
+  if (view.peers.length === 0) {
+    return styledText(dimText("No peers yet"));
+  }
+  const projects = Array.from(new Set(view.peers.map((peer) => peer.project))).sort((a, b) => a.localeCompare(b)).slice(0, 5);
+  const stages = ["spawn", "work", "wait", "integrate", "done"] as const;
+  const cells = fleetGridCells(view.peers);
+  const colWidth = Math.max(10, Math.floor(58 / Math.max(1, projects.length)));
+  const chunks: TextChunk[] = [dimText("stage".padEnd(10))];
+  for (const project of projects) {
+    chunks.push(dimText(truncate(project, colWidth).padEnd(colWidth)));
+  }
+  stages.forEach((stage) => {
+    chunks.push(...plainChunks("\n"));
+    chunks.push(dimText(stage.padEnd(10)));
+    for (const project of projects) {
+      const peers = cells.find((cell) => cell.stage === stage && cell.project === project)?.peers || [];
+      const blips = peers.slice(0, Math.max(1, colWidth - 2));
+      if (blips.length === 0) {
+        chunks.push(dimText(".".padEnd(colWidth)));
+        continue;
+      }
+      for (const peer of blips) {
+        const glyph = peer.selected ? "@" : peer.status === "working" || peer.status === "starting" ? spinner.slice(0, 1) : "o";
+        chunks.push(textColor(statusColor(peer.status))(glyph));
+      }
+      const overflow = peers.length > blips.length ? `+${peers.length - blips.length}` : "";
+      chunks.push(...plainChunks(overflow.padEnd(Math.max(0, colWidth - blips.length))));
+    }
+  });
+  return styledText(...chunks);
 }
 
 function limitsPane(view: DashboardViewModel, state: RuntimeState) {
@@ -573,13 +473,30 @@ function logsPane(view: DashboardViewModel, state: RuntimeState, visibleRows: nu
 }
 
 function footerPane(state: RuntimeState) {
-  const text = state.mode === "kill-confirm"
-    ? state.message
-    : `${state.message} | tab focus | 1-7/c collapse | j/k | pg | b logs | r | x kill | q`;
+  const text = footerText(state);
+  const height = state.mode === "help" ? 9 : 3;
   return Box(
-    paneProps("Keys", false, { height: 3 }),
-    Text({ content: truncate(text, 180) }),
+    paneProps("Keys", false, { height }),
+    Text({ content: state.mode === "help" ? text : truncate(text, 180) }),
   );
+}
+
+function footerText(state: RuntimeState): string {
+  if (state.mode === "kill-confirm") {
+    return state.message;
+  }
+  if (state.mode === "answer") {
+    return `answer> ${state.answerInput}`;
+  }
+  if (state.mode === "help") {
+    return [
+      "tab/S-tab focus  1-7/c collapse  j/k move or logs scroll  h/l fleet columns  pg up/down",
+      "g/G top/bottom  b latest logs  e previous error  r refresh",
+      "a answer waiting peer  x kill selected peer  ? close help  q quit",
+      "answer mode: enter sends, escape cancels, backspace edits",
+    ].join("\n");
+  }
+  return `${state.message} | ? help | tab focus | 1-7/c collapse | h/j/k/l | pg | b logs | e error | a answer | x kill | q`;
 }
 
 function card(title: string, pane: V2Pane, state: RuntimeState, extra: Record<string, unknown>, renderContent: () => StyledText) {
@@ -664,17 +581,22 @@ function peerDisplayLine(line: PeerDisplayLine, paneWidth: number, spinner: stri
   }
   const peer = line.peer;
   const contentWidth = Math.max(36, paneWidth - 4);
-  const projectWidth = Math.max(12, contentWidth - 34);
+  const projectWidth = Math.max(12, Math.min(contentWidth - 34, contentWidth >= 70 ? 24 : contentWidth - 34));
+  const eventWidth = Math.max(0, contentWidth - 34 - projectWidth - 1);
   const activity = peer.status === "working" || peer.status === "starting" || peer.status === "gsd_running_phase"
     ? spinner.padEnd(4)
     : peer.activity.slice(0, 4).padEnd(4);
-  return [
+  const chunks: TextChunk[] = [
     peer.selected ? textColor("#facc15")("● ") : dimText("  "),
     textColor(statusColor(peer.status))(activity),
     ...plainChunks(` ${peer.id.padEnd(8)} ${peer.elapsed.padEnd(7)} `),
     textColor(statusColor(peer.status))(peer.status.slice(0, 10).padEnd(10)),
     ...plainChunks(` ${truncate(peer.project, projectWidth).padEnd(projectWidth)}`),
   ];
+  if (eventWidth >= 12 && peer.lastEvent !== "-") {
+    chunks.push(dimText(` ${truncate(peer.lastEvent, eventWidth)}`));
+  }
+  return chunks;
 }
 
 function visibleLogContent(

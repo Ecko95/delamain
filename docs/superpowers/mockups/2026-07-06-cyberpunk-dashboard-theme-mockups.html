@@ -1,0 +1,378 @@
+<title>delamain — cyberpunk theme options</title>
+<style>
+:root {
+	--bg: #050403;
+	--frame: #1a1006;
+	--rule: #3a2410;
+	--accent: #ff7a1a;
+	--accent-dim: #7a3d0d;
+	--text: #ffb066;
+	--text-dim: #8a5a2e;
+	--crit: #ff4433;
+	--warn: #ffd166;
+	--mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, "Liberation Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body {
+	margin: 0;
+	background: #000;
+	color: var(--text);
+	font-family: var(--mono);
+}
+body { padding: 2rem 1rem 4rem; }
+
+.intro {
+	max-width: 62ch;
+	margin: 0 auto 2rem;
+	color: #c7c0b6;
+	font-family: ui-sans-serif, system-ui, sans-serif;
+	line-height: 1.5;
+}
+.intro h1 {
+	font-family: var(--mono);
+	color: var(--accent);
+	font-size: 1.1rem;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	margin: 0 0 0.5rem;
+}
+.intro p { margin: 0.4rem 0; font-size: 0.92rem; }
+
+.tabs {
+	display: flex;
+	gap: 0.5rem;
+	max-width: 1100px;
+	margin: 0 auto 1rem;
+	flex-wrap: wrap;
+}
+.tabs input { display: none; }
+.tabs label {
+	font-family: var(--mono);
+	font-size: 0.78rem;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	color: var(--text-dim);
+	border: 1px solid var(--rule);
+	padding: 0.5rem 0.9rem;
+	cursor: pointer;
+	user-select: none;
+}
+#t1:checked ~ .tabs label[for="t1"],
+#t2:checked ~ .tabs label[for="t2"],
+#t3:checked ~ .tabs label[for="t3"] {
+	color: #050403;
+	background: var(--accent);
+	border-color: var(--accent);
+}
+
+.stage { max-width: 1100px; margin: 0 auto; display: none; }
+#t1:checked ~ .stage.s1,
+#t2:checked ~ .stage.s2,
+#t3:checked ~ .stage.s3 { display: block; }
+
+.frame {
+	background: var(--bg);
+	border: 1px solid var(--rule);
+	padding: 0;
+	box-shadow: 0 0 40px -12px var(--accent-dim);
+}
+.titlebar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0.4rem 0.8rem;
+	border-bottom: 1px dashed var(--rule);
+	font-size: 0.72rem;
+	letter-spacing: 0.1em;
+	color: var(--text-dim);
+}
+.titlebar .dots span {
+	display: inline-block;
+	width: 7px; height: 7px;
+	border-radius: 50%;
+	background: var(--accent-dim);
+	margin-right: 4px;
+}
+
+.grid {
+	display: grid;
+	grid-template-columns: 240px 1fr 280px;
+	grid-template-rows: auto 140px;
+	gap: 1px;
+	background: var(--rule);
+}
+.pane {
+	background: var(--bg);
+	padding: 0.7rem 0.8rem;
+	min-width: 0;
+	overflow: hidden;
+}
+.pane-title {
+	font-size: 0.68rem;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--accent);
+	border-bottom: 1px solid var(--rule);
+	padding-bottom: 0.35rem;
+	margin-bottom: 0.5rem;
+	display: flex;
+	justify-content: space-between;
+}
+.pane-title.focused { color: var(--warn); }
+.pane.focused { box-shadow: inset 0 0 0 1px var(--warn); }
+
+.peer-group { color: var(--text-dim); font-size: 0.72rem; margin: 0.5rem 0 0.15rem; }
+.peer-row { font-size: 0.76rem; display: flex; gap: 0.4rem; padding: 0.12rem 0; }
+.peer-row .id { color: var(--text-dim); width: 3.2em; }
+.peer-row.sel { background: var(--accent-dim); color: #fff; }
+.dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 0.3em; align-self: center; }
+.dot.working { background: var(--accent); }
+.dot.waiting { background: var(--warn); }
+.dot.failed { background: var(--crit); }
+.dot.done { background: var(--text-dim); }
+
+.radar {
+	position: relative;
+	height: 100%;
+	min-height: 220px;
+}
+.ring {
+	position: absolute;
+	border: 1px solid var(--rule);
+	border-radius: 50%;
+}
+.blip {
+	position: absolute;
+	font-size: 0.62rem;
+	color: var(--text);
+	text-align: center;
+	transform: translate(-50%, -50%);
+}
+.blip .marker { width: 8px; height: 8px; border: 1px solid var(--accent); border-radius: 50%; margin: 0 auto 2px; }
+.blip.crit .marker { border-color: var(--crit); }
+.blip.crit { color: var(--crit); }
+.crosshair {
+	position: absolute; inset: 0;
+	background:
+		linear-gradient(var(--rule) 1px, transparent 1px) 0 50% / 100% 100%,
+		linear-gradient(90deg, var(--rule) 1px, transparent 1px) 50% 0 / 100% 100%;
+	background-repeat: no-repeat;
+	opacity: 0.6;
+}
+
+.detail-row { display: flex; justify-content: space-between; font-size: 0.74rem; padding: 0.15rem 0; }
+.detail-row .k { color: var(--text-dim); }
+.detail-label { font-size: 0.68rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 0.6rem; }
+
+.logline { font-size: 0.7rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.logline .tag { color: var(--accent); }
+.logline.err .tag { color: var(--crit); }
+
+.statusbar {
+	grid-column: 1 / -1;
+	display: flex;
+	justify-content: space-between;
+	padding: 0.35rem 0.8rem;
+	font-size: 0.68rem;
+	color: var(--text-dim);
+	border-top: 1px dashed var(--rule);
+	letter-spacing: 0.05em;
+}
+.statusbar .key { color: var(--accent); }
+
+/* --- variant 2: signal room (adds cyan focus + heavier scanline) --- */
+.s2 .frame { --accent: #ff7a1a; --warn: #35e0d8; }
+.s2 .frame { position: relative; overflow: hidden; }
+.s2 .frame::after {
+	content: "";
+	position: absolute; inset: 0;
+	background: repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 1px, transparent 1px, transparent 3px);
+	pointer-events: none;
+}
+
+/* --- variant 3: deep terminal (darker ground, red-forward alerts, tighter type) --- */
+.s3 .frame { --bg: #030201; --rule: #2a1a0c; --accent: #ff5a1f; --text: #e8a765; --text-dim: #6b4726; }
+.s3 .pane-title { font-weight: 600; }
+</style>
+
+<div class="intro">
+	<h1>▚ delamain :: cyberpunk theme — 3 directions</h1>
+	<p>Recreated as a real terminal panel layout (OpenTUI Box/Text panes: peers, overview/radar, details, logs, status bar) — not a screenshot copy, since the dashboard renders in a terminal, not a browser. Same content, three palettes/moods. Pick one, or mix (e.g. layout of #2, palette of #1).</p>
+	<p><strong>Chosen direction: #2 — Signal Room.</strong> See <code>docs/superpowers/specs/2026-07-06-cyberpunk-dashboard-theme-design.md</code> for the implementation spec.</p>
+</div>
+
+<input type="radio" name="tab" id="t1">
+<input type="radio" name="tab" id="t2" checked>
+<input type="radio" name="tab" id="t3">
+
+<div class="tabs">
+	<label for="t1">1 — Amber CRT (closest to reference)</label>
+	<label for="t2">2 — Signal Room (cyan focus + scanlines) — chosen</label>
+	<label for="t3">3 — Deep Terminal (darker, red alerts)</label>
+</div>
+
+<!-- shared markup, repeated per variant via CSS var overrides -->
+<div class="stage s1">
+	<div class="frame">
+		<div class="titlebar">
+			<span>DELAMAIN // PEER SUPERVISOR</span>
+			<span class="dots"><span></span><span></span><span></span></span>
+		</div>
+		<div class="grid">
+			<div class="pane">
+				<div class="pane-title focused">▾ peers <span>7</span></div>
+				<div class="peer-group">▾ working 2</div>
+				<div class="peer-row sel"><span class="id">p-04</span><span class="dot working"></span>codex · gsd-execute</div>
+				<div class="peer-row"><span class="id">p-07</span><span class="dot working"></span>cursor · fix-auth</div>
+				<div class="peer-group">▾ waiting 1</div>
+				<div class="peer-row"><span class="id">p-02</span><span class="dot waiting"></span>codex · review-pr</div>
+				<div class="peer-group">▾ failed 1</div>
+				<div class="peer-row"><span class="id">p-09</span><span class="dot failed"></span>cursor · migrate-db</div>
+				<div class="peer-group">▾ done 3</div>
+				<div class="peer-row"><span class="id">p-11</span><span class="dot done"></span>codex · lint-fix</div>
+			</div>
+			<div class="pane">
+				<div class="pane-title">overview :: signal map</div>
+				<div class="radar">
+					<div class="crosshair"></div>
+					<div class="ring" style="width:80%;height:80%;top:10%;left:10%;"></div>
+					<div class="ring" style="width:50%;height:50%;top:25%;left:25%;"></div>
+					<div class="ring" style="width:22%;height:22%;top:39%;left:39%;"></div>
+					<div class="blip" style="top:50%;left:50%;"><div class="marker"></div>p-04<br>MONITORING…</div>
+					<div class="blip" style="top:22%;left:68%;"><div class="marker"></div>p-07<br>MONITORING…</div>
+					<div class="blip crit" style="top:74%;left:30%;"><div class="marker"></div>p-09<br>FLAGGED</div>
+				</div>
+			</div>
+			<div class="pane">
+				<div class="pane-title">details :: p-04</div>
+				<div class="detail-row"><span class="k">ENGINE</span><span>CODEX</span></div>
+				<div class="detail-row"><span class="k">STATUS</span><span>WORKING</span></div>
+				<div class="detail-row"><span class="k">BRANCH</span><span>gsd-execute</span></div>
+				<div class="detail-row"><span class="k">STARTED</span><span>1h19m ago</span></div>
+				<div class="detail-row"><span class="k">DIFF</span><span>+142 / -38</span></div>
+				<div class="detail-label">worktree</div>
+				<div class="detail-row"><span class="k">PATH</span><span>.wt/p-04</span></div>
+			</div>
+			<div class="pane" style="grid-column: 1 / -1;">
+				<div class="pane-title">logs</div>
+				<div class="logline"><span class="tag">[p-04]</span> applying patch src/dashboard/model.ts…</div>
+				<div class="logline"><span class="tag">[p-07]</span> running tests: 12/12 passed</div>
+				<div class="logline err"><span class="tag">[p-09]</span> ERROR: migration 0042 failed — rolling back</div>
+			</div>
+			<div class="statusbar">
+				<span><span class="key">j/k</span> nav · <span class="key">tab</span> pane · <span class="key">enter</span> select · <span class="key">x</span> kill</span>
+				<span>READY</span>
+			</div>
+		</div>
+	</div>
+</div>
+
+<div class="stage s2">
+	<div class="frame">
+		<div class="titlebar">
+			<span>DELAMAIN // PEER SUPERVISOR</span>
+			<span class="dots"><span></span><span></span><span></span></span>
+		</div>
+		<div class="grid">
+			<div class="pane">
+				<div class="pane-title focused">▾ peers <span>7</span></div>
+				<div class="peer-group">▾ working 2</div>
+				<div class="peer-row sel"><span class="id">p-04</span><span class="dot working"></span>codex · gsd-execute</div>
+				<div class="peer-row"><span class="id">p-07</span><span class="dot working"></span>cursor · fix-auth</div>
+				<div class="peer-group">▾ waiting 1</div>
+				<div class="peer-row"><span class="id">p-02</span><span class="dot waiting"></span>codex · review-pr</div>
+				<div class="peer-group">▾ failed 1</div>
+				<div class="peer-row"><span class="id">p-09</span><span class="dot failed"></span>cursor · migrate-db</div>
+				<div class="peer-group">▾ done 3</div>
+				<div class="peer-row"><span class="id">p-11</span><span class="dot done"></span>codex · lint-fix</div>
+			</div>
+			<div class="pane">
+				<div class="pane-title">overview :: signal map</div>
+				<div class="radar">
+					<div class="crosshair"></div>
+					<div class="ring" style="width:80%;height:80%;top:10%;left:10%;"></div>
+					<div class="ring" style="width:50%;height:50%;top:25%;left:25%;"></div>
+					<div class="ring" style="width:22%;height:22%;top:39%;left:39%;"></div>
+					<div class="blip" style="top:50%;left:50%;"><div class="marker"></div>p-04<br>MONITORING…</div>
+					<div class="blip" style="top:22%;left:68%;"><div class="marker"></div>p-07<br>MONITORING…</div>
+					<div class="blip crit" style="top:74%;left:30%;"><div class="marker"></div>p-09<br>FLAGGED</div>
+				</div>
+			</div>
+			<div class="pane">
+				<div class="pane-title">details :: p-04</div>
+				<div class="detail-row"><span class="k">ENGINE</span><span>CODEX</span></div>
+				<div class="detail-row"><span class="k">STATUS</span><span>WORKING</span></div>
+				<div class="detail-row"><span class="k">BRANCH</span><span>gsd-execute</span></div>
+				<div class="detail-row"><span class="k">STARTED</span><span>1h19m ago</span></div>
+				<div class="detail-row"><span class="k">DIFF</span><span>+142 / -38</span></div>
+				<div class="detail-label">worktree</div>
+				<div class="detail-row"><span class="k">PATH</span><span>.wt/p-04</span></div>
+			</div>
+			<div class="pane" style="grid-column: 1 / -1;">
+				<div class="pane-title">logs</div>
+				<div class="logline"><span class="tag">[p-04]</span> applying patch src/dashboard/model.ts…</div>
+				<div class="logline"><span class="tag">[p-07]</span> running tests: 12/12 passed</div>
+				<div class="logline err"><span class="tag">[p-09]</span> ERROR: migration 0042 failed — rolling back</div>
+			</div>
+			<div class="statusbar">
+				<span><span class="key">j/k</span> nav · <span class="key">tab</span> pane · <span class="key">enter</span> select · <span class="key">x</span> kill</span>
+				<span>READY</span>
+			</div>
+		</div>
+	</div>
+</div>
+
+<div class="stage s3">
+	<div class="frame">
+		<div class="titlebar">
+			<span>DELAMAIN // PEER SUPERVISOR</span>
+			<span class="dots"><span></span><span></span><span></span></span>
+		</div>
+		<div class="grid">
+			<div class="pane">
+				<div class="pane-title focused">▾ peers <span>7</span></div>
+				<div class="peer-group">▾ working 2</div>
+				<div class="peer-row sel"><span class="id">p-04</span><span class="dot working"></span>codex · gsd-execute</div>
+				<div class="peer-row"><span class="id">p-07</span><span class="dot working"></span>cursor · fix-auth</div>
+				<div class="peer-group">▾ waiting 1</div>
+				<div class="peer-row"><span class="id">p-02</span><span class="dot waiting"></span>codex · review-pr</div>
+				<div class="peer-group">▾ failed 1</div>
+				<div class="peer-row"><span class="id">p-09</span><span class="dot failed"></span>cursor · migrate-db</div>
+				<div class="peer-group">▾ done 3</div>
+				<div class="peer-row"><span class="id">p-11</span><span class="dot done"></span>codex · lint-fix</div>
+			</div>
+			<div class="pane">
+				<div class="pane-title">overview :: signal map</div>
+				<div class="radar">
+					<div class="crosshair"></div>
+					<div class="ring" style="width:80%;height:80%;top:10%;left:10%;"></div>
+					<div class="ring" style="width:50%;height:50%;top:25%;left:25%;"></div>
+					<div class="ring" style="width:22%;height:22%;top:39%;left:39%;"></div>
+					<div class="blip" style="top:50%;left:50%;"><div class="marker"></div>p-04<br>MONITORING…</div>
+					<div class="blip" style="top:22%;left:68%;"><div class="marker"></div>p-07<br>MONITORING…</div>
+					<div class="blip crit" style="top:74%;left:30%;"><div class="marker"></div>p-09<br>FLAGGED</div>
+				</div>
+			</div>
+			<div class="pane">
+				<div class="pane-title">details :: p-04</div>
+				<div class="detail-row"><span class="k">ENGINE</span><span>CODEX</span></div>
+				<div class="detail-row"><span class="k">STATUS</span><span>WORKING</span></div>
+				<div class="detail-row"><span class="k">BRANCH</span><span>gsd-execute</span></div>
+				<div class="detail-row"><span class="k">STARTED</span><span>1h19m ago</span></div>
+				<div class="detail-row"><span class="k">DIFF</span><span>+142 / -38</span></div>
+				<div class="detail-label">worktree</div>
+				<div class="detail-row"><span class="k">PATH</span><span>.wt/p-04</span></div>
+			</div>
+			<div class="pane" style="grid-column: 1 / -1;">
+				<div class="pane-title">logs</div>
+				<div class="logline"><span class="tag">[p-04]</span> applying patch src/dashboard/model.ts…</div>
+				<div class="logline"><span class="tag">[p-07]</span> running tests: 12/12 passed</div>
+				<div class="logline err"><span class="tag">[p-09]</span> ERROR: migration 0042 failed — rolling back</div>
+			</div>
+			<div class="statusbar">
+				<span><span class="key">j/k</span> nav · <span class="key">tab</span> pane · <span class="key">enter</span> select · <span class="key">x</span> kill</span>
+				<span>READY</span>
+			</div>
+		</div>
+	</div>
+</div>

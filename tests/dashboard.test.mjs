@@ -1,17 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync, appendFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { commandForKey } from "../dist/dashboard/keybindings.js";
-import { createDashboardViewModel, defaultCollapsedStatuses, formatDashboardLogLines, projectLabel, statusActivity, statusColor } from "../dist/dashboard/model.js";
+import { handleDashboardV2Input, v2CommandForKey } from "../dist/dashboard/v2Input.js";
+import { LogBuffer, formatLogEvent, parseLogChunk } from "../dist/dashboard/logEvents.js";
+import { createDashboardViewModel, defaultCollapsedStatuses, fleetGridCells, formatDashboardLogLines, projectLabel, statusActivity, statusColor } from "../dist/dashboard/model.js";
 import { bunMissingMessage } from "../dist/dashboard.js";
 
 test("commandForKey maps dashboard shortcuts", () => {
   assert.equal(commandForKey("q"), "quit");
   assert.equal(commandForKey("x"), "enter-kill-mode");
+  assert.equal(commandForKey("a"), "enter-answer-mode");
+  assert.equal(commandForKey("e"), "jump-error");
+  assert.equal(commandForKey("?"), "help");
+  assert.equal(commandForKey("\r", "answer"), "submit-answer");
   assert.equal(commandForKey("\r", "kill-confirm"), "confirm-kill");
   assert.equal(commandForKey("\x1b", "kill-confirm"), "cancel-mode");
   assert.equal(commandForKey("\t"), "focus-next");
   assert.equal(commandForKey("\x1b[Z"), "focus-prev");
   assert.equal(commandForKey("\x1b[B", "normal", "peers"), "select-next");
+  assert.equal(commandForKey("h", "normal", "peers"), "select-left");
+  assert.equal(commandForKey("l", "normal", "peers"), "select-right");
   assert.equal(commandForKey("\x1b[B", "normal", "logs"), "scroll-log-down");
   assert.equal(commandForKey("\x1b[A", "normal", "logs"), "scroll-log-up");
   assert.equal(commandForKey("c"), "toggle-status-group");
@@ -19,6 +30,15 @@ test("commandForKey maps dashboard shortcuts", () => {
   assert.equal(commandForKey("G"), "jump-bottom");
   assert.equal(commandForKey("b"), "log-bottom");
   assert.equal(commandForKey("\x1b[F"), "log-bottom");
+});
+
+test("V2 command routing agrees with commandForKey", () => {
+  const state = dashboardRuntimeState();
+  for (const key of ["q", "a", "e", "?", "h", "l", "\t", "\x1b[B", "\x1b[A", "x"]) {
+    assert.equal(v2CommandForKey(key, state), commandForKey(key, "normal", "peers"));
+  }
+  state.focusPane = "logs";
+  assert.equal(v2CommandForKey("\x1b[B", state), commandForKey("\x1b[B", "normal", "logs"));
 });
 
 test("createDashboardViewModel counts statuses and cleanup peers", () => {
@@ -143,6 +163,86 @@ test("formatDashboardLogLines turns Codex JSON events into readable blocks", () 
   assert.match(lines.join("\n"), /exited code=0/);
 });
 
+test("parseLogChunk maps Codex and Cursor events to structured kinds", () => {
+  const inputs = [
+    [JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "done" } }), "message"],
+    [JSON.stringify({ type: "item.completed", item: { type: "reasoning", text: "thinking" } }), "reasoning"],
+    [JSON.stringify({ type: "item.completed", item: { type: "command_execution", command: "pwd", exit_code: 0 } }), "command"],
+    [JSON.stringify({ type: "item.completed", item: { type: "file_change", path: "src/a.ts" } }), "file_change"],
+    [JSON.stringify({ type: "error", message: "bad" }), "error"],
+    [JSON.stringify({ type: "turn.started", thread_id: "t1" }), "turn"],
+    ["[delamain] runner started", "delamain"],
+    [JSON.stringify({ type: "stream", event: { type: "assistant", message: "cursor hi" } }), "message"],
+  ];
+
+  for (const [line, kind] of inputs) {
+    const [event] = parseLogChunk(line, () => new Date("2026-07-06T10:00:00Z"));
+    assert.equal(event.kind, kind);
+    assert.notEqual(event.kind, "raw");
+    assert.equal(event.at, "2026-07-06T10:00:00.000Z");
+  }
+});
+
+test("parseLogChunk keeps unknown text as raw without raw JSON dumps for known events", () => {
+  const [raw] = parseLogChunk("plain old line");
+  assert.equal(raw.kind, "raw");
+  const [message] = parseLogChunk(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "hello" } }));
+  assert.equal(message.kind, "message");
+  assert.doesNotMatch(formatLogEvent(message).join("\n"), /json:/);
+});
+
+test("LogBuffer tails only appended bytes and caps the ring buffer", () => {
+  const dir = mkdtempSync(join(tmpdir(), "delamain-log-buffer-"));
+  const logPath = join(dir, "peer.log");
+  writeFileSync(logPath, "one\ntwo\n", "utf8");
+  const buffer = new LogBuffer(logPath, 3, () => new Date("2026-07-06T10:00:00Z"));
+
+  assert.deepEqual(buffer.readNew().map((event) => event.title), ["one", "two"]);
+  appendFileSync(logPath, "three\nfour\n", "utf8");
+  assert.deepEqual(buffer.readNew().map((event) => event.title), ["two", "three", "four"]);
+  assert.deepEqual(buffer.readNew().map((event) => event.title), ["two", "three", "four"]);
+});
+
+test("fleetGridCells groups peers by project columns and lifecycle stage rows", () => {
+  const view = createDashboardViewModel([
+    peer({ id: "spawn1", status: "starting", sourceRepo: "/repo/alpha" }),
+    peer({ id: "work1", status: "working", sourceRepo: "/repo/alpha" }),
+    peer({ id: "wait1", status: "waiting", sourceRepo: "/repo/beta" }),
+    peer({ id: "push1", status: "done", integrationStatus: "pushed", sourceRepo: "/repo/beta" }),
+  ]);
+  const cells = fleetGridCells(view.peers);
+
+  assert.deepEqual(cells.find((cell) => cell.project === "repo/alpha" && cell.stage === "spawn").peers.map((p) => p.id), ["spawn1"]);
+  assert.deepEqual(cells.find((cell) => cell.project === "repo/alpha" && cell.stage === "work").peers.map((p) => p.id), ["work1"]);
+  assert.deepEqual(cells.find((cell) => cell.project === "repo/beta" && cell.stage === "wait").peers.map((p) => p.id), ["wait1"]);
+  assert.deepEqual(cells.find((cell) => cell.project === "repo/beta" && cell.stage === "integrate").peers.map((p) => p.id), ["push1"]);
+});
+
+test("answer mode submits selected waiting peer through send_peer_reply path", () => {
+  const calls = [];
+  const state = dashboardRuntimeState({
+    selectedPeerId: "p1",
+    visiblePeers: [{ id: "p1", index: 0, status: "waiting", project: "repo/app", lastEvent: "question?", selected: true }],
+  });
+  const actions = {
+    refresh: () => {},
+    quit: () => {},
+    sendPeerReply: (peerId, text) => {
+      calls.push({ peerId, text });
+      return { id: peerId };
+    },
+  };
+
+  assert.equal(handleDashboardV2Input("a", state, actions), true);
+  assert.equal(state.mode, "answer");
+  handleDashboardV2Input("o", state, actions);
+  handleDashboardV2Input("k", state, actions);
+  handleDashboardV2Input("\r", state, actions);
+
+  assert.deepEqual(calls, [{ peerId: "p1", text: "ok" }]);
+  assert.equal(state.mode, "normal");
+});
+
 test("Bun missing message is actionable for dashboard users", () => {
   const message = bunMissingMessage();
   assert.match(message, /requires Bun/);
@@ -161,6 +261,26 @@ function peer(overrides) {
     updatedAt: "2026-05-07T12:00:00Z",
     logPath: "/tmp/peer.log",
     integrationStatus: "pending",
+    ...overrides,
+  };
+}
+
+function dashboardRuntimeState(overrides = {}) {
+  return {
+    selectedIndex: 0,
+    selectedPeerId: undefined,
+    focusPane: "peers",
+    mode: "normal",
+    message: "Ready",
+    answerInput: "",
+    logOffset: 0,
+    peerOffset: 0,
+    collapsedStatuses: {},
+    collapsedPanes: {},
+    followSelectedPeer: true,
+    forceLogRefresh: false,
+    visiblePeers: [],
+    logEventLevels: [],
     ...overrides,
   };
 }

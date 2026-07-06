@@ -5,6 +5,8 @@ export type DashboardCommand =
   | "focus-prev"
   | "select-next"
   | "select-prev"
+  | "select-left"
+  | "select-right"
   | "toggle-details"
   | "scroll-log-down"
   | "scroll-log-up"
@@ -16,8 +18,12 @@ export type DashboardCommand =
   | "toggle-status-group"
   | "refresh"
   | "enter-kill-mode"
+  | "enter-answer-mode"
   | "confirm-kill"
+  | "submit-answer"
   | "cancel-mode"
+  | "jump-error"
+  | "help"
   | "quit"
   | "noop";
 
@@ -34,6 +40,21 @@ export function commandForKey(key: string, mode: DashboardMode = "normal", focus
     }
     return "noop";
   }
+  if (mode === "answer") {
+    if (key === "\r" || key === "\n") {
+      return "submit-answer";
+    }
+    if (key === "\x1b") {
+      return "cancel-mode";
+    }
+    return "noop";
+  }
+  if (mode === "help") {
+    if (key === "\x1b" || key === "?" || key === "q") {
+      return "cancel-mode";
+    }
+    return "noop";
+  }
   if (key === "\t") {
     return "focus-next";
   }
@@ -45,6 +66,12 @@ export function commandForKey(key: string, mode: DashboardMode = "normal", focus
   }
   if (key === "\x1b[A" || key === "k") {
     return focusPane === "logs" ? "scroll-log-up" : "select-prev";
+  }
+  if (key === "h") {
+    return "select-left";
+  }
+  if (key === "l") {
+    return "select-right";
   }
   if (key === "\r" || key === "\n" || key === " ") {
     return "toggle-details";
@@ -69,6 +96,15 @@ export function commandForKey(key: string, mode: DashboardMode = "normal", focus
   }
   if (key === "r") {
     return "refresh";
+  }
+  if (key === "a") {
+    return "enter-answer-mode";
+  }
+  if (key === "e") {
+    return "jump-error";
+  }
+  if (key === "?") {
+    return "help";
   }
   if (key === "x") {
     return "enter-kill-mode";
