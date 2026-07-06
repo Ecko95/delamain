@@ -5,6 +5,16 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { commandForKey } from "../dist/dashboard/keybindings.js";
 import { handleDashboardV2Input, initialThemeFromEnv, v2CommandForKey } from "../dist/dashboard/v2Input.js";
+import {
+  v3CommandForKey,
+  handleDashboardV3Input,
+  initialRuntimeStateV3,
+  paletteEntries,
+  filterPalette,
+  pushToast,
+  expireToasts,
+} from "../dist/dashboard/v3Input.js";
+import { mutedTheme } from "../dist/dashboard/theme.js";
 import { LogBuffer, formatLogEvent, parseLogChunk } from "../dist/dashboard/logEvents.js";
 import { createDashboardViewModel, defaultCollapsedStatuses, fleetGridCells, formatDashboardLogLines, projectLabel, statusActivity, statusColor } from "../dist/dashboard/model.js";
 import { cyberpunkTheme, defaultTheme } from "../dist/dashboard/theme.js";
@@ -292,6 +302,249 @@ test("Bun missing message is actionable for dashboard users", () => {
   const message = bunMissingMessage();
   assert.match(message, /requires Bun/);
   assert.match(message, /delamain tmux-status/);
+});
+
+// --- v3 -----------------------------------------------------------------
+
+function v3State(overrides = {}) {
+  const state = initialRuntimeStateV3(cyberpunkTheme);
+  return { ...state, ...overrides };
+}
+
+function waitingPeerState(extra = {}) {
+  return v3State({
+    selectedPeerId: "p1",
+    visiblePeers: [{ id: "p1", index: 0, status: "waiting", project: "repo/app", lastEvent: "run migration?", selected: true }],
+    ...extra,
+  });
+}
+
+function v3Actions(calls = { kill: [], reply: [], quit: 0, refresh: 0 }) {
+  return {
+    calls,
+    refresh: () => { calls.refresh += 1; },
+    quit: () => { calls.quit += 1; },
+    killPeer: (peerId) => { calls.kill.push(peerId); return { id: peerId }; },
+    sendPeerReply: (peerId, text) => { calls.reply.push({ peerId, text }); return { id: peerId }; },
+  };
+}
+
+test("v3CommandForKey maps normal-mode keys", () => {
+  const s = v3State();
+  assert.equal(v3CommandForKey("1", s), "switch-route-1");
+  assert.equal(v3CommandForKey("5", s), "switch-route-5");
+  assert.equal(v3CommandForKey("j", s), "select-next");
+  assert.equal(v3CommandForKey("\x1b[B", s), "select-next");
+  assert.equal(v3CommandForKey("k", s), "select-prev");
+  assert.equal(v3CommandForKey("h", s), "map-left");
+  assert.equal(v3CommandForKey("l", s), "map-right");
+  assert.equal(v3CommandForKey("\r", s), "open-modal");
+  assert.equal(v3CommandForKey(" ", s), "open-modal");
+  assert.equal(v3CommandForKey("\t", s), "toggle-drawer-focus");
+  assert.equal(v3CommandForKey("\x1b[Z", s), "toggle-drawer-focus-prev");
+  assert.equal(v3CommandForKey("`", s), "toggle-drawer");
+  assert.equal(v3CommandForKey(":", s), "open-palette");
+  assert.equal(v3CommandForKey("\x0b", s), "open-palette");
+  assert.equal(v3CommandForKey("c", s), "toggle-status-group");
+  assert.equal(v3CommandForKey("g", s), "jump-top");
+  assert.equal(v3CommandForKey("G", s), "jump-bottom");
+  assert.equal(v3CommandForKey("\x1b[5~", s), "page-up");
+  assert.equal(v3CommandForKey("\x1b[6~", s), "page-down");
+  assert.equal(v3CommandForKey("b", s), "log-bottom");
+  assert.equal(v3CommandForKey("e", s), "jump-error");
+  assert.equal(v3CommandForKey("a", s), "open-modal-answer");
+  assert.equal(v3CommandForKey("x", s), "open-modal-kill");
+  assert.equal(v3CommandForKey("t", s), "cycle-theme");
+  assert.equal(v3CommandForKey("r", s), "refresh");
+  assert.equal(v3CommandForKey("?", s), "help");
+  assert.equal(v3CommandForKey("q", s), "quit");
+  assert.equal(v3CommandForKey("\x03", s), "quit");
+});
+
+test("v3CommandForKey ctrl-c quits from every mode", () => {
+  for (const mode of ["normal", "palette", "modal", "modal-answer", "modal-kill", "help"]) {
+    assert.equal(v3CommandForKey("\x03", v3State({ mode })), "quit");
+  }
+});
+
+test("v3CommandForKey maps modal-mode keys", () => {
+  const s = v3State({ mode: "modal" });
+  assert.equal(v3CommandForKey("\t", s), "modal-next-tab");
+  assert.equal(v3CommandForKey("h", s), "modal-next-tab");
+  assert.equal(v3CommandForKey("l", s), "modal-next-tab");
+  assert.equal(v3CommandForKey("\x1b[Z", s), "modal-prev-tab");
+  assert.equal(v3CommandForKey("\x1b[D", s), "modal-prev-button");
+  assert.equal(v3CommandForKey("\x1b[C", s), "modal-next-button");
+  assert.equal(v3CommandForKey("j", s), "modal-scroll-down");
+  assert.equal(v3CommandForKey("k", s), "modal-scroll-up");
+  assert.equal(v3CommandForKey("\r", s), "modal-activate");
+  assert.equal(v3CommandForKey("a", s), "modal-answer");
+  assert.equal(v3CommandForKey("v", s), "modal-view-log");
+  assert.equal(v3CommandForKey("x", s), "modal-kill");
+  assert.equal(v3CommandForKey("\x1b", s), "modal-close");
+  assert.equal(v3CommandForKey("q", s), "modal-close");
+});
+
+test("v3CommandForKey maps modal-answer, modal-kill, palette, help modes", () => {
+  assert.equal(v3CommandForKey("\r", v3State({ mode: "modal-answer" })), "submit-answer");
+  assert.equal(v3CommandForKey("\x1b", v3State({ mode: "modal-answer" })), "cancel");
+  assert.equal(v3CommandForKey("z", v3State({ mode: "modal-answer" })), "noop");
+  assert.equal(v3CommandForKey("\r", v3State({ mode: "modal-kill" })), "modal-kill");
+  assert.equal(v3CommandForKey("\x1b", v3State({ mode: "modal-kill" })), "cancel");
+  assert.equal(v3CommandForKey("z", v3State({ mode: "modal-kill" })), "cancel");
+  assert.equal(v3CommandForKey("\r", v3State({ mode: "palette" })), "palette-run");
+  assert.equal(v3CommandForKey("\x1b", v3State({ mode: "palette" })), "palette-close");
+  assert.equal(v3CommandForKey("\x1b[A", v3State({ mode: "palette" })), "palette-move-up");
+  assert.equal(v3CommandForKey("\x10", v3State({ mode: "palette" })), "palette-move-up");
+  assert.equal(v3CommandForKey("\x1b[B", v3State({ mode: "palette" })), "palette-move-down");
+  assert.equal(v3CommandForKey("\x0e", v3State({ mode: "palette" })), "palette-move-down");
+  assert.equal(v3CommandForKey("z", v3State({ mode: "palette" })), "noop");
+  assert.equal(v3CommandForKey("\x1b", v3State({ mode: "help" })), "cancel");
+  assert.equal(v3CommandForKey("?", v3State({ mode: "help" })), "cancel");
+});
+
+test("handleDashboardV3Input enter opens modal for selected peer", () => {
+  const state = waitingPeerState();
+  handleDashboardV3Input("\r", state, v3Actions());
+  assert.equal(state.mode, "modal");
+  assert.equal(state.modalPeerId, "p1");
+  assert.equal(typeof state.modalOpenedAt, "number");
+});
+
+test("handleDashboardV3Input enter with no selection toasts instead of opening", () => {
+  const state = v3State();
+  handleDashboardV3Input("\r", state, v3Actions());
+  assert.equal(state.mode, "normal");
+  assert.equal(state.toasts.at(-1).text, "No peer selected");
+});
+
+test("handleDashboardV3Input a opens modal-answer only when waiting", () => {
+  const waiting = waitingPeerState();
+  handleDashboardV3Input("a", waiting, v3Actions());
+  assert.equal(waiting.mode, "modal-answer");
+  assert.equal(waiting.modalPeerId, "p1");
+
+  const working = v3State({
+    selectedPeerId: "p2",
+    visiblePeers: [{ id: "p2", index: 0, status: "working", project: "repo/app", lastEvent: "x", selected: true }],
+  });
+  handleDashboardV3Input("a", working, v3Actions());
+  assert.equal(working.mode, "normal");
+  assert.match(working.toasts.at(-1).text, /not waiting/);
+});
+
+test("typed answer submits through sendPeerReply and closes modal with toast", () => {
+  const state = waitingPeerState();
+  const actions = v3Actions();
+  handleDashboardV3Input("a", state, actions);
+  handleDashboardV3Input("o", state, actions);
+  handleDashboardV3Input("k", state, actions);
+  handleDashboardV3Input("\r", state, actions);
+  assert.deepEqual(actions.calls.reply, [{ peerId: "p1", text: "ok" }]);
+  assert.equal(state.mode, "normal");
+  assert.equal(state.modalPeerId, undefined);
+  assert.match(state.toasts.at(-1).text, /Reply sent/);
+});
+
+test("x opens modal-kill and enter kills; esc disarms back to modal", () => {
+  const disarm = waitingPeerState();
+  handleDashboardV3Input("x", disarm, v3Actions());
+  assert.equal(disarm.mode, "modal-kill");
+  handleDashboardV3Input("\x1b", disarm, v3Actions());
+  assert.equal(disarm.mode, "modal");
+
+  const state = waitingPeerState();
+  const actions = v3Actions();
+  handleDashboardV3Input("x", state, actions);
+  handleDashboardV3Input("\r", state, actions);
+  assert.deepEqual(actions.calls.kill, ["p1"]);
+  assert.equal(state.mode, "normal");
+  assert.match(state.toasts.at(-1).text, /Killed p1/);
+});
+
+test("route switching via 1-5 sets route and focusChangedAt", () => {
+  const state = v3State();
+  handleDashboardV3Input("2", state, v3Actions());
+  assert.equal(state.route, "map");
+  assert.equal(typeof state.focusChangedAt, "number");
+  handleDashboardV3Input("5", state, v3Actions());
+  assert.equal(state.route, "alerts");
+});
+
+test("backtick toggles drawer", () => {
+  const state = v3State();
+  assert.equal(state.drawerOpen, true);
+  handleDashboardV3Input("`", state, v3Actions());
+  assert.equal(state.drawerOpen, false);
+  handleDashboardV3Input("`", state, v3Actions());
+  assert.equal(state.drawerOpen, true);
+});
+
+test("map-left/map-right move selection across projects", () => {
+  const state = v3State({
+    route: "map",
+    selectedPeerId: "a1",
+    visiblePeers: [
+      { id: "a1", index: 0, status: "working", project: "alpha", lastEvent: "x", selected: true },
+      { id: "b1", index: 1, status: "working", project: "beta", lastEvent: "x", selected: false },
+    ],
+  });
+  handleDashboardV3Input("l", state, v3Actions());
+  assert.equal(state.selectedPeerId, "b1");
+  handleDashboardV3Input("h", state, v3Actions());
+  assert.equal(state.selectedPeerId, "a1");
+});
+
+test("filterPalette does case-insensitive subsequence matching", () => {
+  const entries = paletteEntries(waitingPeerState());
+  assert.ok(entries.length > 0);
+  const themeMatch = filterPalette(entries, "thm");
+  assert.ok(themeMatch.some((e) => e.label.includes("theme")));
+  assert.equal(filterPalette(entries, "zzzq").length, 0);
+  assert.equal(filterPalette(entries, "").length, entries.length);
+});
+
+test("paletteEntries includes peer, answer, kill, routes, and actions", () => {
+  const entries = paletteEntries(waitingPeerState()).map((e) => e.label);
+  assert.ok(entries.some((l) => l.startsWith("▸ p1")));
+  assert.ok(entries.some((l) => l === "↳ answer p1"));
+  assert.ok(entries.some((l) => l === "✕ kill p1"));
+  assert.ok(entries.some((l) => l === "route fleet"));
+  assert.ok(entries.some((l) => l === "◐ theme"));
+  assert.ok(entries.some((l) => l === "q quit"));
+});
+
+test("pushToast caps at 3 and expireToasts drops old ones", () => {
+  const state = v3State();
+  for (const t of ["a", "b", "c", "d", "e"]) {
+    pushToast(state, t, "info");
+  }
+  assert.equal(state.toasts.length, 3);
+  assert.deepEqual(state.toasts.map((t) => t.text), ["c", "d", "e"]);
+
+  state.toasts[0].createdAt = Date.now() - 5000;
+  expireToasts(state, Date.now());
+  assert.equal(state.toasts.length, 2);
+});
+
+test("mutedTheme maps colors, memoizes, and leaves ramp/cyanBand/chip fields on both themes", () => {
+  for (const theme of [defaultTheme, cyberpunkTheme]) {
+    assert.equal(theme.ramp.length, 3);
+    assert.match(theme.cyanBand, /^#/);
+    assert.match(theme.chipBg, /^#/);
+    assert.match(theme.chipFg, /^#/);
+  }
+  const m = mutedTheme(cyberpunkTheme);
+  assert.equal(m.text, "#2a1808");
+  assert.equal(m.accent, "#2a1808");
+  assert.equal(m.border, "#1a1006");
+  assert.equal(m.selBg, "#0d0702");
+  assert.equal(m.statusColors.working, "#3a2410");
+  // original untouched
+  assert.equal(cyberpunkTheme.text, "#ffb066");
+  // memoized: same object identity
+  assert.equal(mutedTheme(cyberpunkTheme), m);
+  assert.notEqual(mutedTheme(defaultTheme), m);
 });
 
 function peer(overrides) {
