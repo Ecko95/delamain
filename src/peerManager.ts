@@ -11,6 +11,7 @@ import { promptsDir, runsDir } from "./paths.js";
 import { getPeer, readState, updatePeer, upsertPeer } from "./store.js";
 import { killPid, killProcessGroup, pidAlive } from "./processes.js";
 import { runGsdPhaseBatch } from "./gsdRunner.js";
+import { checkTaskSize, type SpawnSizingArgs } from "./taskSizing.js";
 import type {
   GsdBatchSpawnConfig,
   PeerRecord,
@@ -25,13 +26,28 @@ const DEFAULT_WAIT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_WAIT_POLL_INTERVAL_MS = 2000;
 const DEFAULT_WAIT_LOG_LINES = 80;
 
-export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
+// ponytail: scope/sizeOverride are intersected here (not added to SpawnPeerOptions
+// in types.ts) to dodge a merge conflict with a parallel branch editing types.ts.
+export function spawnPeer(options: SpawnPeerOptions & SpawnSizingArgs): PeerRecord {
   const repo = resolve(options.repo);
   const id = randomUUID().slice(0, 8);
   const sourceRepo = gitRoot(repo);
   if (!sourceRepo) {
     throw new Error(`Cannot spawn isolated peer: ${repo} is not inside a git repository.`);
   }
+
+  // S3 Tier 1 pre-flight sizing check — this is the shared choke point hit by
+  // spawn_peer, spawn_peer_and_wait, the CLI, and gsd spawns. Runs before any
+  // worktree is provisioned. WARN-ONLY at this tier.
+  // ponytail: T1.5 flips warn→throw here, mirroring the git-repo guard above:
+  //   if (sizing.level === "block") throw new Error(`Task sizing: ${sizing.reasons.join("; ")} Pass size_override:true to spawn anyway.`);
+  const sizing = checkTaskSize({ prompt: options.prompt, scope: options.scope, sizeOverride: options.sizeOverride });
+  const sizingNote =
+    sizing.level === "warn"
+      ? `sizing: WARN — ${sizing.reasons.join("; ")}`
+      : options.sizeOverride && sizing.reasons.length > 0
+        ? `sizing: override — ${sizing.reasons.join("; ")}`
+        : "";
   const mergeBranch = resolveBaseBranch(sourceRepo, options.mergeBranch || options.targetBranch);
   const isolated = createPeerWorktree(repo, id, {
     startRef: options.startRef,
@@ -96,7 +112,7 @@ export function spawnPeer(options: SpawnPeerOptions): PeerRecord {
     ...current,
     runnerPid: runner.pid,
     updatedAt: now(),
-    lastEvent: `runner pid=${runner.pid ?? "unknown"}`,
+    lastEvent: sizingNote ? `runner pid=${runner.pid ?? "unknown"} | ${sizingNote}` : `runner pid=${runner.pid ?? "unknown"}`,
   }));
 
   return getPeer(id) || peer;
@@ -149,7 +165,7 @@ export function spawnGsdPhaseBatch(options: {
   return peer;
 }
 
-export async function spawnPeerAndWait(options: SpawnPeerAndWaitOptions): Promise<WaitPeerResult> {
+export async function spawnPeerAndWait(options: SpawnPeerAndWaitOptions & SpawnSizingArgs): Promise<WaitPeerResult> {
   const peer = spawnPeer(options);
   return waitForPeer({
     peerId: peer.id,

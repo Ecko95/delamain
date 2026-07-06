@@ -13,7 +13,30 @@ import { expandSelectedPhases } from "./gsdPhaseList.js";
 import { inspectGsdMilestone } from "./gsdMilestone.js";
 import { integratePeer, IntegratePeerRefusedError } from "./peerIntegration.js";
 import { classifyFrozenBatch } from "./frozen-eligibility/index.js";
+import type { SpawnSizingArgs, TaskScope } from "./taskSizing.js";
 import type { GsdPlanningMode } from "./types.js";
+
+// S3 Tier 1 sizing args — shared by spawn_peer and spawn_peer_and_wait. Optional
+// and backward-compatible: omitting `scope` warns only on prompt length.
+const SIZING_SCHEMA_PROPS = {
+  scope: {
+    type: "object" as const,
+    description: "Declared blast radius for the task-sizing guardrail (warn-only). Absent = unknown.",
+    properties: {
+      files: { type: "number" as const, description: "Estimated number of files the peer will EDIT." },
+      packages: { type: "number" as const, description: "Number of package/dir clusters touched (>1 = cross-package)." },
+      downstream: {
+        type: "array" as const,
+        items: { type: "string" as const },
+        description: "Cross-package consumer files/fixtures to update when a shared contract/type changes.",
+      },
+    },
+  },
+  size_override: {
+    type: "boolean" as const,
+    description: "Suppress the sizing warning for a deliberately large task (logged on lastEvent, never silent).",
+  },
+} as const;
 
 // Codex peer tuning knobs (reasoning_effort, developer_instructions, codex_config).
 // Declared before TOOLS since its schema literals reference them at module load.
@@ -93,6 +116,7 @@ const TOOLS = [
           description:
             `Codex engine only. Extra 'key=value' pairs passed as -c flags after delamain's own, in order (so these win on conflict). Each entry must match ${CODEX_CONFIG_ENTRY_RE.source}, max ${CODEX_CONFIG_MAX_ENTRIES} entries, max ${CODEX_CONFIG_MAX_ENTRY_LEN} chars each.`,
         },
+        ...SIZING_SCHEMA_PROPS,
       },
       required: ["repo", "prompt"],
     },
@@ -237,6 +261,7 @@ const TOOLS = [
           type: "number",
           description: "Recent log lines to include in the result. Defaults to 80; use 0 to omit.",
         },
+        ...SIZING_SCHEMA_PROPS,
       },
       required: ["repo", "prompt"],
     },
@@ -424,6 +449,7 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
         engine: engineValue(args),
         cursorOptions: cursorOptionsValue(args),
         ...codexTuningOptions(args, engineValue(args)),
+        ...sizingOptions(args),
       }));
     case "list_peers":
       return json(listPeers());
@@ -455,6 +481,7 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
         engine: engineValue(args),
         cursorOptions: cursorOptionsValue(args),
         ...codexTuningOptions(args, engineValue(args)),
+        ...sizingOptions(args),
         ...waitOptions(args),
       }));
     case "kill_peer":
@@ -611,6 +638,22 @@ function branchOptions(args: Record<string, unknown>): {
     mergeBranch: optionalString(args, "merge_branch") ?? optionalString(args, "mergeBranch"),
     targetBranch: optionalString(args, "target_branch") ?? optionalString(args, "targetBranch"),
   };
+}
+
+function sizingOptions(args: Record<string, unknown>): SpawnSizingArgs {
+  const out: SpawnSizingArgs = {};
+  const rawScope = args.scope;
+  if (rawScope && typeof rawScope === "object" && !Array.isArray(rawScope)) {
+    const s = rawScope as Record<string, unknown>;
+    const scope: TaskScope = {};
+    if (typeof s.files === "number" && Number.isFinite(s.files)) scope.files = s.files;
+    if (typeof s.packages === "number" && Number.isFinite(s.packages)) scope.packages = s.packages;
+    if (Array.isArray(s.downstream)) scope.downstream = s.downstream.filter((x): x is string => typeof x === "string");
+    if (Object.keys(scope).length > 0) out.scope = scope;
+  }
+  const override = args.size_override ?? args.sizeOverride;
+  if (typeof override === "boolean") out.sizeOverride = override;
+  return out;
 }
 
 function signalValue(value: unknown): NodeJS.Signals {
