@@ -107,6 +107,7 @@ V2 dashboard extras:
 - animated spinners for live/active surfaces
 - `1`-`7`: collapse or expand Overview, Limits, Telegram, Warnings, Peers, Details, Logs
 - `c`: collapse or expand the focused window
+- "Signal Room" cyberpunk theme by default (amber body, cyan focus, filled highlight bars); `t` cycles themes, `DELAMAIN_THEME=default` restores the classic palette
 
 Dashboard status notes:
 

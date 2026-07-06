@@ -1,6 +1,6 @@
 # Cyberpunk dashboard theme — design
 
-**Status:** approved, ready for planning
+**Status:** implemented; amended 2026-07-07 — layout now mirrors the mockup grid (titlebar, peers | signal map | details, aux strip, full-width logs, statusbar), selected rows render as filled highlight bars (`selBg`/`selFg`/`accent` theme fields), and Signal Room is the startup default (`DELAMAIN_THEME=default` opts out).
 **Mockup:** [`docs/superpowers/mockups/2026-07-06-cyberpunk-dashboard-theme-mockups.html`](../mockups/2026-07-06-cyberpunk-dashboard-theme-mockups.html) — variant 2, "Signal Room", chosen.
 
 ## Goal

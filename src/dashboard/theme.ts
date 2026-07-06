@@ -5,6 +5,9 @@ export type Theme = {
   borderFocused: string;
   text: string;
   textDim: string;
+  accent: string;
+  selBg: string;
+  selFg: string;
   statusColors: Record<DashboardStatus, string>;
   rowRule?: string;
 };
@@ -14,6 +17,9 @@ export const defaultTheme = {
   borderFocused: "#facc15",
   text: "#e5e7eb",
   textDim: "#94a3b8",
+  accent: "#facc15",
+  selBg: "#334155",
+  selFg: "#ffffff",
   statusColors: {
     starting: "#60a5fa",
     working: "#22d3ee",
@@ -39,6 +45,9 @@ export const cyberpunkTheme = {
   borderFocused: "#35e0d8",
   text: "#ffb066",
   textDim: "#8a5a2e",
+  accent: "#ff7a1a",
+  selBg: "#7a3d0d",
+  selFg: "#ffffff",
   statusColors: {
     starting: "#35e0d8",
     working: "#ff7a1a",
