@@ -204,7 +204,13 @@ delamain status <peer-id>
 delamain log <peer-id> 120
 delamain kill <peer-id>
 delamain resume <peer-id> --prompt "Use option B and continue." --yolo
+delamain wait <peer-id...> --interval 15 --timeout 0
 ```
+
+`delamain wait` blocks until all watched peers reach a terminal status, then
+prints one summary line per peer and exits. Use `--any` to return when the
+first watched peer finishes or needs attention; `waiting` is treated as
+terminal so background shells can notify an operator reply is needed.
 
 For MCP-driven orchestration, `wait_for_peer` blocks until a peer reaches a terminal status, and `spawn_peer_and_wait` combines spawn plus wait in one tool call. Both accept `timeout_ms`, `poll_interval_ms`, and `log_lines`; timeout returns a structured result without killing the peer.
 

@@ -18,17 +18,22 @@ export function ensureHome(): void {
 export function readState(): PeerState {
   ensureHome();
   try {
-    const raw = readFileSync(statePath(), "utf8");
-    const parsed = JSON.parse(raw) as PeerState;
-    if (parsed.version !== 1 || !Array.isArray(parsed.peers)) {
-      return { ...EMPTY_STATE, updatedAt: new Date().toISOString() };
-    }
-    // Phase 33: normalize records on read so older on-disk state.json files
-    // (which lack `kind`) come back with kind=="generic". Idempotent.
-    return { ...parsed, peers: parsed.peers.map(normalizePeerRecord) };
+    return readStateFile();
   } catch {
     return { ...EMPTY_STATE, updatedAt: new Date().toISOString() };
   }
+}
+
+export function readStateFile(): PeerState {
+  ensureHome();
+  const raw = readFileSync(statePath(), "utf8");
+  const parsed = JSON.parse(raw) as PeerState;
+  if (parsed.version !== 1 || !Array.isArray(parsed.peers)) {
+    throw new Error("Invalid delamain state file");
+  }
+  // Phase 33: normalize records on read so older on-disk state.json files
+  // (which lack `kind`) come back with kind=="generic". Idempotent.
+  return { ...parsed, peers: parsed.peers.map(normalizePeerRecord) };
 }
 
 export function writeState(state: PeerState): void {

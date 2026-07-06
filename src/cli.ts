@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { killPeer, listPeers, peerStatus, readPeerLog, resumePeer, spawnPeer } from "./peerManager.js";
+import { runWaitCommand, WAIT_USAGE } from "./wait.js";
 
 export async function runCliCommand(command: string, argv: string[]): Promise<void> {
   switch (command) {
@@ -62,10 +63,74 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       console.log(JSON.stringify(killPeer(peerId, argv[1] === "SIGKILL" ? "SIGKILL" : "SIGTERM"), null, 2));
       return;
     }
+    case "wait": {
+      const args = parseWaitArgs(argv);
+      if (args.help) {
+        console.log(WAIT_USAGE);
+        return;
+      }
+      const exitCode = await runWaitCommand(args.peerIds, {
+        any: args.any,
+        intervalMs: args.intervalSeconds * 1000,
+        timeoutMs: args.timeoutSeconds * 1000,
+      });
+      if (exitCode !== 0) {
+        process.exitCode = exitCode;
+      }
+      return;
+    }
     case "help":
     default:
       printHelp();
   }
+}
+
+function parseWaitArgs(argv: string[]): {
+  peerIds: string[];
+  intervalSeconds: number;
+  timeoutSeconds: number;
+  any: boolean;
+  help: boolean;
+} {
+  const peerIds: string[] = [];
+  let intervalSeconds = 15;
+  let timeoutSeconds = 0;
+  let any = false;
+  let help = false;
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--help" || arg === "-h") {
+      help = true;
+    } else if (arg === "--any") {
+      any = true;
+    } else if (arg === "--interval" || arg === "--timeout") {
+      const next = argv[i + 1];
+      if (!next || next.startsWith("--")) {
+        throw new Error(`${arg} requires a value in seconds`);
+      }
+      const value = Number(next);
+      if (!Number.isFinite(value) || value < 0 || (arg === "--interval" && value === 0)) {
+        throw new Error(`${arg} must be ${arg === "--interval" ? "greater than" : "at least"} 0 seconds`);
+      }
+      if (arg === "--interval") {
+        intervalSeconds = value;
+      } else {
+        timeoutSeconds = value;
+      }
+      i += 1;
+    } else if (arg.startsWith("--")) {
+      throw new Error(`Unknown wait option: ${arg}`);
+    } else {
+      peerIds.push(arg);
+    }
+  }
+
+  if (!help && peerIds.length === 0) {
+    throw new Error(WAIT_USAGE);
+  }
+
+  return { peerIds, intervalSeconds, timeoutSeconds, any, help };
 }
 
 function parseFlags(argv: string[]): Record<string, string | boolean> {
@@ -137,6 +202,7 @@ Commands:
   status <peer-id>
   log <peer-id> [lines]
   kill <peer-id> [SIGTERM|SIGKILL]
+  wait <peer-id...> [--interval <seconds>] [--timeout <seconds>] [--any]
 
 Codex MCP registration:
   codex mcp add delamain -- node $(pwd)/dist/index.js server
