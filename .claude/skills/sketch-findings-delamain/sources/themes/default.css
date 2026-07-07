@@ -1,0 +1,56 @@
+/* Delamain cyberpunk — mirrors src/dashboard/theme.ts cyberpunkTheme */
+:root {
+	/* Colors */
+	--color-bg: #100a04;
+	--color-surface: #1a1006;
+	--color-surface-2: #2a1808;
+	--color-border: #3a2410;
+	--color-border-focus: #35e0d8;
+	--color-text: #ffb066;
+	--color-text-muted: #8a5a2e;
+	--color-primary: #ff7a1a;
+	--color-accent: #35e0d8;
+	--color-danger: #ff4433;
+	--color-sel-bg: #7a3d0d;
+	--color-cyan-band: #0e2624;
+
+	/* Status colors (theme.ts statusColors) */
+	--status-starting: #35e0d8;
+	--status-working: #ff7a1a;
+	--status-waiting: #35e0d8;
+	--status-idle: #8a5a2e;
+	--status-done: #8a5a2e;
+	--status-failed: #ff4433;
+	--status-frozen: #35e0d8;
+	--status-killed: #ff4433;
+
+	/* Context levels (codexContext.ts green/yellow/red/skull) */
+	--ctx-green: #35e0d8;
+	--ctx-yellow: #ffb066;
+	--ctx-red: #ff7a1a;
+	--ctx-skull: #ff4433;
+
+	/* Typography */
+	--font-mono: "JetBrainsMono Nerd Font", "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+	--text-xs: 0.7rem;
+	--text-sm: 0.8rem;
+	--text-base: 0.9rem;
+	--text-lg: 1.1rem;
+	--text-xl: 1.4rem;
+
+	/* Spacing */
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-6: 24px;
+
+	/* Shapes — sharp, terminal-like */
+	--radius-sm: 2px;
+	--radius-md: 4px;
+
+	/* Glow */
+	--glow-orange: 0 0 8px rgba(255, 122, 26, 0.35);
+	--glow-cyan: 0 0 8px rgba(53, 224, 216, 0.35);
+	--glow-red: 0 0 10px rgba(255, 68, 51, 0.45);
+}

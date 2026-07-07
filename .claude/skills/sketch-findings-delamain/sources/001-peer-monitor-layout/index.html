@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sketch 001 — Peer Monitor Layout</title>
+<style>
+	/* Inline copy of ../themes/default.css so the file is self-contained; the link below overrides when present */
+	:root {
+		--color-bg: #100a04; --color-surface: #1a1006; --color-surface-2: #2a1808;
+		--color-border: #3a2410; --color-border-focus: #35e0d8;
+		--color-text: #ffb066; --color-text-muted: #8a5a2e;
+		--color-primary: #ff7a1a; --color-accent: #35e0d8; --color-danger: #ff4433;
+		--color-sel-bg: #7a3d0d; --color-cyan-band: #0e2624;
+		--status-starting: #35e0d8; --status-working: #ff7a1a; --status-waiting: #35e0d8;
+		--status-idle: #8a5a2e; --status-done: #8a5a2e; --status-failed: #ff4433;
+		--ctx-green: #35e0d8; --ctx-yellow: #ffb066; --ctx-red: #ff7a1a; --ctx-skull: #ff4433;
+		--font-mono: "JetBrainsMono Nerd Font", "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+		--text-xs: 0.7rem; --text-sm: 0.8rem; --text-base: 0.9rem; --text-lg: 1.1rem; --text-xl: 1.4rem;
+		--space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px;
+		--radius-sm: 2px; --radius-md: 4px;
+		--glow-orange: 0 0 8px rgba(255,122,26,.35); --glow-cyan: 0 0 8px rgba(53,224,216,.35); --glow-red: 0 0 10px rgba(255,68,51,.45);
+	}
+</style>
+<link rel="stylesheet" href="../themes/default.css">
+<style>
+	* { box-sizing: border-box; margin: 0; padding: 0; }
+	body {
+		background: var(--color-bg); color: var(--color-text);
+		font-family: var(--font-mono); font-size: var(--text-base);
+		padding-top: 46px; min-height: 100vh;
+	}
+	/* CRT scanlines over everything */
+	body::after {
+		content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 9000;
+		background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px);
+	}
+	button { font-family: inherit; cursor: pointer; transition: all .15s ease; }
+
+	/* ── variant nav ─────────────────────────────── */
+	#variant-nav {
+		position: fixed; top: 0; left: 0; right: 0; z-index: 9998;
+		background: var(--color-surface); border-bottom: 1px solid var(--color-border);
+		padding: var(--space-2) var(--space-4); display: flex; gap: var(--space-2); align-items: center;
+	}
+	#variant-nav .title { color: var(--color-text-muted); font-size: var(--text-xs); margin-right: var(--space-3); letter-spacing: 1px; }
+	.variant-tab {
+		background: transparent; color: var(--color-text-muted);
+		border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+		padding: var(--space-1) var(--space-3); font-size: var(--text-sm);
+	}
+	.variant-tab:hover { color: var(--color-text); border-color: var(--color-primary); }
+	.variant-tab.active { color: var(--color-primary); border-color: var(--color-primary); box-shadow: var(--glow-orange); }
+	.variant { display: none; }
+	.variant.active { display: block; }
+
+	/* ── shared fleet bar ────────────────────────── */
+	.fleet-bar {
+		display: flex; gap: var(--space-4); align-items: center; flex-wrap: wrap;
+		padding: var(--space-3) var(--space-4);
+		background: linear-gradient(180deg, var(--color-surface), var(--color-bg));
+		border-bottom: 1px solid var(--color-border);
+	}
+	.fleet-bar .logo { color: var(--color-primary); font-size: var(--text-lg); letter-spacing: 3px; text-shadow: var(--glow-orange); }
+	.count-chip {
+		font-size: var(--text-xs); padding: 2px var(--space-2);
+		border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+		background: var(--color-surface-2);
+	}
+	.count-chip b { margin-right: 4px; }
+	.usage { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--color-text-muted); }
+	.usage .track { width: 120px; height: 6px; background: var(--color-surface-2); border: 1px solid var(--color-border); }
+	.usage .fill { height: 100%; width: 63%; background: var(--color-accent); box-shadow: var(--glow-cyan); }
+
+	/* status + context helpers */
+	.st { font-weight: bold; }
+	.st-working { color: var(--status-working); } .st-starting { color: var(--status-starting); }
+	.st-waiting { color: var(--status-waiting); animation: blink 1.2s step-end infinite; }
+	.st-done, .st-idle { color: var(--status-idle); } .st-failed { color: var(--status-failed); }
+	@keyframes blink { 50% { opacity: .35; } }
+	.ctx-track { height: 6px; background: var(--color-surface-2); border: 1px solid var(--color-border); position: relative; }
+	.ctx-fill { height: 100%; transition: width .4s ease; }
+	.lv-green { background: var(--ctx-green); } .lv-yellow { background: var(--ctx-yellow); }
+	.lv-red { background: var(--ctx-red); } .lv-skull { background: var(--ctx-skull); box-shadow: var(--glow-red); animation: blink 1s step-end infinite; }
+	.engine-chip {
+		font-size: var(--text-xs); padding: 1px 6px; border-radius: var(--radius-sm);
+		background: var(--color-cyan-band); color: var(--color-accent); border: 1px solid #14453f;
+	}
+	.engine-chip.cursor { color: #c084fc; background: #1d1030; border-color: #3b2160; }
+	.compacted-flag { color: var(--color-danger); font-size: var(--text-xs); }
+
+	/* ── Variant A: rack ─────────────────────────── */
+	.rack { padding: var(--space-4); max-width: 1200px; margin: 0 auto; }
+	.rack-group-hdr {
+		color: var(--color-text-muted); font-size: var(--text-xs); letter-spacing: 2px;
+		padding: var(--space-3) 0 var(--space-1); border-bottom: 1px dashed var(--color-border);
+	}
+	.rack-row {
+		display: grid; grid-template-columns: 24px 90px 70px 1fr 160px 140px 60px; gap: var(--space-3);
+		align-items: center; padding: var(--space-2) var(--space-2);
+		border-bottom: 1px solid var(--color-surface-2); cursor: pointer;
+	}
+	.rack-row:hover { background: var(--color-surface); }
+	.rack-row.sel { background: var(--color-sel-bg); color: #fff; }
+	.rack-row .id { color: var(--color-accent); }
+	.rack-row .proj { color: var(--color-text-muted); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.rack-row .elapsed { text-align: right; color: var(--color-text-muted); font-size: var(--text-sm); }
+	.rack-detail {
+		display: none; grid-column: 1 / -1; background: var(--color-surface);
+		border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary);
+		padding: var(--space-3) var(--space-4); font-size: var(--text-sm);
+	}
+	.rack-detail.open { display: block; }
+	.rack-detail dt { color: var(--color-text-muted); display: inline-block; width: 110px; }
+	.rack-detail dd { display: inline; }
+	.rack-detail .logline { color: var(--color-text-muted); }
+	.rack-detail .logline b { color: var(--color-accent); font-weight: normal; }
+
+	/* ── Variant B: grid ─────────────────────────── */
+	.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: var(--space-4); padding: var(--space-4); max-width: 1400px; margin: 0 auto; }
+	.card {
+		background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);
+		padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2);
+		transition: all .15s ease;
+	}
+	.card:hover { border-color: var(--color-primary); box-shadow: var(--glow-orange); transform: translateY(-2px); }
+	.card.failed { border-color: var(--color-danger); }
+	.card.failed:hover { box-shadow: var(--glow-red); }
+	.card-hdr { display: flex; align-items: baseline; gap: var(--space-2); }
+	.card-hdr .id { color: var(--color-accent); font-size: var(--text-lg); }
+	.card-hdr .elapsed { margin-left: auto; color: var(--color-text-muted); font-size: var(--text-xs); }
+	.card .branch { color: var(--color-text-muted); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.gauge-row { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); }
+	.gauge-row .ctx-track { flex: 1; }
+	.spark { display: flex; align-items: flex-end; gap: 2px; height: 22px; }
+	.spark i { width: 6px; background: var(--color-primary); opacity: .7; }
+	.card-log {
+		background: var(--color-bg); border: 1px solid var(--color-surface-2); padding: var(--space-2);
+		font-size: var(--text-xs); color: var(--color-text-muted); line-height: 1.5;
+		height: 60px; overflow: hidden;
+	}
+	.card-actions { display: flex; gap: var(--space-2); }
+	.card-actions button {
+		flex: 1; background: var(--color-surface-2); color: var(--color-text);
+		border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+		padding: var(--space-1); font-size: var(--text-xs);
+	}
+	.card-actions button:hover { border-color: var(--color-accent); color: var(--color-accent); }
+	.card-actions button.danger:hover { border-color: var(--color-danger); color: var(--color-danger); }
+
+	/* ── Variant C: cockpit ──────────────────────── */
+	.cockpit { display: grid; grid-template-columns: 300px 1fr; height: calc(100vh - 46px); }
+	.roster { border-right: 1px solid var(--color-border); overflow-y: auto; background: var(--color-surface); }
+	.roster-item {
+		padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-surface-2);
+		cursor: pointer; display: flex; flex-direction: column; gap: 2px;
+	}
+	.roster-item:hover { background: var(--color-surface-2); }
+	.roster-item.sel { background: var(--color-sel-bg); border-left: 3px solid var(--color-primary); }
+	.roster-item .top { display: flex; gap: var(--space-2); align-items: baseline; }
+	.roster-item .id { color: var(--color-accent); }
+	.roster-item .mini-ctx { height: 3px; margin-top: 3px; background: var(--color-surface-2); }
+	.roster-item .mini-ctx i { display: block; height: 100%; }
+	.stage-deck { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); overflow-y: auto; }
+	.stage-track { display: flex; align-items: center; gap: var(--space-2); }
+	.stage {
+		flex: 1; text-align: center; padding: var(--space-2); font-size: var(--text-xs); letter-spacing: 2px;
+		border: 1px solid var(--color-border); color: var(--color-text-muted); position: relative;
+	}
+	.stage.past { color: var(--color-text); border-color: var(--color-text-muted); }
+	.stage.now { color: var(--color-primary); border-color: var(--color-primary); box-shadow: var(--glow-orange); }
+	.stage-arrow { color: var(--color-text-muted); }
+	.telemetry { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-3); }
+	.tile {
+		background: var(--color-surface); border: 1px solid var(--color-border); padding: var(--space-3);
+		display: flex; flex-direction: column; gap: var(--space-1);
+	}
+	.tile .lbl { color: var(--color-text-muted); font-size: var(--text-xs); letter-spacing: 1px; }
+	.tile .val { font-size: var(--text-xl); }
+	.tile .val.cyan { color: var(--color-accent); text-shadow: var(--glow-cyan); }
+	.tile .val.orange { color: var(--color-primary); text-shadow: var(--glow-orange); }
+	.tile .val.red { color: var(--color-danger); text-shadow: var(--glow-red); }
+	.logstream {
+		flex: 1; min-height: 220px; background: var(--color-bg); border: 1px solid var(--color-border);
+		padding: var(--space-3); font-size: var(--text-sm); line-height: 1.6; overflow-y: auto;
+	}
+	.logstream .t { color: var(--color-text-muted); margin-right: var(--space-2); }
+	.logstream .tool { color: var(--color-accent); }
+	.logstream .err { color: var(--color-danger); }
+	.cockpit-actions { display: flex; gap: var(--space-2); }
+	.cockpit-actions button {
+		background: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm); padding: var(--space-2) var(--space-4); font-size: var(--text-sm);
+	}
+	.cockpit-actions button:hover { border-color: var(--color-accent); color: var(--color-accent); box-shadow: var(--glow-cyan); }
+	.cockpit-actions button.danger:hover { border-color: var(--color-danger); color: var(--color-danger); box-shadow: var(--glow-red); }
+
+	/* toast */
+	#toast {
+		position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%) translateY(10px); z-index: 9997;
+		background: var(--color-surface); border: 1px solid var(--color-accent); color: var(--color-accent);
+		padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); box-shadow: var(--glow-cyan);
+		opacity: 0; transition: all .25s ease; pointer-events: none; font-size: var(--text-sm);
+	}
+	#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+	/* viewport constraint wrapper */
+	#stage-wrap { margin: 0 auto; transition: max-width .2s ease; }
+</style>
+</head>
+<body>
+
+<div id="variant-nav">
+	<span class="title">SKETCH 001 · PEER MONITOR</span>
+	<button class="variant-tab active" onclick="showVariant('a', this)">A: Signal Rack ★</button>
+	<button class="variant-tab" onclick="showVariant('b', this)">B: Peer Card Grid</button>
+	<button class="variant-tab" onclick="showVariant('c', this)">C: Cockpit Split</button>
+	<button class="variant-tab" style="margin-left:auto" onclick="simulate()">⚡ simulate event</button>
+</div>
+
+<div id="stage-wrap">
+	<div id="variant-a" class="variant active"></div>
+	<div id="variant-b" class="variant"></div>
+	<div id="variant-c" class="variant"></div>
+</div>
+
+<div id="toast"></div>
+
+<div id="sketch-tools" style="position:fixed;bottom:12px;right:12px;z-index:9999;font-family:system-ui;font-size:12px;background:rgba(0,0,0,.75);color:#fff;padding:8px 12px;border-radius:8px;opacity:.4;transition:opacity .2s;display:flex;gap:8px;align-items:center;"
+	onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='.4'">
+	<span>viewport</span>
+	<button onclick="setViewport('375px')" style="background:#333;color:#fff;border:0;padding:2px 6px;border-radius:4px">📱</button>
+	<button onclick="setViewport('768px')" style="background:#333;color:#fff;border:0;padding:2px 6px;border-radius:4px">▤</button>
+	<button onclick="setViewport('none')" style="background:#333;color:#fff;border:0;padding:2px 6px;border-radius:4px">🖥</button>
+</div>
+
+<script>
+// ── real-shaped data (PeerRecord fields from src/types.ts) ──
+const PEERS = [
+	{ id: "e86e7ad2", status: "working", activity: "EDIT src/dashboard/opentuiV3.ts", project: "delamain", branch: "peer/e86e7ad2-dash-v3", engine: "codex", model: "gpt-5.5-codex", pid: 41233, elapsed: "12m04s", ctx: 42, level: "green", compacted: false, stage: 1,
+		log: ["exec: rtk cargo test — 0 failed", "edit: src/dashboard/opentuiV3.ts +48 -12", "thinking: wire peer modal to roster state"] },
+	{ id: "b3f19c04", status: "working", activity: "EXEC vitest run", project: "delamain", branch: "peer/b3f19c04-sizing-t1", engine: "cursor", model: "composer-2.5", pid: 41871, elapsed: "34m17s", ctx: 71, level: "yellow", compacted: true, stage: 1,
+		log: ["exec: npx vitest run — 2 suites", "compaction: auto-compacted (lossy)", "edit: src/frozen-gate/extractors/tsx.ts"] },
+	{ id: "a7d2210e", status: "waiting", activity: "CODEX_PEERS_STATUS: WAITING", project: "delamain", branch: "peer/a7d2210e-mcp-guard", engine: "codex", model: "gpt-5.5-codex", pid: 40966, elapsed: "48m52s", ctx: 88, level: "red", compacted: false, stage: 2,
+		log: ["ask: merge strategy for conflicting migration?", "waiting: needs operator reply", "idle: 6m since last event"] },
+	{ id: "4c9e77aa", status: "failed", activity: "EXIT 1 — merge conflict", project: "delamain", branch: "peer/4c9e77aa-theme-swap", engine: "codex", model: "gpt-5.5-codex", pid: 39102, elapsed: "1h02m", ctx: 96, level: "skull", compacted: true, stage: 3,
+		log: ["error: CONFLICT src/dashboard/theme.ts", "compaction: auto-compacted twice", "exit: engine terminated (1)"] },
+	{ id: "d15b3fe0", status: "done", activity: "MERGED → main", project: "delamain", branch: "peer/d15b3fe0-log-dedup", engine: "codex", model: "gpt-5.5-codex", pid: 38240, elapsed: "22m40s", ctx: 55, level: "green", compacted: false, stage: 4,
+		log: ["merge: fast-forward to main", "verify: 214 tests passed", "cleanup: worktree removed"] },
+	{ id: "f0a4c9d1", status: "starting", activity: "SPAWN worktree checkout", project: "delamain", branch: "peer/f0a4c9d1-peer-search", engine: "cursor", model: "composer-2.5", pid: 42210, elapsed: "0m41s", ctx: 3, level: "green", compacted: false, stage: 0,
+		log: ["spawn: linked worktree created", "checkout: origin/main @ dd6a9c0", "boot: engine handshake ok"] },
+];
+const STAGES = ["SPAWN", "WORK", "WAIT", "INTEGRATE", "DONE"];
+const GLYPH = { working: "◉", waiting: "◍", starting: "◌", done: "●", failed: "✖", idle: "○" };
+let selectedId = PEERS[0].id;
+
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const ctxBar = (p, cls) => `<div class="ctx-track ${cls || ""}"><div class="ctx-fill lv-${p.level}" style="width:${p.ctx}%"></div></div>`;
+const engineChip = p => `<span class="engine-chip ${p.engine}">${p.engine === "codex" ? "" : ""} ${p.engine}</span>`;
+const statusSpan = p => `<span class="st st-${p.status}">${GLYPH[p.status]} ${p.status.toUpperCase()}</span>`;
+
+function fleetBar() {
+	const counts = {};
+	for (const p of PEERS) counts[p.status] = (counts[p.status] || 0) + 1;
+	const chips = Object.entries(counts).map(([s, n]) =>
+		`<span class="count-chip"><b class="st-${s}">${n}</b>${s}</span>`).join("");
+	return `<div class="fleet-bar">
+		<span class="logo">DELAMAIN ▍FLEET</span>${chips}
+		<div class="usage"><span>codex 5h window</span><div class="track"><div class="fill"></div></div><span>63%</span></div>
+	</div>`;
+}
+
+// ── Variant A: signal rack ──
+function renderA() {
+	const order = ["working", "waiting", "starting", "failed", "done"];
+	let html = fleetBar() + `<div class="rack">`;
+	for (const st of order) {
+		const group = PEERS.filter(p => p.status === st);
+		if (!group.length) continue;
+		html += `<div class="rack-group-hdr">▸ ${st.toUpperCase()} — ${group.length}</div>`;
+		for (const p of group) {
+			const open = p.id === selectedId;
+			html += `<div class="rack-row ${open ? "sel" : ""}" onclick="selectPeer('${p.id}','a')">
+				<span class="st st-${p.status}">${GLYPH[p.status]}</span>
+				<span class="id">${p.id}</span>
+				${engineChip(p)}
+				<span class="proj">${p.project} · ${p.branch}</span>
+				<span style="font-size:var(--text-xs)">${esc(p.activity)} ${p.compacted ? '<span class="compacted-flag">⛁ compacted</span>' : ""}</span>
+				<div>${ctxBar(p)}<span style="font-size:var(--text-xs);color:var(--color-text-muted)">ctx ${p.ctx}%</span></div>
+				<span class="elapsed">${p.elapsed}</span>
+			</div>
+			<div class="rack-detail ${open ? "open" : ""}">
+				<div><dt>model</dt><dd>${p.model}</dd> &nbsp; <dt>pid</dt><dd>${p.pid}</dd> &nbsp; <dt>worktree</dt><dd>.delamain/worktrees/${p.id}</dd></div>
+				<div style="margin-top:6px">${p.log.map(l => `<div class="logline">├ <b>${esc(l.split(":")[0])}</b>:${esc(l.split(":").slice(1).join(":"))}</div>`).join("")}</div>
+			</div>`;
+		}
+	}
+	document.getElementById("variant-a").innerHTML = html + "</div>";
+}
+
+// ── Variant B: card grid ──
+function renderB() {
+	const spark = () => Array.from({ length: 14 }, (_, i) =>
+		`<i style="height:${4 + ((i * 37 + 13) % 18)}px"></i>`).join("");
+	const cards = PEERS.map(p => `
+		<div class="card ${p.status}" onclick="selectPeer('${p.id}','b')">
+			<div class="card-hdr"><span class="id">${p.id}</span>${engineChip(p)}<span class="elapsed">⏱ ${p.elapsed}</span></div>
+			<div>${statusSpan(p)} <span style="font-size:var(--text-xs);color:var(--color-text-muted)">${esc(p.activity)}</span></div>
+			<div class="branch"> ${p.branch}</div>
+			<div class="gauge-row"><span style="color:var(--ctx-${p.level})">ctx ${p.ctx}%</span>${ctxBar(p)}${p.compacted ? '<span class="compacted-flag">⛁</span>' : ""}</div>
+			<div class="spark">${spark()}</div>
+			<div class="card-log">${p.log.map(l => `<div>› ${esc(l)}</div>`).join("")}</div>
+			<div class="card-actions">
+				<button onclick="event.stopPropagation();toast('reply sent to ${p.id}')">REPLY</button>
+				<button onclick="event.stopPropagation();toast('integrating ${p.id}…')">INTEGRATE</button>
+				<button class="danger" onclick="event.stopPropagation();toast('kill signal → ${p.id}')">KILL</button>
+			</div>
+		</div>`).join("");
+	document.getElementById("variant-b").innerHTML = fleetBar() + `<div class="grid">${cards}</div>`;
+}
+
+// ── Variant C: cockpit split ──
+function renderC() {
+	const p = PEERS.find(x => x.id === selectedId) || PEERS[0];
+	const roster = PEERS.map(x => `
+		<div class="roster-item ${x.id === p.id ? "sel" : ""}" onclick="selectPeer('${x.id}','c')">
+			<div class="top"><span class="st st-${x.status}">${GLYPH[x.status]}</span><span class="id">${x.id}</span>${engineChip(x)}<span style="margin-left:auto;font-size:var(--text-xs);color:var(--color-text-muted)">${x.elapsed}</span></div>
+			<div class="mini-ctx"><i class="lv-${x.level}" style="width:${x.ctx}%"></i></div>
+		</div>`).join("");
+	const stages = STAGES.map((s, i) => {
+		const cls = i < p.stage ? "past" : i === p.stage ? "now" : "";
+		return `<div class="stage ${cls}">${s}</div>` + (i < STAGES.length - 1 ? `<span class="stage-arrow">▸</span>` : "");
+	}).join("");
+	const ctxCls = p.level === "skull" || p.level === "red" ? "red" : p.level === "yellow" ? "orange" : "cyan";
+	document.getElementById("variant-c").innerHTML = fleetBar() + `<div class="cockpit">
+		<div class="roster">${roster}</div>
+		<div class="stage-deck">
+			<div style="display:flex;align-items:baseline;gap:var(--space-3)">
+				<span style="font-size:var(--text-xl);color:var(--color-accent)">${p.id}</span>
+				${statusSpan(p)} ${engineChip(p)}
+				<span style="color:var(--color-text-muted);font-size:var(--text-sm)"> ${p.branch}</span>
+			</div>
+			<div class="stage-track">${stages}</div>
+			<div class="telemetry">
+				<div class="tile"><span class="lbl">CONTEXT</span><span class="val ${ctxCls}">${p.ctx}%</span>${ctxBar(p)}</div>
+				<div class="tile"><span class="lbl">ELAPSED</span><span class="val orange">${p.elapsed}</span></div>
+				<div class="tile"><span class="lbl">MODEL</span><span class="val cyan" style="font-size:var(--text-base)">${p.model}</span><span style="font-size:var(--text-xs);color:var(--color-text-muted)">pid ${p.pid}</span></div>
+				<div class="tile"><span class="lbl">COMPACTION</span><span class="val ${p.compacted ? "red" : "cyan"}">${p.compacted ? "⛁ LOSSY" : "CLEAN"}</span></div>
+			</div>
+			<div class="logstream" id="logstream">${p.log.map((l, i) => `<div><span class="t">18:0${i}:1${i}</span><span class="${l.startsWith("error") ? "err" : "tool"}">${esc(l.split(":")[0])}</span>:${esc(l.split(":").slice(1).join(":"))}</div>`).join("")}</div>
+			<div class="cockpit-actions">
+				<button onclick="toast('reply sent to ${p.id}')">REPLY [a]</button>
+				<button onclick="toast('integrating ${p.id}…')">INTEGRATE [i]</button>
+				<button onclick="toast('log follow toggled')">FOLLOW [f]</button>
+				<button class="danger" onclick="toast('kill signal → ${p.id}')">KILL [x]</button>
+			</div>
+		</div>
+	</div>`;
+}
+
+// ── wiring ──
+function renderAll() { renderA(); renderB(); renderC(); }
+function selectPeer(id, variant) {
+	selectedId = (variant === "a" && selectedId === id) ? null : id;
+	if (variant !== "a" && !selectedId) selectedId = id;
+	renderAll();
+}
+function showVariant(id, btn) {
+	document.querySelectorAll(".variant").forEach(v => v.classList.remove("active"));
+	document.querySelectorAll("#variant-nav .variant-tab").forEach(t => t.classList.remove("active"));
+	document.getElementById("variant-" + id).classList.add("active");
+	btn.classList.add("active");
+}
+function toast(msg) {
+	const t = document.getElementById("toast");
+	t.textContent = "▸ " + msg; t.classList.add("show");
+	clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 1800);
+}
+function setViewport(w) {
+	document.getElementById("stage-wrap").style.maxWidth = w === "none" ? "" : w;
+}
+// simulate: waiting peer gets answered, working peer burns context
+let simStep = 0;
+function simulate() {
+	simStep++;
+	const w = PEERS.find(p => p.id === "a7d2210e");
+	const c = PEERS.find(p => p.id === "e86e7ad2");
+	if (simStep % 2 === 1) {
+		w.status = "working"; w.activity = "EDIT src/mcp/guard.ts (reply received)"; w.stage = 1;
+		toast("a7d2210e answered — back to WORKING");
+	} else {
+		c.ctx = Math.min(97, c.ctx + 19);
+		c.level = c.ctx > 90 ? "skull" : c.ctx > 80 ? "red" : c.ctx > 60 ? "yellow" : "green";
+		toast(`e86e7ad2 context climbed to ${c.ctx}%`);
+	}
+	renderAll();
+}
+// live log ticker for the cockpit
+const TICK = ["exec: rtk git status — clean", "edit: src/dashboard/model.ts +6 -2", "thinking: reconcile roster offsets", "exec: npx vitest run — 214 passed"];
+let tickI = 0;
+setInterval(() => {
+	const ls = document.getElementById("logstream");
+	if (!ls || !document.getElementById("variant-c").classList.contains("active")) return;
+	const l = TICK[tickI++ % TICK.length];
+	const d = document.createElement("div");
+	d.innerHTML = `<span class="t">18:0${tickI % 10}:${10 + (tickI % 49)}</span><span class="tool">${l.split(":")[0]}</span>:${esc(l.split(":").slice(1).join(":"))}`;
+	ls.appendChild(d); ls.scrollTop = ls.scrollHeight;
+}, 2200);
+
+renderAll();
+</script>
+</body>
+</html>
