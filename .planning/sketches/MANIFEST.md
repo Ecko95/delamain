@@ -14,3 +14,4 @@ The existing OpenTUI dashboard (`src/dashboard/opentuiV3.ts` + `theme.ts` cyberp
 | # | Name | Design Question | Winner | Tags |
 |---|------|----------------|--------|------|
 | 001 | peer-monitor-layout | What layout structure feels right for monitoring individual peers? | A: Signal Rack | layout, dashboard, peers, cyberpunk |
+| 002 | signal-rack-terminal | In a keyboard-driven Signal Rack, where does the peer detail view live? | B: Bottom Dock (scrollable log w/ position indicator) | layout, dashboard, peers, keyboard, terminal |
