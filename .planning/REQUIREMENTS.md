@@ -33,6 +33,11 @@
 - **DASH-07**: Filtering and search across peer tasks, repos, statuses, and logs.
 - **DASH-08**: Theme configuration for light/dark/high-contrast terminal palettes.
 
+### Signal Rack Redesign
+
+- **DASH-09**: Dashboard renders peers as status-grouped dense monospace rows (triage order WORKING → WAITING → STARTING → FAILED → DONE) with inline context-window block meters colored by contextLevel, plus a fleet header with status count chips and a codex usage meter.
+- **DASH-10**: Selecting a peer shows its detail and a scrollable, tail-following log in a fixed bottom dock with a `log N/M ▼ tail / ▲ scrolled` position indicator; Tab moves focus between rack and dock, and the focused pane is glow-highlighted with a footer keybar that reflects it.
+
 ## Out of Scope
 
 | Feature | Reason |
@@ -55,6 +60,8 @@
 | DASH-03 | Existing | Complete |
 | DASH-04 | Phase 1 | Complete |
 | DASH-05 | Phase 1 | Complete |
+| DASH-09 | Phase 2 | Pending |
+| DASH-10 | Phase 2 | Pending |
 
 **Coverage:**
 - v1 requirements: 11 total
@@ -63,4 +70,4 @@
 
 ---
 *Requirements defined: 2026-05-07*
-*Last updated: 2026-05-07 after repo-local GSD initialization*
+*Last updated: 2026-07-07 — added DASH-09/DASH-10 for Signal Rack redesign (Phase 2)*

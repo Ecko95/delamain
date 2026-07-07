@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: complete
+status: completed
 stopped_at: Phase 01 complete
-last_updated: "2026-05-07T23:23:38+02:00"
-last_activity: 2026-05-07 -- Quick task completed: codex-peers configurable worktree routing
+last_updated: "2026-07-07T14:33:01.166Z"
+last_activity: 2026-05-07 -- Phase 01 completed with Bun-backed OpenTUI dashboard runtime
 progress:
   total_phases: 1
   completed_phases: 1
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-05-07)
 
 ## Current Position
 
-Phase: 1 of 1 (Dashboard TUI upgrade)
+Phase: 1 of 0 (Dashboard TUI upgrade)
 Plan: 01-03 complete
 Status: Complete
 Last activity: 2026-05-07 -- Phase 01 completed with Bun-backed OpenTUI dashboard runtime
