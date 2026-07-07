@@ -2,7 +2,7 @@
 phase: 2
 slug: signal-rack-dashboard-redesign
 status: draft
-nyquist_compliant: false
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-07-07
 ---
