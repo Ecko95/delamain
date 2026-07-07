@@ -53,7 +53,7 @@ Plans:
 
 ### Phase 2: Signal Rack dashboard redesign
 
-**Goal:** Rework the OpenTUI operator dashboard (`src/dashboard/opentuiV3.ts`) into the sketch-locked "Signal Rack" layout — status-grouped dense monospace peer rows with inline context-window block meters, a fixed bottom detail dock with a scrollable tail-following log, and the exact `cyberpunkTheme` — fully keyboard-drivable via the existing `keybindings.ts` bindings.
+**Goal:** Rework the OpenTUI operator dashboard (`src/dashboard/opentuiV3.ts`) into the sketch-locked "Signal Rack" layout — status-grouped dense monospace peer rows with inline context-window block meters, a fixed bottom detail dock with a scrollable tail-following log, and the exact `cyberpunkTheme` — fully keyboard-drivable via V3's existing `v3CommandForKey()` bindings in `v3Input.ts` (note: `keybindings.ts` is wired only to the legacy V2 path).
 **Requirements**: DASH-09, DASH-10
 **Depends on:** Phase 1
 **Success Criteria** (what must be TRUE):
