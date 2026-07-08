@@ -291,13 +291,23 @@ function render(
   const layout = computeLayout(state, renderer.width, renderer.height);
   const spinner = SPINNER[Math.floor(nowMs / 120) % SPINNER.length];
 
-  const children = [
-    appBar(view, state, theme, spinner, layout),
-    ...(layout.narrow ? [tabBar(state, theme, nowMs, view, layout)] : []),
-    bodyRow(view, state, theme, spinner, nowMs, layout, supervisor),
-    logsDrawer(view, state, theme, layout),
-    footer(state, theme, layout),
-  ];
+  // Fleet is the sketch-locked Signal Rack: chromeless flat roster + fixed bottom
+  // dock. Other routes stay reachable (palette / 1-5) but render in the legacy
+  // bordered shell — they are "hidden chrome", not removed.
+  const children =
+    state.route === "fleet"
+      ? [
+          appBar(view, state, theme, layout),
+          fleetRoster(view, state, theme, nowMs, layout),
+          fleetDock(view, state, theme, nowMs, layout),
+          footer(state, theme, layout),
+        ]
+      : [
+          appBar(view, state, theme, layout),
+          bodyRow(view, state, theme, spinner, nowMs, layout, supervisor),
+          logsDrawer(view, state, theme, layout),
+          footer(state, theme, layout),
+        ];
   renderer.root.add(Box({ id: "v3-root", width: "100%", height: "100%", flexDirection: "column" }, ...children));
 
   // Toasts float above the footer, right-aligned.
@@ -318,13 +328,14 @@ function render(
 
 // --- app bar ------------------------------------------------------------
 
-function appBar(view: DashboardViewModel, state: RuntimeStateV3, theme: Theme, spinner: string, layout: Layout) {
+function appBar(view: DashboardViewModel, state: RuntimeStateV3, theme: Theme, layout: Layout) {
+  const routeLabel = ROUTE_META.find((meta) => meta.route === state.route)?.label || "FLEET";
   const left: TextChunk[] = [
-    textColor(theme.accent)(`${spinner} DELAMAIN `),
+    textColor(theme.accent)("DELAMAIN "),
     textColor(theme.textDim)("▍"),
-    textColor(theme.accent)("FLEET"),
+    textColor(theme.accent)(routeLabel),
   ];
-  const right: TextChunk[] = [...triageCountChips(view, theme), ...plainChunks("   "), ...codexUsageHeaderChunks(view, theme), ...plainChunks("  "), ...dimmedChunks(": palette", theme)];
+  const right: TextChunk[] = [...triageCountChips(view, theme), ...plainChunks("   "), ...codexUsageHeaderChunks(view, theme)];
   return Box(
     { id: "v3-appbar", width: "100%", height: 2, flexDirection: "row", border: ["bottom"], borderColor: theme.border, paddingX: 1 },
     Text({ content: styledText(...left) }),
@@ -405,12 +416,10 @@ function bodyRow(
   layout: Layout,
   supervisor: SupervisorTelegramStatus,
 ) {
-  const children = [];
-  if (!layout.narrow) {
-    children.push(iconRail(state, theme, nowMs, view, layout));
-  }
-  children.push(mainArea(view, state, theme, spinner, nowMs, layout, supervisor));
-  return Box({ id: "v3-body", width: "100%", height: layout.bodyH, flexDirection: "row" }, ...children);
+  return Box(
+    { id: "v3-body", width: "100%", height: layout.bodyH, flexDirection: "row" },
+    mainArea(view, state, theme, spinner, nowMs, layout, supervisor),
+  );
 }
 
 function iconRail(state: RuntimeStateV3, theme: Theme, nowMs: number, view: DashboardViewModel, layout: Layout) {
@@ -573,9 +582,111 @@ function rosterPane(
   );
 }
 
-// Fixed-width prefix before the project column: "g " + activity(8) + " id(8) " +
-// meter(10) + " NN% " + compactedFlag(1) + " elapsed(7) " — see contextMeterInfo.
-const RACK_ROW_FIXED_WIDTH = 46;
+// --- fleet (sketch Signal Rack: chromeless roster + fixed bottom dock) ----
+
+function fleetDockHeight(layout: Layout): number {
+  return clamp(Math.floor(layout.H * 0.32), 6, 16);
+}
+
+// Borderless, full-width roster — the sketch has no ROSTER box frame, just flat
+// grouped rows with group-rule headers.
+function fleetRoster(view: DashboardViewModel, state: RuntimeStateV3, theme: Theme, nowMs: number, layout: Layout) {
+  const height = Math.max(3, layout.H - 4 - fleetDockHeight(layout));
+  const content = Math.max(20, layout.W - 2);
+  const visibleRows = height;
+  const lines = rackLines(view);
+  const selectedLine = lines.findIndex((line) => line.kind === "peer" && line.peer.selected);
+  const maxOffset = Math.max(0, lines.length - visibleRows);
+  let offset = clamp(state.peerOffset, 0, maxOffset);
+  if (state.followSelectedPeer && selectedLine !== -1) {
+    if (selectedLine < offset) {
+      offset = selectedLine;
+    } else if (selectedLine >= offset + visibleRows) {
+      offset = selectedLine - visibleRows + 1;
+    }
+  }
+  state.peerOffset = offset;
+
+  const rosterRows = lines.filter((line) => line.kind === "peer").length;
+  const visible = lines.slice(offset, offset + visibleRows);
+  const chunks: TextChunk[] = [];
+  const sweepAllowed = state.theme !== defaultTheme && state.mode === "normal";
+  visible.forEach((line, index) => {
+    const rowIndex = offset + index;
+    let bg: string | undefined;
+    if (sweepAllowed) {
+      bg =
+        focusSweepBg(nowMs, state.focusChangedAt, index, visibleRows) ??
+        (layout.W >= 100 ? ambientSweepBg(nowMs, rowIndex, rosterRows) : undefined);
+    }
+    chunks.push(...rosterLineChunks(line, content, "", theme, state, bg, layout, nowMs));
+    if (index < visible.length - 1) {
+      chunks.push(...plainChunks("\n"));
+    }
+  });
+  // Sketch leaves empty space below the rows (no dot texture) — just hold height.
+  for (let extra = visible.length; extra < visibleRows; extra += 1) {
+    chunks.push(...plainChunks("\n"));
+  }
+  return Box(
+    { id: "v3-roster", width: "100%", height, flexShrink: 0, paddingX: 1 },
+    Text({ content: chunks.length > 0 ? styledText(...chunks) : styledText(...dimmedChunks("No peers yet", theme)) }),
+  );
+}
+
+// Sketch variant B: always-visible bottom dock — `┌─ id · branch ─── log X/Y ▼ tail`,
+// a detail summary line, then the scrollable log body.
+function fleetDock(view: DashboardViewModel, state: RuntimeStateV3, theme: Theme, nowMs: number, layout: Layout) {
+  const dockH = fleetDockHeight(layout);
+  const peer = view.peers.find((row) => row.id === state.selectedPeerId) || view.peers[view.selectedIndex];
+  const peerId = peer?.id || "-";
+  const width = Math.max(20, layout.W - 2);
+  const border = state.drawerFocused ? theme.borderFocused : theme.border;
+  const detail = (label: string): string => view.details.find((row) => row.label === label)?.value || "-";
+
+  const logRows = Math.max(1, dockH - 3); // border-top + title + detail line
+  const logContent = visibleLogContent(view.logLines, state.logOffset, logRows);
+  state.logOffset = logContent.offset;
+  const total = logContent.totalRows;
+  const atTail = logContent.offset === 0;
+  const posNum = total === 0 ? 0 : total - logContent.offset;
+
+  const branch = peer ? truncate(peer.branch, 34) : "";
+  const titleLeft = `┌─ ${peerId} · ${branch} `;
+  const titleRight = `log ${posNum}/${total} ${atTail ? "▼ tail" : "▲ scrolled"}`;
+  const fill = Math.max(1, width - titleLeft.length - titleRight.length - 1);
+  const titleChunks: TextChunk[] = [
+    textColor(border)(titleLeft),
+    textColor(theme.border)(`${"─".repeat(fill)} `),
+    textColor(state.drawerFocused ? theme.borderFocused : theme.textDim)(titleRight),
+  ];
+
+  const meter = peer && peer.contextPercent !== undefined ? `${contextMeterCells(peer.contextPercent)} ${Math.round(peer.contextPercent)}%` : "—";
+  const detailChunks: TextChunk[] = [
+    ...dimmedChunks("  model ", theme),
+    ...bodyChunks(truncate(detail("model"), 22), theme),
+    ...dimmedChunks("   pid ", theme),
+    ...bodyChunks(peer?.pid || "-", theme),
+    ...dimmedChunks("   ctx ", theme),
+    ...bodyChunks(meter, theme),
+  ];
+
+  const logLines = withScrollbar(
+    logContent.lines.length > 0 ? logContent.lines : ["No recent log lines"],
+    logContent.offset,
+    logContent.visibleRows,
+    logContent.totalRows,
+  );
+  const body: TextChunk[] = [...titleChunks, ...plainChunks("\n"), ...detailChunks];
+  logLines.forEach((line) => {
+    body.push(...plainChunks("\n"), ...logLineChunks(line, theme));
+  });
+
+  return Box(
+    { id: "v3-dock", width: "100%", height: dockH, flexShrink: 0, border: ["top"], borderColor: border, paddingX: 1 },
+    Text({ content: styledText(...body) }),
+  );
+}
 
 function rosterLineChunks(
   line: RosterLine,
@@ -603,47 +714,46 @@ function rosterLineChunks(
   const peer = line.peer;
   const glyph = STATUS_GLYPH[peer.status] || "·";
   const color = statusColor(peer.status, theme);
-  const activity =
-    peer.status === "working" || peer.status === "starting" || peer.status === "gsd_running_phase"
-      ? peer.activity.slice(0, 8).padEnd(8)
-      : "        ";
-  const idPart = peer.id.padEnd(8);
-  const elapsed = peer.elapsed.padEnd(7);
+  const arrow = peer.selected ? "▶" : " ";
+  const idPart = truncate(peer.id, 8).padEnd(8);
+  const engineName = truncate(peer.engine, 6).padEnd(6);
+  const engineColor = peer.engine === "cursor" ? "#c084fc" : theme.borderFocused;
+  const elapsed = truncate(peer.elapsed, 7).padStart(7);
   const meter = contextMeterInfo(peer, theme, nowMs);
   const compactedFlag = peer.compacted ? "⛁" : " ";
-  const compactRow = layout.narrow || content < 60;
-  const projectWidth = compactRow ? Math.max(8, content - RACK_ROW_FIXED_WIDTH) : Math.max(10, Math.min(24, content - (RACK_ROW_FIXED_WIDTH + 6)));
-  const project = truncate(peer.project, projectWidth).padEnd(projectWidth);
-  const usedSoFar = RACK_ROW_FIXED_WIDTH + projectWidth + 1;
-  const eventWidth = Math.max(0, content - usedSoFar);
-  const lastEvent = eventWidth >= 8 && peer.lastEvent && peer.lastEvent !== "-" ? truncate(peer.lastEvent, eventWidth) : "";
+
+  // Sketch column order: arrow ◉ id(8) engine(6) branch(30) activity(20) meter(10) NN% flag elapsed(7).
+  // Sketch uses fixed branch/activity widths, left-packed — wide terminals get trailing space,
+  // not stretched columns. Branch shrinks first, then activity, on narrow terminals.
+  const FIXED = 47;
+  const free = Math.max(0, content - FIXED);
+  const branchW = Math.max(0, Math.min(30, free - 21)); // reserve 20 for activity + 1 sep before shrinking branch
+  const sep = branchW > 0 ? 1 : 0;
+  const activityW = Math.max(0, Math.min(20, free - branchW - sep));
+  const branch = branchW > 0 ? truncate(peer.branch, branchW).padEnd(branchW) : "";
+  const activity = activityW > 0 ? truncate(peer.activity, activityW).padEnd(activityW) : "";
+  const mid = `${branch}${branchW > 0 && activityW > 0 ? " " : ""}${activity}`;
+  const midW = branchW + (branchW > 0 && activityW > 0 ? 1 : 0) + activityW;
 
   if (peer.selected) {
     const focused = !state.drawerFocused;
     const rowBg = focused ? "#ffb066" : theme.selBg;
     const rowFg = focused ? "#050403" : theme.text;
-    let row = `▸ ${glyph} ${activity} ${idPart} ${meter.cells} ${meter.suffix} ${compactedFlag} ${elapsed} ${project}`;
-    if (lastEvent) {
-      row += ` ${lastEvent}`;
-    }
+    const row = `${arrow} ${glyph} ${idPart} ${engineName} ${mid} ${meter.cells} ${meter.suffix} ${compactedFlag} ${elapsed}`;
     return [textBg(rowBg)(textColor(rowFg)(row.padEnd(content).slice(0, content)))];
   }
 
   const chunks: TextChunk[] = [
-    textColor(color)(`${glyph} `),
-    textColor(color)(activity),
-    ...bodyChunks(` ${idPart} `, theme),
+    textColor(color)(`${arrow} ${glyph} `),
+    textColor(theme.borderFocused)(`${idPart} `),
+    textColor(engineColor)(`${engineName} `),
+    ...dimmedChunks(`${mid} `, theme),
     textColor(meter.color)(meter.cells),
     ...bodyChunks(` ${meter.suffix} `, theme),
     textColor(peer.compacted ? theme.statusColors.failed : theme.border)(compactedFlag),
-    ...bodyChunks(` ${elapsed} `, theme),
-    ...bodyChunks(project, theme),
+    ...dimmedChunks(` ${elapsed}`, theme),
   ];
-  let len = RACK_ROW_FIXED_WIDTH + projectWidth;
-  if (lastEvent) {
-    chunks.push(...dimmedChunks(` ${lastEvent}`, theme));
-    len += 1 + lastEvent.length;
-  }
+  const len = 20 + midW + 1 + 26;
   return applyBg(chunks, len, bg, content);
 }
 
@@ -958,31 +1068,31 @@ function logLineChunks(line: string, theme: Theme): TextChunk[] {
 // --- footer -------------------------------------------------------------
 
 function footer(state: RuntimeStateV3, theme: Theme, layout: Layout) {
+  // Sketch keybar. Palette (:) and routes (1-5) stay bound but are intentionally
+  // not advertised here — "hidden chrome, still reachable"; full list lives in `?`.
   const keys: Array<[string, string]> = [
-    ["j/k", "nav"],
-    ["↵", "open"],
-    [":", "palette"],
-    ["`", "logs"],
-    ["1-5", "view"],
-    ["tab", "drawer"],
+    ["↑↓/jk", state.drawerFocused ? "scroll log" : "move"],
+    ["tab", state.drawerFocused ? "focus peers" : "focus logs"],
+    ["↵", "details"],
+    ["b", "log bot"],
+    ["c", "collapse"],
+    ["a", "answer"],
+    ["x", "kill"],
+    ["e", "error"],
+    ["g/G", "top/bot"],
     ["?", "help"],
+    ["q", "quit"],
   ];
   const chunks: TextChunk[] = [];
   keys.forEach(([key, label], index) => {
-    chunks.push(textColor(theme.accent)(key), ...dimmedChunks(` ${label}`, theme));
+    chunks.push(textColor(theme.borderFocused)(key), ...dimmedChunks(` ${label}`, theme));
     if (index < keys.length - 1) {
-      chunks.push(...dimmedChunks(" · ", theme));
+      chunks.push(...plainChunks("  "));
     }
   });
-  const scrolled = state.logOffset > 0;
-  const status = scrolled
-    ? [textBg(theme.statusColors.starting === "#35e0d8" ? "#35e0d8" : "#35e0d8")(textColor("#050403")("▐ ⏸ SCROLLED ▌"))]
-    : [textBg(theme.accent)(textColor("#050403")("▐ ◉ LIVE ▌"))];
   return Box(
     { id: "v3-footer", width: "100%", height: 2, flexDirection: "row", border: ["top"], borderColor: theme.border, paddingX: 1 },
     Text({ content: styledText(...chunks) }),
-    Box({ flexGrow: 1 }),
-    Text({ content: styledText(...status) }),
   );
 }
 

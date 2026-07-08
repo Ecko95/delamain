@@ -27,6 +27,7 @@ export type DashboardPeerRow = {
   index: number;
   status: DashboardStatus;
   activity: string;
+  engine: string;
   project: string;
   branch: string;
   worktree: string;
@@ -112,6 +113,7 @@ export function createDashboardViewModel(
     index,
     status: dashboardStatus(peer),
     activity: statusActivity(dashboardStatus(peer), frame),
+    engine: peer.engine || "codex",
     project: projectLabel(peer),
     branch: valueOrDash(peer.mergeBranch || peer.baseBranch || peer.branch),
     worktree: worktreeLabel(peer, worktrees.risks.get(peer.id)),
