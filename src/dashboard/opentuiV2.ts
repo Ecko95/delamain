@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import { Box, Text, StyledText, createCliRenderer, fg as textColor, bg as textBg, dim as dimText, stringToStyledText, type TextChunk, type MouseEvent } from "@opentui/core";
 import { worktreeDiffStat } from "../git.js";
 import { killPeer, listPeers, resumePeer } from "../peerManager.js";
@@ -421,11 +422,46 @@ function warningsPane(view: DashboardViewModel, state: RuntimeState, extra?: Rec
   });
 }
 
+// Per-row boxes so each peer row carries its own onMouseDown (click-to-select).
+// A single Text block can't be hit-tested per row.
 function peersPane(view: DashboardViewModel, state: RuntimeState, paneWidth: number, visibleRows: number, spinner: string, extra?: Record<string, unknown>) {
-  const content = peerContent(view, state, paneWidth, Math.max(3, visibleRows), spinner);
-  return card(`peers ${content.position}`, "peers", state, extra || { width: paneWidth, flexGrow: 1 }, () => {
-    return content.rows;
+  const rows = Math.max(3, visibleRows);
+  const { lines, offset, position } = peerLayout(view, state, rows);
+  const collapsed = state.collapsedPanes.peers;
+  const props = paneProps(`${collapsed ? "▸" : "▾"} peers ${position}`, state.focusPane === "peers", state.theme, {
+    minHeight: collapsed ? 3 : 5,
+    flexDirection: "column",
+    onMouseDown: () => {
+      state.focusPane = "peers";
+    },
+    onMouseScroll: (event: MouseEvent) => paneScroll("peers", state, event),
+    ...(extra || { width: paneWidth, flexGrow: 1 }),
   });
+  if (collapsed) {
+    return Box(props, Text({ content: styledText(...dimmedChunks("collapsed", state.theme)) }));
+  }
+  const visibleLines = lines.slice(offset, offset + rows);
+  const rowBoxes = visibleLines.map((line) => {
+    const chunks = peerDisplayLine(line, paneWidth, spinner, state.theme);
+    const onMouseDown =
+      line.kind === "peer" && line.peer
+        ? () => selectPeer(state, line.peer!)
+        : () => {
+            state.focusPane = "peers";
+          };
+    return Box({ width: "100%", height: 1, flexShrink: 0, onMouseDown }, Text({ content: styledText(...chunks) }));
+  });
+  return Box(props, ...rowBoxes);
+}
+
+function selectPeer(state: RuntimeState, peer: DashboardPeerRow): void {
+  mouseDebug("select", { id: peer.id, index: peer.index });
+  state.selectedPeerId = peer.id;
+  state.selectedIndex = peer.index;
+  state.focusPane = "peers";
+  state.logOffset = 0;
+  state.followSelectedPeer = true;
+  state.message = `Selected ${peer.id}`;
 }
 
 function detailsPane(view: DashboardViewModel, state: RuntimeState, width: number, extra?: Record<string, unknown>) {
@@ -541,6 +577,11 @@ function card(title: string, pane: V2Pane, state: RuntimeState, extra: Record<st
 }
 
 function paneScroll(pane: V2Pane, state: RuntimeState, event: MouseEvent): void {
+  // Consume the event so OpenTUI doesn't also apply a default viewport scroll
+  // (suspected cause of the "keeps drifting up" behavior).
+  event.preventDefault?.();
+  event.stopPropagation?.();
+  mouseDebug("scroll", { pane, direction: event.scroll?.direction, delta: event.scroll?.delta });
   const direction = event.scroll?.direction;
   if (direction !== "up" && direction !== "down") {
     return;
@@ -554,6 +595,19 @@ function paneScroll(pane: V2Pane, state: RuntimeState, event: MouseEvent): void 
     state.selectedIndex = Math.max(0, state.selectedIndex + (direction === "up" ? -amount : amount));
     state.selectedPeerId = undefined;
     state.logOffset = 0;
+  }
+}
+
+// Opt-in mouse tracing: DELAMAIN_MOUSE_DEBUG=1 appends every mouse event to a
+// file so scroll/click issues can be diagnosed without an interactive session.
+function mouseDebug(kind: string, detail: Record<string, unknown>): void {
+  if (process.env.DELAMAIN_MOUSE_DEBUG !== "1") {
+    return;
+  }
+  try {
+    appendFileSync("/tmp/delamain-mouse.log", `${new Date().toISOString()} ${kind} ${JSON.stringify(detail)}\n`);
+  } catch {
+    /* best-effort */
   }
 }
 
@@ -575,7 +629,7 @@ type PeerDisplayLine = {
   text?: string;
 };
 
-function peerContent(view: DashboardViewModel, state: RuntimeState, paneWidth: number, visibleRows: number, spinner: string): { rows: StyledText; position: string } {
+function peerLayout(view: DashboardViewModel, state: RuntimeState, visibleRows: number): { lines: PeerDisplayLine[]; offset: number; position: string } {
   const lines = peerDisplayLines(view);
   const selectedLine = lines.findIndex((line) => line.peer?.selected);
   const maxOffset = Math.max(0, lines.length - visibleRows);
@@ -588,23 +642,7 @@ function peerContent(view: DashboardViewModel, state: RuntimeState, paneWidth: n
     }
   }
   state.peerOffset = offset;
-
-  const chunks: TextChunk[] = [];
-  const visibleLines = lines.slice(offset, offset + visibleRows);
-  visibleLines.forEach((line, index) => {
-    chunks.push(...peerDisplayLine(line, paneWidth, spinner, state.theme));
-    if (index < visibleLines.length - 1) {
-      chunks.push(...plainChunks("\n"));
-      if (state.theme.rowRule) {
-        chunks.push(...rowRuleChunks(state.theme, Math.max(12, paneWidth - 4)));
-        chunks.push(...plainChunks("\n"));
-      }
-    }
-  });
-  return {
-    rows: chunks.length > 0 ? styledText(...chunks) : styledText(...dimmedChunks("No peers yet", state.theme)),
-    position: scrollPosition(offset, visibleRows, lines.length),
-  };
+  return { lines, offset, position: scrollPosition(offset, visibleRows, lines.length) };
 }
 
 function peerDisplayLines(view: DashboardViewModel): PeerDisplayLine[] {
