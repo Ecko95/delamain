@@ -60,10 +60,11 @@
 | DASH-03 | Existing | Complete |
 | DASH-04 | Phase 1 | Complete |
 | DASH-05 | Phase 1 | Complete |
-| DASH-09 | Phase 2 | Pending |
+| DASH-09 | Phase 2 | Complete |
 | DASH-10 | Phase 2 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 11 total
 - Mapped to phases: 11
 - Unmapped: 0
