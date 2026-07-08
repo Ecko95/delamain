@@ -49,7 +49,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Full dynamic lazygit-style dashboard TUI | 3/3 | Complete | 2026-05-07 |
-| 2. Signal Rack dashboard redesign | 3/5 | In Progress|  |
+| 2. Signal Rack dashboard redesign | 4/5 | In Progress|  |
 
 ### Phase 2: Signal Rack dashboard redesign
 
@@ -66,7 +66,7 @@ Plans:
   6. Existing MCP, CLI, and peer supervision behavior continue to pass tests.
 
 **Design source:** `.claude/skills/sketch-findings-delamain/` (winners: 001 Signal Rack layout, 002 Bottom Dock) — sketches wrapped 2026-07-07.
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -77,7 +77,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 02-03-PLAN.md — Retire modal kill/answer for status-line kill-confirm/answer modes; preserve answer input validation (DASH-10)
-- [ ] 02-04-PLAN.md — Signal Rack render: triage-grouped rows with inline context meters + restyled fleet header (DASH-09)
+- [x] 02-04-PLAN.md — Signal Rack render: triage-grouped rows with inline context meters + restyled fleet header (DASH-09)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 

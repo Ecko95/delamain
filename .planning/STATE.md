@@ -3,13 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-07-08T18:08:28.282Z"
+stopped_at: Phase 02 Plan 04 complete
+last_updated: "2026-07-08T21:23:14.087Z"
 last_activity: 2026-07-08
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 33
 ---
 
@@ -25,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-05-07)
 ## Current Position
 
 Phase: 02 (signal-rack-dashboard-redesign) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-07-08
 
@@ -47,6 +48,7 @@ Progress: [████████░░] 75%
 | Phase 02 P01 | 15min | 3 tasks | 2 files |
 | Phase 02 P02 | 5min | 1 tasks | 1 files |
 | Phase 02 P03 | 20min | 2 tasks | 3 files |
+| Phase 02 P04 | 35min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -58,6 +60,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase ?]: contextLevelColor reuses cyberpunkTheme keys instead of new hex literals
 - [Phase ?]: VERDICT: FACTORY — ScrollBox is exported identically to Box/Text in @opentui/core@0.2.4; Plan 05 uses ScrollBox({...opts}, ...children)
 - [Phase ?]: Renamed modalPeerId to pendingPeerId when retiring V3's modal machine in favor of status-line kill-confirm/answer modes
+- [Phase 02-04]: Retired the terminal-status collapse for a real DONE triage bucket — Matches sketch's 5-bucket order exactly instead of special-casing done/killed/idle into one strip
 
 ### Pending Todos
 
@@ -89,6 +92,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-07-08T18:03:24.061Z
-Stopped at: Phase 01 complete
+Last session: 2026-07-08T21:23:14.084Z
+Stopped at: Phase 02 Plan 04 complete
 Resume file: None
