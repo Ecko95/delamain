@@ -123,22 +123,30 @@ function parseStructured(record: Record<string, unknown>, at: string): LogEvent 
   if (type === "turn.started" || type === "turn.completed" || type === "thread.started" || type === "thread.completed") {
     return { kind: "turn", level: "info", at, title: type, body: compactJson(record, ["type", "thread_id"]) };
   }
-  if (effectiveType === "agent_message" || type === "agent_message" || type === "assistant" || cursorType === "assistant") {
+  if (effectiveType === "agent_message" || type === "agent_message" || type === "assistant" || cursorType === "assistant" || isRecord(record.message)) {
+    const text = stringValue(item?.text) || stringValue(record.text) || nestedMessageText(record) || nestedMessageText(item);
     return {
       kind: "message",
       level: "info",
       at,
-      title: titleWithId("agent message", item),
-      body: bodyFrom(item, record, ["text", "message", "content"]),
+      title: text ? compact(text, 200) : "agent message",
+      body: undefined,
     };
   }
-  if (effectiveType === "reasoning" || type === "reasoning" || cursorType === "reasoning") {
+  if (type === "result") {
+    const text = stringValue(record.result) || stringValue(record.message);
+    return { kind: "message", level: stringValue(record.subtype) === "error" ? "error" : "info", at, title: text ? `result: ${compact(text, 200)}` : "result" };
+  }
+  // Cursor streams reasoning as {"type":"thinking","subtype":"delta","text":"..."} — render the text
+  // inline, never the JSON envelope (was falling through to the raw dump).
+  if (effectiveType === "reasoning" || type === "reasoning" || type === "thinking" || cursorType === "reasoning") {
+    const text = stringValue(record.text) || stringValue(item?.text) || stringValue(item?.summary);
     return {
       kind: "reasoning",
       level: "info",
       at,
-      title: titleWithId("reasoning", item),
-      body: bodyFrom(item, record, ["text", "summary", "content"]),
+      title: text ? compact(text, 180) : titleWithId("reasoning", item),
+      body: text ? undefined : bodyFrom(item, record, ["text", "summary", "content"]),
     };
   }
   if (effectiveType === "command_execution" || type === "command_execution" || cursorType === "command") {
@@ -154,14 +162,34 @@ function parseStructured(record: Record<string, unknown>, at: string): LogEvent 
       body: output,
     };
   }
+  // Cursor engine: {"type":"tool_call","subtype":"started|completed","tool_call":{"<name>ToolCall":{"args":{...}}}}.
+  // Without this, tool calls fall through to the raw JSON dump (unreadable blobs in the log pane).
+  if (type === "tool_call" || isRecord(record.tool_call)) {
+    const wrapper = isRecord(record.tool_call) ? record.tool_call : undefined;
+    const entryKey = wrapper ? Object.keys(wrapper)[0] : undefined;
+    const inner = entryKey && isRecord(wrapper?.[entryKey]) ? (wrapper[entryKey] as Record<string, unknown>) : undefined;
+    const args = isRecord(inner?.args) ? inner.args : undefined;
+    const name = entryKey ? entryKey.replace(/ToolCall$/, "") : "tool";
+    const done = stringValue(record.subtype) === "completed";
+    return {
+      kind: "command",
+      level: "info",
+      at,
+      title: `${done ? "✓ " : ""}${name}${toolArgSummary(name, args) ? ` ${toolArgSummary(name, args)}` : ""}`,
+    };
+  }
   if (effectiveType === "file_change" || type === "file_change" || cursorType === "file_change") {
-    const path = stringValue(item?.path) || stringValue(record.path) || stringValue(cursorEvent?.path);
+    const changes = arrayValue(item?.changes) || arrayValue(record.changes);
+    const first = changes && isRecord(changes[0]) ? (changes[0] as Record<string, unknown>) : undefined;
+    const path = stringValue(first?.path) || stringValue(item?.path) || stringValue(record.path) || stringValue(cursorEvent?.path);
+    const kind = stringValue(first?.kind);
+    const extra = changes && changes.length > 1 ? ` (+${changes.length - 1})` : "";
     return {
       kind: "file_change",
       level: "info",
       at,
-      title: path ? `file change: ${path}` : "file change",
-      body: bodyFrom(item, record, ["diff", "summary", "changes"]),
+      title: path ? `${kind ? `${kind} ` : ""}${baseName(path)}${extra}` : "file change",
+      body: changes ? undefined : bodyFrom(item, record, ["diff", "summary"]),
     };
   }
   if (effectiveType === "error" || type === "error" || stringValue(record.level) === "error") {
@@ -178,8 +206,8 @@ function parseStructured(record: Record<string, unknown>, at: string): LogEvent 
     kind: "raw",
     level: stringValue(record.level) === "error" ? "error" : "info",
     at,
-    title: type || cursorType || "json",
-    body: compactJson(record, []),
+    title: compact(type || cursorType || stringValue(record.message) || "event", 120),
+    body: undefined,
   };
 }
 
@@ -195,7 +223,21 @@ function bodyFrom(item: Record<string, unknown> | undefined, record: Record<stri
       return value;
     }
   }
-  return compactJson(record, ["type", "item", "thread_id"]);
+  // Deliberately no JSON fallback — an unrecognized body is noise, not signal (operator feedback).
+  return undefined;
+}
+
+// Cursor agent messages nest the text at message.content[].text — pull and join the text parts.
+function nestedMessageText(record: Record<string, unknown> | undefined): string | undefined {
+  const message = isRecord(record?.message) ? record.message : undefined;
+  const content = arrayValue(message?.content) || arrayValue(record?.content);
+  if (!content) {
+    return stringValue(message?.text);
+  }
+  const parts = content
+    .map((entry) => (isRecord(entry) ? stringValue(entry.text) : stringValue(entry)))
+    .filter((value): value is string => Boolean(value));
+  return parts.length ? parts.join(" ") : undefined;
 }
 
 function compactJson(record: Record<string, unknown>, omitted: string[]): string | undefined {
@@ -236,6 +278,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function arrayValue(value: unknown): unknown[] | undefined {
+  return Array.isArray(value) && value.length > 0 ? value : undefined;
+}
+
+function baseName(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : path;
+}
+
+// Condense a cursor tool call's args into a readable one-liner per tool kind.
+function toolArgSummary(name: string, args: Record<string, unknown> | undefined): string {
+  if (!args) {
+    return "";
+  }
+  switch (name) {
+    case "glob":
+      return stringValue(args.globPattern) || "";
+    case "read":
+    case "write":
+    case "edit": {
+      const p = stringValue(args.path);
+      return p ? baseName(p) : "";
+    }
+    case "grep":
+      return stringValue(args.pattern) || stringValue(args.query) || "";
+    case "shell":
+    case "bash":
+      return compact(stringValue(args.command) || "", 120);
+    default:
+      return compact(JSON.stringify(args), 80);
+  }
 }
 
 function compact(text: string, max: number): string {

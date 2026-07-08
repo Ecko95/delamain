@@ -36,7 +36,7 @@ const STATUS_ORDER: DashboardStatus[] = [
   "gsd_pending",
   "gsd_failed",
 ];
-const PANES: V2Pane[] = ["overview", "limits", "telegram", "warnings", "peers", "details", "logs"];
+const PANES: V2Pane[] = ["overview", "limits", "warnings", "peers", "details", "logs"];
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const PEER_REFRESH_MS = 1000;
 const DIFF_REFRESH_MS = 5000;
@@ -296,7 +296,6 @@ function wideGrid(
     Box(
       { width: "100%", height: auxHeight, flexShrink: 0, flexDirection: "row", gap: 1 },
       limitsPane(view, state, { height: "100%", flexGrow: 1 }),
-      telegramPane(state, supervisor, { height: "100%", flexGrow: 1 }),
       warningsPane(view, state, { height: "100%", flexGrow: 1 }),
     ),
     logsPane(view, state, logsHeight - 3, { height: logsHeight, flexShrink: 0 }),
@@ -322,7 +321,6 @@ function mediumGrid(
     Box(
       { flexGrow: 1, height: "100%", flexDirection: "column", gap: 1 },
       limitsPane(view, state),
-      telegramPane(state, supervisor),
       detailsPane(view, state, Math.max(42, screenWidth - leftWidth - 4)),
       warningsPane(view, state),
       logsPane(view, state, Math.max(8, screenHeight - 34)),
@@ -341,7 +339,6 @@ function narrowGrid(
     { id: "dashboard-v2-grid-narrow", width: "100%", flexGrow: 1, flexDirection: "column", gap: 1 },
     overviewPane(view, state, spinner),
     limitsPane(view, state),
-    telegramPane(state, supervisor),
     peersPane(view, state, 80, 6, spinner),
     detailsPane(view, state, 80),
     warningsPane(view, state),
@@ -422,48 +419,6 @@ function warningsPane(view: DashboardViewModel, state: RuntimeState, extra?: Rec
     });
     return styledText(...chunks);
   });
-}
-
-function telegramPane(state: RuntimeState, supervisor: SupervisorTelegramStatus, extra?: Record<string, unknown>) {
-  return card("uplink :: telegram", "telegram", state, extra || { height: state.collapsedPanes.telegram ? 3 : 8, flexGrow: 1 }, () => {
-    const chunks: TextChunk[] = [
-      textColor(supervisorColor(supervisor.level))(`${supervisor.icon} ${truncate(supervisor.label, 72)}`),
-    ];
-    chunks.push(...plainChunks("\n"));
-    chunks.push(...dimmedChunks("roadmap  ", state.theme));
-    chunks.push(...bodyChunks(supervisor.roadmap || "-", state.theme));
-    chunks.push(...plainChunks("\n"));
-    chunks.push(...dimmedChunks("slice    ", state.theme));
-    chunks.push(...bodyChunks(supervisor.sliceId || "-", state.theme));
-    chunks.push(...plainChunks("\n"));
-    chunks.push(...dimmedChunks("branch   ", state.theme));
-    chunks.push(...bodyChunks(truncateMiddle(supervisor.mergeBranch || "-", 42), state.theme));
-    if (supervisor.latestLogAt) {
-      chunks.push(...plainChunks("\n"));
-      chunks.push(...dimmedChunks("tick     ", state.theme));
-      chunks.push(...bodyChunks(formatSupervisorTime(supervisor.latestLogAt), state.theme));
-    }
-    if (supervisor.haltedReason) {
-      chunks.push(...plainChunks("\n"));
-      chunks.push(textColor(state.theme.statusColors.failed)(truncate(supervisor.haltedReason, 72)));
-    }
-    return styledText(...chunks);
-  });
-}
-
-function supervisorColor(level: SupervisorTelegramStatus["level"]): string {
-  switch (level) {
-    case "sent":
-      return "#34d399";
-    case "pending":
-      return "#facc15";
-    case "waiting":
-      return "#f59e0b";
-    case "halted":
-      return "#f87171";
-    case "unknown":
-      return "#94a3b8";
-  }
 }
 
 function peersPane(view: DashboardViewModel, state: RuntimeState, paneWidth: number, visibleRows: number, spinner: string, extra?: Record<string, unknown>) {
