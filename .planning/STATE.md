@@ -72,6 +72,7 @@ None.
 
 - Phase 1 added: Full dynamic lazygit-style dashboard TUI using a proven terminal UI library.
 - Phase 1 completed with a Bun-backed OpenTUI dashboard runtime and Node-compatible MCP/server CLI path.
+- Phase 3 added: Self-healing peer supervisor — healer loop over peer terminal states with per-class remediation.
 
 ## Deferred Items
 

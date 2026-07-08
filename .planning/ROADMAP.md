@@ -82,3 +82,14 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [ ] 02-05-PLAN.md — Bottom dock (detail + tail-following log + position indicator), status line, focus glow, focus-aware footer; delete modal (DASH-10)
+
+### Phase 3: Self-healing peer supervisor — healer loop over peer terminal states with per-class remediation
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 2
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 3 to break down)
