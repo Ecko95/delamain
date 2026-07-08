@@ -35,6 +35,8 @@ Restart Codex after adding the server. In a Codex session, use the MCP tools:
 - `peer_status`
 - `read_peer_log`
 - `send_peer_reply`
+- `send_peer_message`
+- `read_peer_inbox`
 - `kill_peer`
 
 To rebuild and re-register the MCP server in one command after pulling updates:
@@ -232,6 +234,44 @@ When a peer exits successfully, the runner integrates that worktree by:
 
 If the merge or push fails, the peer is marked `failed` and its linked worktree
 is left in place for inspection.
+
+## Peer-to-peer messaging
+
+Peers exchange freeform prose through a per-peer inbox stored on each
+`PeerRecord` in `state.json`. A send enqueues a message; the recipient reads its
+inbox at a turn boundary and replies. Unlike `send_peer_reply` (which resumes a
+peer immediately with operator input), `send_peer_message` never interrupts a
+working peer — messages queue until the recipient next checks in.
+
+MCP tools:
+
+- `send_peer_message` — enqueue a message into another peer's inbox. Args:
+  `from_peer_id`, `to_peer_id`, `message`, optional `expect_reply`, optional
+  `response_id`. Returns `{ response_id }`.
+- `read_peer_inbox` — read a peer's queued messages plus sender-liveness
+  notices. Args: `peer_id`, optional `include_delivered`. Returns `{ peerId,
+  messages, notices }`.
+
+CLI (run from inside a peer's worktree so `--from` is inferred by matching the
+cwd to a peer's `worktreePath`):
+
+```bash
+delamain send --to <peer-id> --message "Rebased onto your branch — ready?" --expect-reply
+delamain send --to <peer-id> --message "Yes, go ahead." --response-id <id>
+delamain inbox            # queued messages for the current peer
+delamain inbox <peer-id>  # explicit peer, e.g. from the orchestrator
+delamain inbox --all      # include already-delivered history
+```
+
+Reply lifecycle: passing `--expect-reply` (MCP `expect_reply: true`) mints a
+`response_id` and returns it to the sender. The recipient continues or closes
+that thread by echoing the same `--response-id` on its reply. A message without
+a `response_id` and without `expect_reply` is a fire-and-forget note.
+
+Notices are derived on read from the sender's current status, so a reader
+waiting on a correspondent learns when it has gone quiet: `failed`/`gsd_failed`
+→ `errored`, `killed` → `receiver-cancelled`, `waiting` → `awaiting-input`,
+`done`/`idle`/`gsd_completed` → `turn-ended`, `frozen` → `quiet`.
 
 ## State
 
