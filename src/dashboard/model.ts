@@ -1,5 +1,6 @@
 import type { PeerRecord, PeerStatus } from "../types.js";
 import type { CodexUsage } from "../codexUsage.js";
+import type { CodexContextLevel } from "../codexContext.js";
 import { formatLogEvent, parseLogChunk, type LogEvent } from "./logEvents.js";
 import { defaultTheme, type Theme } from "./theme.js";
 
@@ -35,6 +36,9 @@ export type DashboardPeerRow = {
   risk?: WorktreeRisk;
   selected: boolean;
   expanded: boolean;
+  contextPercent?: number;
+  contextLevel?: CodexContextLevel;
+  compacted?: boolean;
 };
 
 export type DashboardDetailRow = {
@@ -117,6 +121,9 @@ export function createDashboardViewModel(
     risk: worktrees.risks.get(peer.id),
     selected: index === selectedIndex,
     expanded: state.expandedPeerId === peer.id,
+    contextPercent: peer.contextPercent,
+    contextLevel: peer.contextLevel,
+    compacted: peer.compacted,
   }));
   const mode = state.mode || "normal";
   const logEvents = selectedPeer ? safeLogEvents(selectedPeer.id, options) : [];

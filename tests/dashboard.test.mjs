@@ -16,7 +16,15 @@ import {
 } from "../dist/dashboard/v3Input.js";
 import { mutedTheme } from "../dist/dashboard/theme.js";
 import { LogBuffer, formatLogEvent, parseLogChunk } from "../dist/dashboard/logEvents.js";
-import { createDashboardViewModel, defaultCollapsedStatuses, fleetGridCells, formatDashboardLogLines, projectLabel, statusActivity, statusColor } from "../dist/dashboard/model.js";
+import {
+  createDashboardViewModel,
+  defaultCollapsedStatuses,
+  fleetGridCells,
+  formatDashboardLogLines,
+  projectLabel,
+  statusActivity,
+  statusColor,
+} from "../dist/dashboard/model.js";
 import { cyberpunkTheme, defaultTheme } from "../dist/dashboard/theme.js";
 import { bunMissingMessage } from "../dist/dashboard.js";
 
@@ -545,6 +553,23 @@ test("mutedTheme maps colors, memoizes, and leaves ramp/cyanBand/chip fields on 
   // memoized: same object identity
   assert.equal(mutedTheme(cyberpunkTheme), m);
   assert.notEqual(mutedTheme(defaultTheme), m);
+});
+
+test("createDashboardViewModel threads context fields onto rows, undefined when unmeasured", () => {
+  const view = createDashboardViewModel([
+    peer({ id: "measured", status: "working", contextPercent: 42, contextLevel: "yellow", compacted: true }),
+    peer({ id: "unmeasured", status: "working" }),
+  ], {}, { now: new Date("2026-05-07T12:05:00Z") });
+
+  const measured = view.peers.find((row) => row.id === "measured");
+  assert.equal(measured.contextPercent, 42);
+  assert.equal(measured.contextLevel, "yellow");
+  assert.equal(measured.compacted, true);
+
+  const unmeasured = view.peers.find((row) => row.id === "unmeasured");
+  assert.equal(unmeasured.contextPercent, undefined);
+  assert.equal(unmeasured.contextLevel, undefined);
+  assert.equal(unmeasured.compacted, undefined);
 });
 
 function peer(overrides) {
