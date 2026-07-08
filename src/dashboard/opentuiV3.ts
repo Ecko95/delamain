@@ -319,36 +319,56 @@ function render(
 // --- app bar ------------------------------------------------------------
 
 function appBar(view: DashboardViewModel, state: RuntimeStateV3, theme: Theme, spinner: string, layout: Layout) {
-  const routeLabel = ROUTE_META.find((meta) => meta.route === state.route)?.label || "FLEET";
-  const active = (view.counts.working || 0) + (view.counts.starting || 0) + (view.counts.gsd_running_phase || 0);
-  const waiting = view.counts.waiting || 0;
-  const failed = (view.counts.failed || 0) + (view.counts.gsd_failed || 0);
   const left: TextChunk[] = [
     textColor(theme.accent)(`${spinner} DELAMAIN `),
-    ...dimmedChunks("▸ ", theme),
-    textColor(theme.accent)(routeLabel),
+    textColor(theme.textDim)("▍"),
+    textColor(theme.accent)("FLEET"),
   ];
-  const right: TextChunk[] = [
-    ...pillChunks(` ${view.peers.length} PEERS `, theme.chipBg, theme.chipFg, theme),
-    ...plainChunks(" "),
-    ...pillChunks(` ${active} ACTIVE `, theme.selBg, "#ffd9a8", theme),
-    ...plainChunks(" "),
-    ...(waiting > 0
-      ? pillChunks(` ${waiting} WAITING `, theme.statusColors.waiting, "#050403", theme)
-      : dimmedChunks(`▐ ${waiting} WAITING ▌`, theme)),
-    ...plainChunks(" "),
-    ...(failed > 0
-      ? pillChunks(` ${failed} FAILED `, theme.statusColors.failed, "#050403", theme)
-      : dimmedChunks(`▐ ${failed} FAILED ▌`, theme)),
-    ...plainChunks("  "),
-    ...dimmedChunks(": palette", theme),
-  ];
+  const right: TextChunk[] = [...triageCountChips(view, theme), ...plainChunks("   "), ...codexUsageHeaderChunks(view, theme), ...plainChunks("  "), ...dimmedChunks(": palette", theme)];
   return Box(
     { id: "v3-appbar", width: "100%", height: 2, flexDirection: "row", border: ["bottom"], borderColor: theme.border, paddingX: 1 },
     Text({ content: styledText(...left) }),
     Box({ flexGrow: 1 }),
     Text({ content: styledText(...right) }),
   );
+}
+
+// Per-status count chips across the 5 triage buckets, e.g. "◉2 working  ◍1 waiting".
+function triageCountChips(view: DashboardViewModel, theme: Theme): TextChunk[] {
+  const buckets: TriageBucket[] = ["working", "waiting", "starting", "failed", "done"];
+  const chunks: TextChunk[] = [];
+  buckets.forEach((bucket, index) => {
+    const count = triageBucketCount(view.counts, bucket);
+    const color = statusColor(TRIAGE_BUCKET_STATUS[bucket], theme);
+    chunks.push(textColor(color)(`${TRIAGE_BUCKET_GLYPH[bucket]}${count}`), ...dimmedChunks(` ${bucket}`, theme));
+    if (index < buckets.length - 1) {
+      chunks.push(...plainChunks("  "));
+    }
+  });
+  return chunks;
+}
+
+function triageBucketCount(counts: Record<DashboardStatus, number>, bucket: TriageBucket): number {
+  return ALL_DASHBOARD_STATUSES.reduce((total, status) => total + (triageBucketForStatus(status) === bucket ? counts[status] || 0 : 0), 0);
+}
+
+// Compact single-line codex 5h usage meter (teal), reusing the LIMITS route's braille ramp.
+function codexUsageHeaderChunks(view: DashboardViewModel, theme: Theme): TextChunk[] {
+  const limit = view.codexUsage?.limits.find((entry) => entry.label === "5h") || view.codexUsage?.limits[0];
+  if (!limit) {
+    return dimmedChunks("codex 5h -", theme);
+  }
+  const cells = 8;
+  const filled = Math.round((limit.usedPercent / 100) * cells * 6);
+  let bar = "";
+  for (let i = 0; i < cells; i += 1) {
+    bar += BRAILLE_LEVELS[clamp(filled - i * 6, 0, 6)];
+  }
+  return [
+    textColor(theme.borderFocused)("codex 5h "),
+    textColor(theme.borderFocused)(bar),
+    textColor(theme.borderFocused)(` ${limit.remainingPercent}%`),
+  ];
 }
 
 function tabBar(state: RuntimeStateV3, theme: Theme, nowMs: number, view: DashboardViewModel, layout: Layout) {
@@ -1227,10 +1247,6 @@ function dimmedChunks(text: string, theme: Theme): TextChunk[] {
 
 function plainChunks(text: string): TextChunk[] {
   return stringToStyledText(text).chunks;
-}
-
-function pillChunks(text: string, bg: string, fg: string, theme: Theme): TextChunk[] {
-  return [textColor(theme.textDim)("▐"), textBg(bg)(textColor(fg)(text)), textColor(theme.textDim)("▌")];
 }
 
 function paneProps(title: string, theme: Theme, extra: Record<string, unknown> = {}) {
