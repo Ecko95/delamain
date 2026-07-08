@@ -49,7 +49,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Full dynamic lazygit-style dashboard TUI | 3/3 | Complete | 2026-05-07 |
-| 2. Signal Rack dashboard redesign | 1/5 | In Progress|  |
+| 2. Signal Rack dashboard redesign | 2/5 | In Progress|  |
 
 ### Phase 2: Signal Rack dashboard redesign
 
@@ -66,13 +66,13 @@ Plans:
   6. Existing MCP, CLI, and peer supervision behavior continue to pass tests.
 
 **Design source:** `.claude/skills/sketch-findings-delamain/` (winners: 001 Signal Rack layout, 002 Bottom Dock) — sketches wrapped 2026-07-07.
-**Plans:** 1/5 plans executed
+**Plans:** 2/5 plans executed
 
 Plans:
 **Wave 1**
 
 - [x] 02-01-PLAN.md — View-model foundation: DashboardPeerRow context fields, 5-bucket triage grouping helper, pure context-meter helpers (DASH-09)
-- [ ] 02-02-PLAN.md — ScrollBox factory spike; records the dock-log approach that gates Plan 05 (DASH-10)
+- [x] 02-02-PLAN.md — ScrollBox factory spike; records the dock-log approach that gates Plan 05 (DASH-10)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

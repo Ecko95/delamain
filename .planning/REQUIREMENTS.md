@@ -61,7 +61,7 @@
 | DASH-04 | Phase 1 | Complete |
 | DASH-05 | Phase 1 | Complete |
 | DASH-09 | Phase 2 | Complete |
-| DASH-10 | Phase 2 | Pending |
+| DASH-10 | Phase 2 | Complete |
 
 **Coverage:**
 
