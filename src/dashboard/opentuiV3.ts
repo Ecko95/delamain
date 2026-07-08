@@ -535,7 +535,7 @@ function rosterPane(
         focusSweepBg(nowMs, state.focusChangedAt, index, visibleRows) ??
         (layout.W >= 100 ? ambientSweepBg(nowMs, rowIndex, rosterRows) : undefined);
     }
-    chunks.push(...rosterLineChunks(line, content, spinner, theme, state, bg, layout));
+    chunks.push(...rosterLineChunks(line, content, spinner, theme, state, bg, layout, nowMs));
     if (index < visible.length - 1) {
       chunks.push(...plainChunks("\n"));
     }
@@ -553,6 +553,10 @@ function rosterPane(
   );
 }
 
+// Fixed-width prefix before the project column: "g " + activity(8) + " id(8) " +
+// meter(10) + " NN% " + compactedFlag(1) + " elapsed(7) " — see contextMeterInfo.
+const RACK_ROW_FIXED_WIDTH = 46;
+
 function rosterLineChunks(
   line: RosterLine,
   content: number,
@@ -561,6 +565,7 @@ function rosterLineChunks(
   state: RuntimeStateV3,
   bg: string | undefined,
   layout: Layout,
+  nowMs: number,
 ): TextChunk[] {
   if (line.kind === "group") {
     const color = statusColor(TRIAGE_BUCKET_STATUS[line.bucket], theme);
@@ -584,10 +589,12 @@ function rosterLineChunks(
       : "        ";
   const idPart = peer.id.padEnd(8);
   const elapsed = peer.elapsed.padEnd(7);
+  const meter = contextMeterInfo(peer, theme, nowMs);
+  const compactedFlag = peer.compacted ? "⛁" : " ";
   const compactRow = layout.narrow || content < 60;
-  const projectWidth = compactRow ? Math.max(8, content - 28) : Math.max(10, Math.min(24, content - 34));
+  const projectWidth = compactRow ? Math.max(8, content - RACK_ROW_FIXED_WIDTH) : Math.max(10, Math.min(24, content - (RACK_ROW_FIXED_WIDTH + 6)));
   const project = truncate(peer.project, projectWidth).padEnd(projectWidth);
-  const usedSoFar = 2 + 8 + 1 + 8 + 1 + 7 + 1 + projectWidth + 1;
+  const usedSoFar = RACK_ROW_FIXED_WIDTH + projectWidth + 1;
   const eventWidth = Math.max(0, content - usedSoFar);
   const lastEvent = eventWidth >= 8 && peer.lastEvent && peer.lastEvent !== "-" ? truncate(peer.lastEvent, eventWidth) : "";
 
@@ -595,7 +602,7 @@ function rosterLineChunks(
     const focused = !state.drawerFocused;
     const rowBg = focused ? "#ffb066" : theme.selBg;
     const rowFg = focused ? "#050403" : theme.text;
-    let row = `▸ ${glyph} ${activity} ${idPart} ${elapsed} ${project}`;
+    let row = `▸ ${glyph} ${activity} ${idPart} ${meter.cells} ${meter.suffix} ${compactedFlag} ${elapsed} ${project}`;
     if (lastEvent) {
       row += ` ${lastEvent}`;
     }
@@ -605,15 +612,32 @@ function rosterLineChunks(
   const chunks: TextChunk[] = [
     textColor(color)(`${glyph} `),
     textColor(color)(activity),
-    ...bodyChunks(` ${idPart} ${elapsed} `, theme),
+    ...bodyChunks(` ${idPart} `, theme),
+    textColor(meter.color)(meter.cells),
+    ...bodyChunks(` ${meter.suffix} `, theme),
+    textColor(peer.compacted ? theme.statusColors.failed : theme.border)(compactedFlag),
+    ...bodyChunks(` ${elapsed} `, theme),
     ...bodyChunks(project, theme),
   ];
-  let len = 2 + 8 + 1 + 8 + 1 + 7 + 1 + projectWidth;
+  let len = RACK_ROW_FIXED_WIDTH + projectWidth;
   if (lastEvent) {
     chunks.push(...dimmedChunks(` ${lastEvent}`, theme));
     len += 1 + lastEvent.length;
   }
   return applyBg(chunks, len, bg, content);
+}
+
+// 10-cell block meter + " NN%" suffix, undefined-safe (dim placeholder, never
+// a 0%/green bar — Pitfall 3) and skull-blinking (Pattern 2).
+function contextMeterInfo(peer: DashboardPeerRow, theme: Theme, nowMs: number): { cells: string; suffix: string; color: string } {
+  if (peer.contextPercent === undefined || peer.contextLevel === undefined) {
+    return { cells: "─".repeat(10), suffix: "    ", color: theme.textDim };
+  }
+  const color = contextLevelColor(peer.contextLevel, theme);
+  const blinkOff = peer.contextLevel === "skull" && Math.floor(nowMs / 480) % 2 === 0;
+  const cells = blinkOff ? " ".repeat(10) : contextMeterCells(peer.contextPercent);
+  const suffix = `${String(Math.round(peer.contextPercent)).padStart(3)}%`;
+  return { cells, suffix, color };
 }
 
 function textureChunks(content: number, theme: Theme): TextChunk[] {
