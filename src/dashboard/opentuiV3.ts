@@ -163,11 +163,10 @@ export async function runOpenTuiDashboardV3(seed?: (state: RuntimeStateV3) => vo
     state.selectedPeerId = view.selectedPeer?.id;
     state.visiblePeers = view.peers;
     state.logEventLevels = view.logEvents.map((event) => event.level);
-    // Modal subject disappeared → close.
-    if (state.modalPeerId && !view.peers.some((peer) => peer.id === state.modalPeerId)) {
+    // Pending kill/answer subject disappeared → close.
+    if (state.pendingPeerId && !view.peers.some((peer) => peer.id === state.pendingPeerId)) {
       state.mode = "normal";
-      state.modalPeerId = undefined;
-      state.modalOpenedAt = undefined;
+      state.pendingPeerId = undefined;
     }
     const supervisorPeerChanged = cachedSupervisorPeerId !== view.selectedPeer?.id;
     if (supervisorPeerChanged || currentTime - lastSupervisorRefresh >= SUPERVISOR_REFRESH_MS) {
@@ -290,8 +289,8 @@ function render(
     renderer.root.add(box);
   }
 
-  if (state.mode === "modal" || state.mode === "modal-answer" || state.mode === "modal-kill") {
-    renderer.root.add(modalBox(view, state, nowMs, layout));
+  if (state.mode === "kill-confirm" || state.mode === "answer") {
+    renderer.root.add(statusLineBox(state, layout));
   } else if (state.mode === "palette") {
     renderer.root.add(paletteBox(state, layout));
   } else if (state.mode === "help") {
@@ -977,179 +976,31 @@ function toastChip(toast: V3Toast, nowMs: number, theme: Theme): { chunks: TextC
   return { chunks: [textBg(theme.chipBg)(textColor(fg)(text))], width: text.length };
 }
 
-// --- modal --------------------------------------------------------------
+// --- status line (kill-confirm / answer) ---------------------------------
+// ponytail: minimal placeholder matching the sketch's status-line copy; the
+// full bottom-dock treatment lands in Plan 05 (keyboard-and-detail-dock.md).
 
-function modalBox(view: DashboardViewModel, state: RuntimeStateV3, nowMs: number, layout: Layout) {
-  const w = layout.narrow ? layout.W - 4 : Math.min(80, layout.W - 8);
-  const h = Math.min(22, layout.H - 6);
-  const left = Math.max(0, Math.floor((layout.W - w) / 2));
-  const top = Math.max(0, Math.floor((layout.H - h) / 2));
-  const contentRows = h - 2;
-  const innerWidth = w - 4;
-  const peer = view.peers.find((row) => row.id === state.modalPeerId);
-  const detail = (label: string) => view.details.find((row) => row.label === label)?.value || "-";
-  const reveal = modalReveal(nowMs, state.modalOpenedAt || nowMs, contentRows);
-
-  const rows: TextChunk[][] = [];
-  // summary strip
-  if (peer) {
-    rows.push([
-      textColor(statusColor(peer.status, state.theme))(`${STATUS_GLYPH[peer.status] || "·"} ${peer.status}`),
-      ...dimmedChunks(`  ${peer.elapsed}  ·  `, state.theme),
-      ...bodyChunks(truncate(detail("model"), 22), state.theme),
-      ...dimmedChunks("  ·  ", state.theme),
-      ...bodyChunks(truncate(peer.project, 20), state.theme),
-    ]);
-  } else {
-    rows.push([...dimmedChunks("peer unavailable", state.theme)]);
-  }
-  rows.push([]);
-  // tabs
-  const tabs = ["INFO", "LOG", "GIT"];
-  const tabChunks: TextChunk[] = [];
-  tabs.forEach((tab, index) => {
-    if (index === state.modalTab) {
-      tabChunks.push(textBg(state.theme.accent)(textColor("#050403")(` ${tab} `)));
-    } else {
-      tabChunks.push(textColor(state.theme.textDim)(` ${tab} `));
-    }
-    tabChunks.push(...plainChunks(" "));
-  });
-  rows.push(tabChunks);
-  rows.push([]);
-  // tab body
-  const bodyRows = modalTabBody(state, view, detail, innerWidth);
-  const bodyBudget = Math.max(2, contentRows - 6 - 2);
-  for (const row of bodyRows.slice(0, bodyBudget)) {
-    rows.push(row);
-  }
-  // fill
-  while (rows.length < contentRows - 2) {
-    rows.push([]);
-  }
-  // button row
-  rows.push(modalButtonRow(state, view, nowMs, innerWidth));
-
-  // Apply open-sweep reveal
-  const chunks: TextChunk[] = [];
-  rows.slice(0, contentRows).forEach((rowChunks, index) => {
-    if (!reveal.done && index === reveal.reveal) {
-      chunks.push(textBg(state.theme.cyanBand ? "#35e0d8" : "#35e0d8")(textColor("#050403")(" ".repeat(innerWidth))));
-    } else if (!reveal.done && index > reveal.reveal) {
-      chunks.push(textColor("#150b03")("▚".repeat(innerWidth)));
-    } else {
-      chunks.push(...rowChunks);
-    }
-    if (index < Math.min(rows.length, contentRows) - 1) {
-      chunks.push(...plainChunks("\n"));
-    }
-  });
+function statusLineBox(state: RuntimeStateV3, layout: Layout) {
+  const peerId = state.pendingPeerId || "-";
+  const chunks: TextChunk[] =
+    state.mode === "kill-confirm"
+      ? [
+          textColor("#ff4433")(`kill ${peerId}? `),
+          textColor(state.theme.accent)("↵"),
+          textColor("#ff4433")(" confirm · "),
+          textColor(state.theme.accent)("esc"),
+          textColor("#ff4433")(" cancel"),
+        ]
+      : [
+          textColor("#35e0d8")(`reply → ${peerId}: `),
+          ...bodyChunks(state.answerInput, state.theme),
+          textColor(state.theme.accent)("▏"),
+        ];
 
   return Box(
-    {
-      id: "v3-modal",
-      position: "absolute",
-      zIndex: 100,
-      left,
-      top,
-      width: w,
-      height: h,
-      borderStyle: "double",
-      borderColor: "#35e0d8",
-      backgroundColor: "#050403",
-      paddingX: 1,
-      title: ` ◢ PEER ${state.modalPeerId || "-"} ◤ `,
-    },
+    { id: "v3-status-line", position: "absolute", zIndex: 100, left: 1, top: Math.max(1, layout.H - 4), width: layout.W - 2, height: 1 },
     Text({ content: styledText(...chunks) }),
   );
-}
-
-function modalTabBody(
-  state: RuntimeStateV3,
-  view: DashboardViewModel,
-  detail: (label: string) => string,
-  innerWidth: number,
-): TextChunk[][] {
-  const rows: TextChunk[][] = [];
-  const kv = (label: string, value: string) => rows.push([...dimmedChunks(label.padEnd(12), state.theme), ...bodyChunks(truncate(value, innerWidth - 13), state.theme)]);
-  if (state.modalTab === 0) {
-    kv("task", detail("task"));
-    kv("question", detail("question"));
-    const record = view.selectedPeer?.id === state.modalPeerId ? view.selectedPeer : undefined;
-    const row = view.peers.find((candidate) => candidate.id === state.modalPeerId);
-    kv("started", record?.startedAt ? new Date(record.startedAt).toLocaleString() : "-");
-    kv("runtime", row?.elapsed || "-");
-    kv("last event", detail("last event"));
-    kv("integration", detail("integration"));
-    kv("log", detail("log"));
-  } else if (state.modalTab === 1) {
-    const lines = view.logLines.slice(Math.max(0, view.logLines.length - 12 - state.modalScroll), view.logLines.length - state.modalScroll);
-    if (lines.length === 0) {
-      rows.push([...dimmedChunks("no log lines", state.theme)]);
-    }
-    for (const line of lines) {
-      rows.push(logLineChunks(truncate(line, innerWidth), state.theme));
-    }
-  } else {
-    kv("source", detail("source"));
-    kv("worktree", detail("worktree"));
-    kv("base", detail("base"));
-    kv("target", detail("merge target"));
-    kv("branch", detail("peer branch"));
-    kv("diff", detail("diff"));
-  }
-  return rows;
-}
-
-function modalButtonRow(state: RuntimeStateV3, view: DashboardViewModel, nowMs: number, innerWidth: number): TextChunk[] {
-  const peer = view.peers.find((row) => row.id === state.modalPeerId);
-  const waiting = peer?.status === "waiting";
-  const narrow = innerWidth < 50;
-
-  if (state.mode === "modal-answer") {
-    const cursor = Math.floor(nowMs / 480) % 2 === 0 ? "▏" : " ";
-    return [
-      textBg("#35e0d8")(textColor("#050403")(" ↳ ")),
-      ...plainChunks(" "),
-      ...bodyChunks(truncate(state.answerInput, innerWidth - 6), state.theme),
-      textColor(state.theme.accent)(cursor),
-    ];
-  }
-
-  const buttons: Array<{ key: "answer" | "view-log" | "kill"; label: string; glyph: string }> = [];
-  if (waiting) {
-    buttons.push({ key: "answer", label: "ANSWER", glyph: "↳" });
-  }
-  buttons.push({ key: "view-log", label: "VIEW LOG", glyph: "≡" });
-  buttons.push({ key: "kill", label: "KILL", glyph: "✕" });
-  const focusedIndex = clamp(state.modalButton, 0, buttons.length - 1);
-
-  const chunks: TextChunk[] = [];
-  // answer disabled chip when not waiting
-  if (!waiting) {
-    chunks.push(textColor("#3a2410")(narrow ? "▐↳▌ " : "⟦ ↳ ANSWER ⟧ "));
-  }
-  buttons.forEach((btn, index) => {
-    const focused = index === focusedIndex;
-    const killArmed = btn.key === "kill" && state.mode === "modal-kill";
-    if (killArmed) {
-      chunks.push(textBg("#ff4433")(textColor("#050403")(" ✕ CONFIRM KILL ")));
-    } else if (state.mode === "modal-kill") {
-      chunks.push(textColor("#3a2410")(narrow ? `▐${btn.glyph}▌` : `⟦ ${btn.glyph} ${btn.label} ⟧`));
-    } else if (focused) {
-      const bg = btn.key === "kill" ? "#ff4433" : "#35e0d8";
-      chunks.push(textBg(bg)(textColor("#050403")(narrow ? `▐${btn.glyph}▌` : ` ${btn.glyph} ${btn.label} `)));
-    } else {
-      const keyColor = btn.key === "kill" ? "#ff4433" : state.theme.accent;
-      if (narrow) {
-        chunks.push(textColor(keyColor)(`⟦${btn.glyph}⟧`));
-      } else {
-        chunks.push(textColor(state.theme.textDim)("⟦ "), textColor(keyColor)(btn.glyph), textColor(state.theme.textDim)(` ${btn.label} ⟧`));
-      }
-    }
-    chunks.push(...plainChunks(" "));
-  });
-  return chunks;
 }
 
 // --- palette ------------------------------------------------------------

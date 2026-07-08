@@ -350,8 +350,8 @@ test("v3CommandForKey maps normal-mode keys", () => {
   assert.equal(v3CommandForKey("k", s), "select-prev");
   assert.equal(v3CommandForKey("h", s), "map-left");
   assert.equal(v3CommandForKey("l", s), "map-right");
-  assert.equal(v3CommandForKey("\r", s), "open-modal");
-  assert.equal(v3CommandForKey(" ", s), "open-modal");
+  assert.equal(v3CommandForKey("\r", s), "noop");
+  assert.equal(v3CommandForKey(" ", s), "noop");
   assert.equal(v3CommandForKey("\t", s), "toggle-drawer-focus");
   assert.equal(v3CommandForKey("\x1b[Z", s), "toggle-drawer-focus-prev");
   assert.equal(v3CommandForKey("`", s), "toggle-drawer");
@@ -364,8 +364,8 @@ test("v3CommandForKey maps normal-mode keys", () => {
   assert.equal(v3CommandForKey("\x1b[6~", s), "page-down");
   assert.equal(v3CommandForKey("b", s), "log-bottom");
   assert.equal(v3CommandForKey("e", s), "jump-error");
-  assert.equal(v3CommandForKey("a", s), "open-modal-answer");
-  assert.equal(v3CommandForKey("x", s), "open-modal-kill");
+  assert.equal(v3CommandForKey("a", s), "open-answer");
+  assert.equal(v3CommandForKey("x", s), "open-kill-confirm");
   assert.equal(v3CommandForKey("t", s), "cycle-theme");
   assert.equal(v3CommandForKey("r", s), "refresh");
   assert.equal(v3CommandForKey("?", s), "help");
@@ -374,36 +374,22 @@ test("v3CommandForKey maps normal-mode keys", () => {
 });
 
 test("v3CommandForKey ctrl-c quits from every mode", () => {
-  for (const mode of ["normal", "palette", "modal", "modal-answer", "modal-kill", "help"]) {
+  for (const mode of ["normal", "palette", "kill-confirm", "answer", "help"]) {
     assert.equal(v3CommandForKey("\x03", v3State({ mode })), "quit");
   }
 });
 
-test("v3CommandForKey maps modal-mode keys", () => {
-  const s = v3State({ mode: "modal" });
-  assert.equal(v3CommandForKey("\t", s), "modal-next-tab");
-  assert.equal(v3CommandForKey("h", s), "modal-next-tab");
-  assert.equal(v3CommandForKey("l", s), "modal-next-tab");
-  assert.equal(v3CommandForKey("\x1b[Z", s), "modal-prev-tab");
-  assert.equal(v3CommandForKey("\x1b[D", s), "modal-prev-button");
-  assert.equal(v3CommandForKey("\x1b[C", s), "modal-next-button");
-  assert.equal(v3CommandForKey("j", s), "modal-scroll-down");
-  assert.equal(v3CommandForKey("k", s), "modal-scroll-up");
-  assert.equal(v3CommandForKey("\r", s), "modal-activate");
-  assert.equal(v3CommandForKey("a", s), "modal-answer");
-  assert.equal(v3CommandForKey("v", s), "modal-view-log");
-  assert.equal(v3CommandForKey("x", s), "modal-kill");
-  assert.equal(v3CommandForKey("\x1b", s), "modal-close");
-  assert.equal(v3CommandForKey("q", s), "modal-close");
+test("v3CommandForKey maps kill-confirm and answer status-line modes", () => {
+  assert.equal(v3CommandForKey("\r", v3State({ mode: "kill-confirm" })), "confirm-kill");
+  assert.equal(v3CommandForKey("\x1b", v3State({ mode: "kill-confirm" })), "cancel");
+  assert.equal(v3CommandForKey("q", v3State({ mode: "kill-confirm" })), "cancel");
+  assert.equal(v3CommandForKey("z", v3State({ mode: "kill-confirm" })), "noop");
+  assert.equal(v3CommandForKey("\r", v3State({ mode: "answer" })), "submit-answer");
+  assert.equal(v3CommandForKey("\x1b", v3State({ mode: "answer" })), "cancel");
+  assert.equal(v3CommandForKey("z", v3State({ mode: "answer" })), "noop");
 });
 
-test("v3CommandForKey maps modal-answer, modal-kill, palette, help modes", () => {
-  assert.equal(v3CommandForKey("\r", v3State({ mode: "modal-answer" })), "submit-answer");
-  assert.equal(v3CommandForKey("\x1b", v3State({ mode: "modal-answer" })), "cancel");
-  assert.equal(v3CommandForKey("z", v3State({ mode: "modal-answer" })), "noop");
-  assert.equal(v3CommandForKey("\r", v3State({ mode: "modal-kill" })), "modal-kill");
-  assert.equal(v3CommandForKey("\x1b", v3State({ mode: "modal-kill" })), "cancel");
-  assert.equal(v3CommandForKey("z", v3State({ mode: "modal-kill" })), "cancel");
+test("v3CommandForKey maps palette and help modes", () => {
   assert.equal(v3CommandForKey("\r", v3State({ mode: "palette" })), "palette-run");
   assert.equal(v3CommandForKey("\x1b", v3State({ mode: "palette" })), "palette-close");
   assert.equal(v3CommandForKey("\x1b[A", v3State({ mode: "palette" })), "palette-move-up");
@@ -415,26 +401,25 @@ test("v3CommandForKey maps modal-answer, modal-kill, palette, help modes", () =>
   assert.equal(v3CommandForKey("?", v3State({ mode: "help" })), "cancel");
 });
 
-test("handleDashboardV3Input enter opens modal for selected peer", () => {
+test("handleDashboardV3Input enter/space no-ops (bottom dock always shows selection)", () => {
   const state = waitingPeerState();
   handleDashboardV3Input("\r", state, v3Actions());
-  assert.equal(state.mode, "modal");
-  assert.equal(state.modalPeerId, "p1");
-  assert.equal(typeof state.modalOpenedAt, "number");
+  assert.equal(state.mode, "normal");
+  assert.equal(state.pendingPeerId, undefined);
 });
 
-test("handleDashboardV3Input enter with no selection toasts instead of opening", () => {
+test("handleDashboardV3Input x with no selection toasts instead of entering kill-confirm", () => {
   const state = v3State();
-  handleDashboardV3Input("\r", state, v3Actions());
+  handleDashboardV3Input("x", state, v3Actions());
   assert.equal(state.mode, "normal");
   assert.equal(state.toasts.at(-1).text, "No peer selected");
 });
 
-test("handleDashboardV3Input a opens modal-answer only when waiting", () => {
+test("handleDashboardV3Input a enters answer mode only when waiting", () => {
   const waiting = waitingPeerState();
   handleDashboardV3Input("a", waiting, v3Actions());
-  assert.equal(waiting.mode, "modal-answer");
-  assert.equal(waiting.modalPeerId, "p1");
+  assert.equal(waiting.mode, "answer");
+  assert.equal(waiting.pendingPeerId, "p1");
 
   const working = v3State({
     selectedPeerId: "p2",
@@ -445,7 +430,7 @@ test("handleDashboardV3Input a opens modal-answer only when waiting", () => {
   assert.match(working.toasts.at(-1).text, /not waiting/);
 });
 
-test("typed answer submits through sendPeerReply and closes modal with toast", () => {
+test("typed answer submits through sendPeerReply and returns to normal with toast", () => {
   const state = waitingPeerState();
   const actions = v3Actions();
   handleDashboardV3Input("a", state, actions);
@@ -454,16 +439,17 @@ test("typed answer submits through sendPeerReply and closes modal with toast", (
   handleDashboardV3Input("\r", state, actions);
   assert.deepEqual(actions.calls.reply, [{ peerId: "p1", text: "ok" }]);
   assert.equal(state.mode, "normal");
-  assert.equal(state.modalPeerId, undefined);
+  assert.equal(state.pendingPeerId, undefined);
   assert.match(state.toasts.at(-1).text, /Reply sent/);
 });
 
-test("x opens modal-kill and enter kills; esc disarms back to modal", () => {
+test("x enters kill-confirm and enter kills; esc cancels back to normal", () => {
   const disarm = waitingPeerState();
   handleDashboardV3Input("x", disarm, v3Actions());
-  assert.equal(disarm.mode, "modal-kill");
+  assert.equal(disarm.mode, "kill-confirm");
   handleDashboardV3Input("\x1b", disarm, v3Actions());
-  assert.equal(disarm.mode, "modal");
+  assert.equal(disarm.mode, "normal");
+  assert.equal(disarm.pendingPeerId, undefined);
 
   const state = waitingPeerState();
   const actions = v3Actions();

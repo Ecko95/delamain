@@ -6,7 +6,7 @@ import { initialThemeFromEnv } from "./v2Input.js";
 export { initialThemeFromEnv };
 
 export type V3Route = "fleet" | "map" | "limits" | "uplink" | "alerts";
-export type V3Mode = "normal" | "palette" | "modal" | "modal-answer" | "modal-kill" | "help";
+export type V3Mode = "normal" | "palette" | "kill-confirm" | "answer" | "help";
 
 export const V3_ROUTES: V3Route[] = ["fleet", "map", "limits", "uplink", "alerts"];
 
@@ -20,11 +20,7 @@ export type RuntimeStateV3 = {
   route: V3Route;
   drawerOpen: boolean;
   drawerFocused: boolean;
-  modalPeerId?: string;
-  modalOpenedAt?: number;
-  modalTab: 0 | 1 | 2;
-  modalButton: number;
-  modalScroll: number;
+  pendingPeerId?: string;
   focusChangedAt?: number;
   paletteQuery: string;
   paletteIndex: number;
@@ -61,7 +57,6 @@ export type DashboardV3Command =
   | "select-prev"
   | "map-left"
   | "map-right"
-  | "open-modal"
   | "toggle-drawer-focus"
   | "toggle-drawer-focus-prev"
   | "toggle-drawer"
@@ -73,23 +68,13 @@ export type DashboardV3Command =
   | "page-down"
   | "log-bottom"
   | "jump-error"
-  | "open-modal-answer"
-  | "open-modal-kill"
+  | "open-answer"
+  | "open-kill-confirm"
   | "cycle-theme"
   | "refresh"
   | "help"
   | "quit"
-  | "modal-next-tab"
-  | "modal-prev-tab"
-  | "modal-next-button"
-  | "modal-prev-button"
-  | "modal-scroll-up"
-  | "modal-scroll-down"
-  | "modal-activate"
-  | "modal-answer"
-  | "modal-view-log"
-  | "modal-kill"
-  | "modal-close"
+  | "confirm-kill"
   | "palette-move-up"
   | "palette-move-down"
   | "palette-run"
@@ -118,43 +103,16 @@ export function v3CommandForKey(sequence: string, state: RuntimeStateV3): Dashbo
   }
 
   switch (state.mode) {
-    case "modal":
-      if (sequence === "\t" || sequence === "h" || sequence === "l") {
-        return "modal-next-tab";
-      }
-      if (sequence === SHIFT_TAB) {
-        return "modal-prev-tab";
-      }
-      if (sequence === ARROW_LEFT) {
-        return "modal-prev-button";
-      }
-      if (sequence === ARROW_RIGHT) {
-        return "modal-next-button";
-      }
-      if (sequence === "j" || sequence === ARROW_DOWN) {
-        return "modal-scroll-down";
-      }
-      if (sequence === "k" || sequence === ARROW_UP) {
-        return "modal-scroll-up";
-      }
+    case "kill-confirm":
       if (ENTER.has(sequence)) {
-        return "modal-activate";
-      }
-      if (sequence === "a") {
-        return "modal-answer";
-      }
-      if (sequence === "v") {
-        return "modal-view-log";
-      }
-      if (sequence === "x") {
-        return "modal-kill";
+        return "confirm-kill";
       }
       if (sequence === ESC || sequence === "q") {
-        return "modal-close";
+        return "cancel";
       }
       return "noop";
 
-    case "modal-answer":
+    case "answer":
       if (ENTER.has(sequence)) {
         return "submit-answer";
       }
@@ -162,12 +120,6 @@ export function v3CommandForKey(sequence: string, state: RuntimeStateV3): Dashbo
         return "cancel";
       }
       return "noop";
-
-    case "modal-kill":
-      if (ENTER.has(sequence)) {
-        return "modal-kill";
-      }
-      return "cancel";
 
     case "palette":
       if (ENTER.has(sequence)) {
@@ -225,7 +177,7 @@ function normalCommand(sequence: string): DashboardV3Command {
     case "\r":
     case "\n":
     case " ":
-      return "open-modal";
+      return "noop"; // ponytail: no modal to open; bottom dock (Plan 05) always shows the selection
     case "\t":
       return "toggle-drawer-focus";
     case SHIFT_TAB:
@@ -250,9 +202,9 @@ function normalCommand(sequence: string): DashboardV3Command {
     case "e":
       return "jump-error";
     case "a":
-      return "open-modal-answer";
+      return "open-answer";
     case "x":
-      return "open-modal-kill";
+      return "open-kill-confirm";
     case "t":
       return "cycle-theme";
     case "r":
@@ -266,7 +218,7 @@ function normalCommand(sequence: string): DashboardV3Command {
 
 export function handleDashboardV3Input(sequence: string, state: RuntimeStateV3, actions: DashboardV3Actions): boolean {
   // Text-entry branches (before command routing).
-  if (state.mode === "modal-answer" && isTextInput(sequence)) {
+  if (state.mode === "answer" && isTextInput(sequence)) {
     if (sequence === "\x7f" || sequence === "\b") {
       state.answerInput = state.answerInput.slice(0, -1);
     } else {
@@ -318,14 +270,11 @@ export function handleDashboardV3Input(sequence: string, state: RuntimeStateV3, 
     case "map-right":
       moveFleetSelection(state, 1);
       break;
-    case "open-modal":
-      openModal(state, "modal");
-      break;
-    case "open-modal-answer":
+    case "open-answer":
       openAnswer(state);
       break;
-    case "open-modal-kill":
-      openModal(state, "modal-kill");
+    case "open-kill-confirm":
+      openKillConfirm(state);
       break;
     case "toggle-drawer-focus":
       toggleDrawerFocus(state);
@@ -376,40 +325,8 @@ export function handleDashboardV3Input(sequence: string, state: RuntimeStateV3, 
     case "help":
       state.mode = "help";
       break;
-    case "modal-next-tab":
-      state.modalTab = ((state.modalTab + 1) % 3) as 0 | 1 | 2;
-      state.modalScroll = 0;
-      break;
-    case "modal-prev-tab":
-      state.modalTab = ((state.modalTab + 2) % 3) as 0 | 1 | 2;
-      state.modalScroll = 0;
-      break;
-    case "modal-next-button":
-      moveModalButton(state, 1);
-      break;
-    case "modal-prev-button":
-      moveModalButton(state, -1);
-      break;
-    case "modal-scroll-down":
-      state.modalScroll += 1;
-      break;
-    case "modal-scroll-up":
-      state.modalScroll = Math.max(0, state.modalScroll - 1);
-      break;
-    case "modal-activate":
-      activateModalButton(state, actions);
-      break;
-    case "modal-answer":
-      enterModalAnswer(state);
-      break;
-    case "modal-view-log":
-      modalViewLog(state);
-      break;
-    case "modal-kill":
-      modalKill(state, actions);
-      break;
-    case "modal-close":
-      closeModal(state);
+    case "confirm-kill":
+      confirmKill(state, actions);
       break;
     case "palette-move-up":
       state.paletteIndex = Math.max(0, state.paletteIndex - 1);
@@ -550,18 +467,14 @@ export function cycleTheme(state: RuntimeStateV3): void {
   pushToast(state, `Theme: ${state.theme === cyberpunkTheme ? "cyberpunk" : "default"}`, "info");
 }
 
-function openModal(state: RuntimeStateV3, mode: "modal" | "modal-kill"): void {
+function openKillConfirm(state: RuntimeStateV3): void {
   const peer = selectedPeer(state);
   if (!peer) {
     pushToast(state, "No peer selected", "info");
     return;
   }
-  state.modalPeerId = peer.id;
-  state.modalOpenedAt = Date.now();
-  state.modalTab = 0;
-  state.modalButton = 0;
-  state.modalScroll = 0;
-  state.mode = mode;
+  state.pendingPeerId = peer.id;
+  state.mode = "kill-confirm";
 }
 
 function openAnswer(state: RuntimeStateV3): void {
@@ -574,71 +487,30 @@ function openAnswer(state: RuntimeStateV3): void {
     pushToast(state, `Peer ${peer.id} is not waiting`, "info");
     return;
   }
-  openModal(state, "modal");
-  enterModalAnswer(state);
-}
-
-function enterModalAnswer(state: RuntimeStateV3): void {
-  const peer = state.visiblePeers.find((row) => row.id === state.modalPeerId);
-  if (!peer || peer.status !== "waiting") {
-    pushToast(state, "Peer is not waiting", "info");
-    return;
-  }
-  state.mode = "modal-answer";
+  state.pendingPeerId = peer.id;
+  state.mode = "answer";
   state.answerInput = "";
 }
 
-// Enabled button order: answer (only when waiting), view-log, kill.
-function modalButtons(state: RuntimeStateV3): Array<"answer" | "view-log" | "kill"> {
-  const peer = state.visiblePeers.find((row) => row.id === state.modalPeerId);
-  const buttons: Array<"answer" | "view-log" | "kill"> = [];
-  if (peer?.status === "waiting") {
-    buttons.push("answer");
-  }
-  buttons.push("view-log", "kill");
-  return buttons;
-}
-
-function moveModalButton(state: RuntimeStateV3, direction: 1 | -1): void {
-  const count = modalButtons(state).length;
-  state.modalButton = (state.modalButton + direction + count) % count;
-}
-
-function activateModalButton(state: RuntimeStateV3, actions: DashboardV3Actions): void {
-  const buttons = modalButtons(state);
-  const target = buttons[Math.min(state.modalButton, buttons.length - 1)];
-  if (target === "answer") {
-    enterModalAnswer(state);
-  } else if (target === "view-log") {
-    modalViewLog(state);
-  } else {
-    state.mode = "modal-kill";
-  }
-}
-
-function modalViewLog(state: RuntimeStateV3): void {
-  closeModal(state);
-  state.drawerOpen = true;
-  state.drawerFocused = true;
-}
-
-function modalKill(state: RuntimeStateV3, actions: DashboardV3Actions): void {
-  if (!state.modalPeerId) {
-    closeModal(state);
+function confirmKill(state: RuntimeStateV3, actions: DashboardV3Actions): void {
+  const peerId = state.pendingPeerId;
+  if (!peerId) {
+    closePending(state);
     return;
   }
   try {
-    const killed = actions.killPeer(state.modalPeerId);
+    const killed = actions.killPeer(peerId);
     pushToast(state, `Killed ${killed.id}`, "info");
   } catch (error) {
     pushToast(state, error instanceof Error ? error.message : String(error), "error");
   }
-  closeModal(state);
+  closePending(state);
 }
 
 function submitAnswer(state: RuntimeStateV3, actions: DashboardV3Actions): void {
-  if (!state.modalPeerId) {
-    closeModal(state);
+  const peerId = state.pendingPeerId;
+  if (!peerId) {
+    closePending(state);
     return;
   }
   const text = state.answerInput.trim();
@@ -647,29 +519,23 @@ function submitAnswer(state: RuntimeStateV3, actions: DashboardV3Actions): void 
     return;
   }
   try {
-    const peer = actions.sendPeerReply(state.modalPeerId, text);
+    const peer = actions.sendPeerReply(peerId, text);
     pushToast(state, `Reply sent to ${peer.id}`, "info");
-    closeModal(state);
+    closePending(state);
   } catch (error) {
     pushToast(state, error instanceof Error ? error.message : String(error), "error");
   }
 }
 
-function closeModal(state: RuntimeStateV3): void {
+function closePending(state: RuntimeStateV3): void {
   state.mode = "normal";
-  state.modalPeerId = undefined;
-  state.modalOpenedAt = undefined;
+  state.pendingPeerId = undefined;
   state.answerInput = "";
 }
 
 function cancel(state: RuntimeStateV3): void {
-  // modal-answer esc → back to modal buttons; modal-kill → disarm to modal; help → normal.
-  if (state.mode === "modal-answer" || state.mode === "modal-kill") {
-    state.mode = "modal";
-    state.answerInput = "";
-    return;
-  }
   state.mode = "normal";
+  state.pendingPeerId = undefined;
   state.answerInput = "";
 }
 
@@ -691,7 +557,6 @@ export function paletteEntries(state: RuntimeStateV3): PaletteEntry[] {
       run: (s) => {
         s.selectedPeerId = id;
         s.selectedIndex = peer.index;
-        openModal(s, "modal");
       },
     });
   }
@@ -713,7 +578,7 @@ export function paletteEntries(state: RuntimeStateV3): PaletteEntry[] {
       run: (s) => {
         s.selectedPeerId = id;
         s.selectedIndex = peer.index;
-        openModal(s, "modal-kill");
+        openKillConfirm(s);
       },
     });
   }
@@ -782,9 +647,6 @@ export function initialRuntimeStateV3(theme: Theme): RuntimeStateV3 {
     route: "fleet",
     drawerOpen: true,
     drawerFocused: false,
-    modalTab: 0,
-    modalButton: 0,
-    modalScroll: 0,
     paletteQuery: "",
     paletteIndex: 0,
     toasts: [],
