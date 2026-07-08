@@ -2,13 +2,11 @@ import { randomUUID } from "node:crypto";
 import { getPeer, updatePeer } from "./store.js";
 import type { PeerRecord, PeerStatus } from "./types.js";
 
-// ponytail: PROVISIONAL T1 SURFACE. T1 (src/peerInbox.ts) had not landed in this
-// worktree when T3 was built, so this file implements the minimal slice T3
-// consumes — the envelope type, enqueue, read, and status→notice derivation —
-// faithful to the .planning/a2a-inbox-handoff.md contract. Reconcile with the
-// real T1 module at merge: keep whichever is the superset, re-point the imports
-// in mcpServer.ts / cli.ts. Drain/markDelivered/delivery-prompt formatter are
-// T2's dependencies and intentionally omitted here.
+// CANONICAL T1 module. Owns the peer↔peer envelope type, the enqueue/read/drain
+// store fns, status→notice derivation, and the turn-boundary delivery-prompt
+// formatter. Consumed by mcpServer.ts / cli.ts (send + read surfaces) and by
+// peerManager.deliverPending (turn-boundary delivery). See
+// .planning/a2a-inbox-handoff.md for the contract.
 
 export type PeerMessage = {
 	id: string;
@@ -115,6 +113,51 @@ export function readPeerInbox(peerId: string, opts?: { includeDelivered?: boolea
 		}
 	}
 	return { peerId: receiver.id, messages, notices };
+}
+
+// Drain undelivered messages for a peer: returns them and stamps deliveredAt on
+// each in the store so a second drain never re-delivers. Read-modify-write via
+// updatePeer (same clobber ceiling as enqueue — see handoff open risks).
+export function drainDeliverable(peerId: string): PeerMessage[] {
+	const receiver = getPeer(peerId);
+	if (!receiver) {
+		throw new Error(`Unknown peer_id: ${peerId}`);
+	}
+	const undelivered = (receiver.inbox ?? []).filter((m) => !m.deliveredAt);
+	if (undelivered.length === 0) {
+		return [];
+	}
+	const deliveredAt = new Date().toISOString();
+	const ids = new Set(undelivered.map((m) => m.id));
+	updatePeer(receiver.id, (peer) => ({
+		...peer,
+		inbox: (peer.inbox ?? []).map((m) => (ids.has(m.id) ? { ...m, deliveredAt } : m)),
+	}));
+	return undelivered.map((m) => ({ ...m, deliveredAt }));
+}
+
+// Format drained messages as the resume prompt injected at a peer's next turn.
+// Per message: a "[delamain inbox] from <sender>" header, the responseId when
+// present, the freeform body, and explicit reply instructions when the sender
+// expects a reply.
+export function formatInboxPrompt(messages: PeerMessage[]): string {
+	return messages
+		.map((m) => {
+			const lines = [`[delamain inbox] from ${m.fromPeerId}`];
+			if (m.responseId) {
+				lines.push(`response-id: ${m.responseId}`);
+			}
+			lines.push("", m.message);
+			if (m.expectReply) {
+				const responseFlag = m.responseId ? ` --response-id ${m.responseId}` : "";
+				lines.push(
+					"",
+					`This peer expects a reply. Reply with: delamain send --to ${m.fromPeerId}${responseFlag} --message "..." (or the send_peer_message MCP tool).`,
+				);
+			}
+			return lines.join("\n");
+		})
+		.join("\n\n---\n\n");
 }
 
 export type { PeerRecord };

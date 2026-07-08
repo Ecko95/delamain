@@ -7,6 +7,7 @@ import { parseCodexJsonLine, trim } from "./codexEvents.js";
 import { readPeerContext, contextTransitionNote, type CodexContextLevel } from "./codexContext.js";
 import { runCursorPeer } from "./cursorRunner.js";
 import { pushPeerBranch } from "./git.js";
+import { deliverPending } from "./peerManager.js";
 import { initialTerminalResponseState, updateTerminalResponseState } from "./lifecycle.js";
 import { updatePeer } from "./store.js";
 
@@ -240,6 +241,20 @@ export async function runPeer(argv: string[]): Promise<void> {
             : integrationEvent || `codex exited code=${code}`,
       }));
       append(log, `[delamain] exited code=${code} signal=${signal ?? ""}\n`);
+
+      // Turn-boundary inbox delivery: now that the final status is committed,
+      // drain any queued peer→peer messages into the peer's next turn. No-op
+      // unless status is a boundary (waiting/idle/done) with undelivered mail.
+      // Best-effort — must never break the exit path.
+      try {
+        const delivery = deliverPending(args.peerId);
+        if (delivery.delivered > 0) {
+          append(log, `[delamain] delivered ${delivery.delivered} inbox message(s) via resume\n`);
+        }
+      } catch (error) {
+        append(log, `[delamain] inbox delivery failed: ${error instanceof Error ? error.message : String(error)}\n`);
+      }
+
       log.end();
       resolve();
     });

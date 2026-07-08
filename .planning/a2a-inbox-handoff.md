@@ -20,8 +20,8 @@ Implement R2+R4 from the Traycer re-evaluation: peer↔peer messaging for delama
 
 | ID | Owner files | Outcome | Status |
 |----|-------------|---------|--------|
-| T1 | `src/peerInbox.ts` (new), `src/types.ts` (additive), `src/peerInbox.test.ts` (new) | Envelope types, enqueue/read/drain/markDelivered store fns, notice derivation, delivery-prompt formatter | PARTIAL — never landed as its own slice; T3 authored a provisional subset (envelope types, `enqueuePeerMessage`, `readPeerInbox`, `noticeForStatus`, additive `inbox?` field), marked `ponytail: PROVISIONAL T1`. Missing: `drain`/`markDelivered`, delivery-prompt formatter (those are T2's deps). |
-| T2 | `src/runner.ts`, `src/peerManager.ts`, `src/lifecycle.ts` (whichever owns the status flip), tests | Drain-on-boundary delivery via `resumePeer`, no regression to `send_peer_reply` | NOT LANDED — no `deliver_pending`/`drain`/runner-exit hook exists anywhere in the branch. Turn-boundary auto-delivery is absent; messages are readable only via `read_peer_inbox`/`delamain inbox`. See Open risks. |
+| T1 | `src/peerInbox.ts` (canonical), `src/types.ts` (additive) | Envelope types, enqueue/read/drain store fns, notice derivation, delivery-prompt formatter | DONE-as-canonical — the provisional T3 module is now the canonical T1: `PROVISIONAL` header rewritten to `CANONICAL`; added `drainDeliverable` (returns undelivered + stamps `deliveredAt`) and `formatInboxPrompt` (per-message sender header, optional responseId line, body, reply instructions when `expectReply`). No separate `src/types.ts` change needed — `inbox?`/`deliveredAt` already landed under T3. |
+| T2 | `src/runner.ts`, `src/peerManager.ts`, `src/peerDelivery.test.ts` (new) | Drain-on-boundary delivery via `resumePeer`, no regression to `send_peer_reply` | DONE — this commit. `deliverPending(peerId, resume=resumePeer)` in peerManager (re-reads status, delivers only at waiting/idle/done with a threadId + undelivered mail, resumes once); runner-exit hook after the final `updatePeer` in `child.on("close")` (best-effort, wrapped, logs to peer log); mcpServer `send_peer_message` seam wires `deliverPending(to_peer_id)` and returns its outcome. `send_peer_reply` dispatch block byte-identical. |
 | T3 | `src/mcpServer.ts`, `src/cli.ts`, tests | MCP tools `send_peer_message` + `read_peer_inbox`; CLI `send`/`inbox` subcommands with cwd self-id inference | DONE — commit `4e4e1f5`. |
 | T4 | `README.md`, run verification | Docs section + full build/test verification report | DONE — this commit. Seam fix not possible (T2 dep absent); README + handoff updated; full verification below. |
 
@@ -47,18 +47,15 @@ Order: T1 → (T2 ∥ T3) → T4 → Fable review gate.
 - **Change:** notices computed on read (was: active sweep) — delamain has no daemon; the dashboard can poll later.
 - **Drop:** subscribe stream, ack/read-receipts (liveness substitutes), separate broker process, message retention pruning (state.json is small; revisit if it bloats).
 
-## Verification results (T4, 2026-07-08)
+## Verification results (T2, 2026-07-08)
 
 - `npm run build` → exit 0 (`tsc -p tsconfig.json && chmod +x dist/index.js`).
-- `npx vitest run` (raw, unfiltered) → `Test Files 10 passed | 1 skipped (11)`; `Tests 57 passed | 2 skipped (59)`; duration ~898ms. 0 failures.
-- `send_peer_reply` dispatch case UNCHANGED vs `origin/main`: `git diff origin/main -- src/mcpServer.ts` touches only (a) the `instructions` string — additive sentence documenting the two new tools — and (b) the new `send_peer_message`/`read_peer_inbox` cases. The `case "send_peer_reply": return json(resumePeer(...))` block is byte-identical.
-- Seam: `send_peer_message` is ENQUEUE-ONLY (mcpServer.ts:502-515, `ponytail:` comment in place). The intended one-line wire to T2's `deliver_pending` was NOT applied because T2 never landed — no such helper exists to import. Flagged, not fabricated.
-- CLI docs verified against source: `send` (`--to`/`--message`/`--from`/`--expect-reply`/`--response-id`, stdin fallback for message), `inbox [<peer-id>] [--all]` (→ `includeDelivered`), `--from` inferred via `inferSelfPeerId()` realpath cwd↔`worktreePath` match.
+- `npx vitest run` (raw, unfiltered) → `Test Files 11 passed | 1 skipped (12)`; `Tests 63 passed | 2 skipped (65)`; duration ~1.03s. 0 failures. (Before T2: 10 files / 57 tests. New file `src/peerDelivery.test.ts` adds 6 tests.)
+- `send_peer_reply` dispatch case UNCHANGED vs `origin/main`: `git diff origin/main -- src/mcpServer.ts` touches only (a) the `instructions` string — now also documenting `send_peer_message`/`read_peer_inbox` — and (b) the `send_peer_message`/`read_peer_inbox` cases + the `deliverPending` import. The `case "send_peer_reply": return json(resumePeer(...))` block is byte-identical.
+- Seam: `send_peer_message` now enqueues then calls `deliverPending(to_peer_id)` and returns `{ response_id, delivery }`. Enqueue-only `ponytail:` comment removed.
 
 ## Open risks
 
-- **T2 entirely missing (HIGH).** Turn-boundary auto-delivery via `resumePeer` does not exist. Today a sent message only surfaces when the recipient actively calls `read_peer_inbox`/`delamain inbox`; nothing drains the inbox or injects it into a peer's next turn. The feature is half-wired: send + read work, push-on-boundary does not. Land T2 (runner-exit drain hook in `runner.ts` `child.on("close")` after the final `updatePeer`, per T2's own trace) then apply the one-line seam wire in `send_peer_message`.
-- **`peerInbox.ts` is provisional (MEDIUM).** Authored under T3 as `ponytail: PROVISIONAL T1`. If a real T1 module ever lands, reconcile to the superset and re-point imports; current provisional API already matches the handoff contract, so name-compatible T1 needs no T3/T4 changes.
-- Concurrent state.json writers (pre-existing, now slightly wider surface) — per-peer lock is the upgrade path; `enqueuePeerMessage` uses read-modify-write via `updatePeer`, so two concurrent MCP processes can still clobber.
+- Concurrent state.json writers (pre-existing, now slightly wider surface) — per-peer lock is the upgrade path; `enqueuePeerMessage`/`drainDeliverable` use read-modify-write via `updatePeer`, so two concurrent MCP processes can still clobber. A boundary send racing the runner-exit drain can double-drain (both see undelivered) → at-most a duplicate resume, not lost mail.
 - Peer→CLI send requires `delamain` binary on PATH inside worktrees — unverified for npx-only setups.
-- Delivery prompt format not authored (T2 dep) and not consumed by any real peer run — no live fleet round-trip yet.
+- Delivery not yet exercised in a live fleet round-trip; `deliverPending` proven via injected `resume` in tests, not against a real `resumePeer`/codex spawn. Message loss window: if `resumePeer` throws *after* `drainDeliverable` stamps `deliveredAt`, those messages are marked delivered but never injected (the `!peer.threadId` guard covers the common no-thread case; a real spawn failure would still drop them).

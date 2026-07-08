@@ -1,4 +1,5 @@
 import {
+  deliverPending,
   killPeer,
   listPeers,
   peerStatus,
@@ -500,18 +501,19 @@ export async function callTool(name: unknown, rawArgs: unknown): Promise<unknown
         yolo: bypassEnabled(args),
       }));
     case "send_peer_message": {
-      // ponytail: enqueue-only. T2's turn-boundary deliver_pending helper had not
-      // landed when T3 was built; the orchestrator wires the boundary-delivery
-      // call after merge (see handoff T2/T3). Enqueue alone is a valid state —
-      // T2's runner-exit drain picks it up.
+      const toPeerId = requiredString(args, "to_peer_id");
       const { responseId } = enqueuePeerMessage({
         fromPeerId: requiredString(args, "from_peer_id"),
-        toPeerId: requiredString(args, "to_peer_id"),
+        toPeerId,
         message: requiredString(args, "message"),
         expectReply: args.expect_reply === true,
         responseId: optionalString(args, "response_id"),
       });
-      return json({ response_id: responseId ?? null });
+      // Attempt immediate turn-boundary delivery. No-op unless the receiver is
+      // at a boundary (waiting/idle/done); otherwise the message stays queued
+      // and the runner-exit drain picks it up on the receiver's next boundary.
+      const delivery = deliverPending(toPeerId);
+      return json({ response_id: responseId ?? null, delivery });
     }
     case "read_peer_inbox":
       return json(readPeerInbox(requiredString(args, "peer_id"), {
