@@ -443,6 +443,29 @@ test("typed answer submits through sendPeerReply and returns to normal with toas
   assert.match(state.toasts.at(-1).text, /Reply sent/);
 });
 
+test("whitespace-only answer is rejected before reaching sendPeerReply", () => {
+  const state = waitingPeerState();
+  const actions = v3Actions();
+  handleDashboardV3Input("a", state, actions);
+  handleDashboardV3Input(" ", state, actions);
+  handleDashboardV3Input(" ", state, actions);
+  handleDashboardV3Input("\r", state, actions);
+  assert.deepEqual(actions.calls.reply, []);
+  assert.equal(state.mode, "answer");
+  assert.match(state.toasts.at(-1).text, /empty/);
+});
+
+test("padded answer reaches sendPeerReply trimmed", () => {
+  const state = waitingPeerState();
+  const actions = v3Actions();
+  handleDashboardV3Input("a", state, actions);
+  for (const ch of "  hi  ") {
+    handleDashboardV3Input(ch, state, actions);
+  }
+  handleDashboardV3Input("\r", state, actions);
+  assert.deepEqual(actions.calls.reply, [{ peerId: "p1", text: "hi" }]);
+});
+
 test("x enters kill-confirm and enter kills; esc cancels back to normal", () => {
   const disarm = waitingPeerState();
   handleDashboardV3Input("x", disarm, v3Actions());
