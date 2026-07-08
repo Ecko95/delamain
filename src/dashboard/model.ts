@@ -287,6 +287,25 @@ export function triageGroups(rows: DashboardPeerRow[]): Array<{ bucket: TriageBu
   }));
 }
 
+export function contextMeterCells(percent: number): string {
+  const clamped = Math.min(100, Math.max(0, percent));
+  const filled = Math.round((clamped / 100) * 10);
+  return "█".repeat(filled) + "░".repeat(10 - filled);
+}
+
+export function contextLevelColor(level: CodexContextLevel, theme: Theme = defaultTheme): string {
+  if (level === "green") {
+    return theme.statusColors.starting;
+  }
+  if (level === "yellow") {
+    return theme.text;
+  }
+  if (level === "red") {
+    return theme.accent;
+  }
+  return theme.statusColors.failed;
+}
+
 export function projectLabel(peer: Pick<PeerRecord, "sourceRepo" | "repo" | "worktreePath">): string {
   const source = peer.sourceRepo || peer.repo;
   const parts = source.split(/[\\/]+/).filter(Boolean);

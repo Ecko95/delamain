@@ -26,6 +26,8 @@ import {
   statusColor,
   triageBucketForStatus,
   triageGroups,
+  contextMeterCells,
+  contextLevelColor,
 } from "../dist/dashboard/model.js";
 import { cyberpunkTheme, defaultTheme } from "../dist/dashboard/theme.js";
 import { bunMissingMessage } from "../dist/dashboard.js";
@@ -604,6 +606,23 @@ test("triageGroups yields buckets in exact WORKING, WAITING, STARTING, FAILED, D
   assert.equal(groups.find((g) => g.bucket === "starting").peers[0].id, "s1");
   assert.equal(groups.find((g) => g.bucket === "failed").peers[0].id, "f1");
   assert.equal(groups.find((g) => g.bucket === "done").peers[0].id, "d1");
+});
+
+test("contextMeterCells renders 10-cell block strings with clamping", () => {
+  assert.equal(contextMeterCells(50), "█████░░░░░");
+  assert.equal(contextMeterCells(0), "░░░░░░░░░░");
+  assert.equal(contextMeterCells(100), "██████████");
+  assert.equal(contextMeterCells(42).length, 10);
+  assert.equal([...contextMeterCells(42)].filter((c) => c === "█").length, 4);
+  assert.equal(contextMeterCells(150), "██████████");
+  assert.equal(contextMeterCells(-10), "░░░░░░░░░░");
+});
+
+test("contextLevelColor maps levels to cyberpunkTheme colors", () => {
+  assert.equal(contextLevelColor("green", cyberpunkTheme), "#35e0d8");
+  assert.equal(contextLevelColor("yellow", cyberpunkTheme), "#ffb066");
+  assert.equal(contextLevelColor("red", cyberpunkTheme), "#ff7a1a");
+  assert.equal(contextLevelColor("skull", cyberpunkTheme), "#ff4433");
 });
 
 test("createDashboardViewModel threads context fields onto rows, undefined when unmeasured", () => {
