@@ -28,32 +28,55 @@ import {
   createDashboardViewModel,
   fleetGridCells,
   statusColor,
+  triageBucketForStatus,
+  triageGroups,
+  contextMeterCells,
+  contextLevelColor,
   truncate,
   truncateMiddle,
   type DashboardPeerRow,
   type DashboardState,
   type DashboardStatus,
   type DashboardViewModel,
+  type TriageBucket,
 } from "./model.js";
 import { defaultTheme, mutedTheme, type Theme } from "./theme.js";
 
-const STATUS_ORDER: DashboardStatus[] = [
+// All DashboardStatus values (15 PeerStatus + "cleanup"), used to fold every
+// status into its 5-bucket triage group and glyph (Assumption A1).
+const ALL_DASHBOARD_STATUSES: DashboardStatus[] = [
+  "starting",
   "working",
   "waiting",
-  "cleanup",
+  "idle",
+  "done",
+  "failed",
+  "frozen",
+  "killed",
+  "gsd_pending",
   "gsd_running_phase",
   "gsd_polling_state",
   "gsd_running_gate_check",
-  "failed",
   "gsd_halted_on_gate_failure",
-  "frozen",
-  "done",
   "gsd_completed",
-  "killed",
-  "idle",
-  "gsd_pending",
   "gsd_failed",
+  "cleanup",
 ];
+const TRIAGE_BUCKET_GLYPH: Record<TriageBucket, string> = {
+  working: "◉",
+  waiting: "◍",
+  starting: "◌",
+  failed: "✖",
+  done: "●",
+};
+// A representative DashboardStatus per bucket, used only to pull a themed color.
+const TRIAGE_BUCKET_STATUS: Record<TriageBucket, DashboardStatus> = {
+  working: "working",
+  waiting: "waiting",
+  starting: "starting",
+  failed: "failed",
+  done: "done",
+};
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const PEER_REFRESH_MS = 1000;
 const DIFF_REFRESH_MS = 5000;
@@ -68,24 +91,17 @@ const ROUTE_META: Array<{ route: V3Route; glyph: string; digit: string; label: s
   { route: "alerts", glyph: "⚠", digit: "5", label: "ALERTS", short: "ALR" },
 ];
 
-const STATUS_GLYPH: Record<DashboardStatus, string> = {
-  working: "◉",
-  starting: "◌",
-  waiting: "◍",
-  gsd_running_phase: "◉",
-  gsd_polling_state: "◎",
-  gsd_running_gate_check: "◐",
-  frozen: "▣",
-  cleanup: "⇡",
-  done: "○",
-  gsd_completed: "○",
-  failed: "✖",
-  gsd_failed: "✖",
-  gsd_halted_on_gate_failure: "⊘",
-  killed: "✕",
-  idle: "·",
-  gsd_pending: "·",
-};
+// Every status renders with its folded triage bucket's sketch glyph
+// (working ◉, waiting ◍, starting ◌, failed ✖, done ●) — see layout-and-density.md.
+const STATUS_GLYPH: Record<DashboardStatus, string> = Object.fromEntries(
+  ALL_DASHBOARD_STATUSES.map((status) => [status, TRIAGE_BUCKET_GLYPH[triageBucketForStatus(status)]]),
+) as Record<DashboardStatus, string>;
+
+// A triage bucket is "collapsed" if any of its folded statuses was toggled
+// via `c` (collapsedStatuses is keyed by the selected peer's raw status).
+function isBucketCollapsed(bucket: TriageBucket, collapsedStatuses: Partial<Record<DashboardStatus, boolean>>): boolean {
+  return ALL_DASHBOARD_STATUSES.some((status) => triageBucketForStatus(status) === bucket && collapsedStatuses[status]);
+}
 
 const BRAILLE_LEVELS = ["⣀", "⣄", "⣤", "⣦", "⣶", "⣷", "⣿"];
 
@@ -460,32 +476,25 @@ function routeContent(
 // --- roster (FLEET) -----------------------------------------------------
 
 type RosterLine =
-  | { kind: "group"; status: DashboardStatus; label: string }
+  | { kind: "group"; bucket: TriageBucket; label: string }
   | { kind: "peer"; peer: DashboardPeerRow }
-  | { kind: "terminal"; label: string }
   | { kind: "empty" };
 
-function rosterLines(view: DashboardViewModel): RosterLine[] {
+// Rack rows grouped in the sketch-locked 5-bucket triage order (WORKING →
+// WAITING → STARTING → FAILED → DONE), one group-rule header per non-empty bucket.
+function rackLines(view: DashboardViewModel): RosterLine[] {
   const lines: RosterLine[] = [];
-  const terminalBits: string[] = [];
-  for (const status of STATUS_ORDER) {
-    const peers = view.peers.filter((peer) => peer.status === status);
-    if (peers.length === 0) {
+  for (const group of triageGroups(view.peers)) {
+    if (group.peers.length === 0) {
       continue;
     }
-    if (status === "done" || status === "killed" || status === "gsd_completed" || status === "idle" || status === "gsd_pending") {
-      terminalBits.push(`${status.toUpperCase()} ${peers.length}`);
-      continue;
-    }
-    lines.push({ kind: "group", status, label: `${view.collapsedStatuses[status] ? "▸" : "▾"} ${status.toUpperCase()} ${peers.length}` });
-    if (!view.collapsedStatuses[status]) {
-      for (const peer of peers) {
+    const collapsed = isBucketCollapsed(group.bucket, view.collapsedStatuses);
+    lines.push({ kind: "group", bucket: group.bucket, label: `${collapsed ? "▸" : "▾"} ${group.label} ${group.peers.length}` });
+    if (!collapsed) {
+      for (const peer of group.peers) {
         lines.push({ kind: "peer", peer });
       }
     }
-  }
-  if (terminalBits.length > 0) {
-    lines.push({ kind: "terminal", label: `▸ ${terminalBits.join(" · ")}` });
   }
   return lines;
 }
@@ -501,7 +510,7 @@ function rosterPane(
   const width = layout.wide ? layout.W - layout.railW - layout.inspectorW : layout.W - layout.railW;
   const content = layout.rosterContent;
   const visibleRows = Math.max(3, layout.bodyH - 2);
-  const lines = rosterLines(view);
+  const lines = rackLines(view);
   const selectedLine = lines.findIndex((line) => line.kind === "peer" && line.peer.selected);
   const maxOffset = Math.max(0, lines.length - visibleRows);
   let offset = clamp(state.peerOffset, 0, maxOffset);
@@ -554,17 +563,14 @@ function rosterLineChunks(
   layout: Layout,
 ): TextChunk[] {
   if (line.kind === "group") {
-    const color = statusColor(line.status, theme);
+    const color = statusColor(TRIAGE_BUCKET_STATUS[line.bucket], theme);
     const fillWidth = Math.max(0, content - line.label.length - 1);
     return applyBg(
-      [textColor(color)(line.label), ...plainChunks(" "), textColor(theme.textDim)("▚".repeat(fillWidth))],
+      [textColor(color)(line.label), ...plainChunks(" "), textColor(theme.border)("─".repeat(fillWidth))],
       line.label.length + 1 + fillWidth,
       bg,
       content,
     );
-  }
-  if (line.kind === "terminal") {
-    return applyBg([...dimmedChunks(line.label, theme), textColor(theme.border)(" " + "·".repeat(Math.max(0, content - line.label.length - 1)))], content, bg, content);
   }
   if (line.kind === "empty") {
     return textureChunks(content, theme);
