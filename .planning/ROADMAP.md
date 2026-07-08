@@ -12,7 +12,7 @@ The current milestone focuses on improving Codex peer supervision from a functio
 - Decimal phases are urgent insertions between existing phases.
 
 - [x] **Phase 1: Full dynamic lazygit-style dashboard TUI** - Replace the custom ANSI table with a polished lazygit-style dashboard built on a proven TUI library.
-- [ ] **Phase 2: Signal Rack dashboard redesign** - Rework the OpenTUI dashboard into the sketch-locked Signal Rack layout with a bottom detail dock.
+- [x] **Phase 2: Signal Rack dashboard redesign** - Rework the OpenTUI dashboard into the sketch-locked Signal Rack layout with a bottom detail dock. (completed 2026-07-08)
 
 ## Phase Details
 
@@ -49,7 +49,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Full dynamic lazygit-style dashboard TUI | 3/3 | Complete | 2026-05-07 |
-| 2. Signal Rack dashboard redesign | 4/5 | In Progress|  |
+| 2. Signal Rack dashboard redesign | 5/5 | Complete   | 2026-07-08 |
 
 ### Phase 2: Signal Rack dashboard redesign
 
@@ -66,7 +66,7 @@ Plans:
   6. Existing MCP, CLI, and peer supervision behavior continue to pass tests.
 
 **Design source:** `.claude/skills/sketch-findings-delamain/` (winners: 001 Signal Rack layout, 002 Bottom Dock) — sketches wrapped 2026-07-07.
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -81,7 +81,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 02-05-PLAN.md — Bottom dock (detail + tail-following log + position indicator), status line, focus glow, focus-aware footer; delete modal (DASH-10)
+- [x] 02-05-PLAN.md — Bottom dock (detail + tail-following log + position indicator), status line, focus glow, focus-aware footer; delete modal (DASH-10)
 
 ### Phase 3: Self-healing peer supervisor — healer loop over peer terminal states with per-class remediation
 
