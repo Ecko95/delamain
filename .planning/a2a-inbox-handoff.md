@@ -54,6 +54,12 @@ Order: T1 → (T2 ∥ T3) → T4 → Fable review gate.
 - `send_peer_reply` dispatch case UNCHANGED vs `origin/main`: `git diff origin/main -- src/mcpServer.ts` touches only (a) the `instructions` string — now also documenting `send_peer_message`/`read_peer_inbox` — and (b) the `send_peer_message`/`read_peer_inbox` cases + the `deliverPending` import. The `case "send_peer_reply": return json(resumePeer(...))` block is byte-identical.
 - Seam: `send_peer_message` now enqueues then calls `deliverPending(to_peer_id)` and returns `{ response_id, delivery }`. Enqueue-only `ponytail:` comment removed.
 
+### Fable review gate (orchestrator, 2026-07-08)
+
+- Independent re-run: `npm run build` exit 0; `npx vitest run` → 63 passed, 0 failures.
+- Diff review of `deliverPending` (status re-read + `threadId` guard + single resume), runner exit hook (try/catch, no-throw into exit path), MCP seam, and `formatInboxPrompt` (sender id, response-id, reply instructions): ACCEPTED, no changes requested.
+- Accepted residual risks: deliveredAt-before-resume loss window on spawn failure; double-drain under state.json write race (duplicate resume, not lost mail). Both named with upgrade paths.
+
 ## Open risks
 
 - Concurrent state.json writers (pre-existing, now slightly wider surface) — per-peer lock is the upgrade path; `enqueuePeerMessage`/`drainDeliverable` use read-modify-write via `updatePeer`, so two concurrent MCP processes can still clobber. A boundary send racing the runner-exit drain can double-drain (both see undelivered) → at-most a duplicate resume, not lost mail.
