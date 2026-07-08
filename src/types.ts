@@ -95,6 +95,10 @@ export type PeerRecord = {
   // Phase 33 additions:
   kind?: PeerKind; // missing → treat as "generic"
   gsdBatch?: GsdBatchSpawnConfig; // present only when kind === "gsd_phase_batch"
+  // ponytail: PROVISIONAL T1 field — a2a peer inbox. Additive/optional, follows
+  // the `kind` migration precedent (state.json without it still loads). Reconcile
+  // with T1's own types.ts addition at merge. PeerMessage lives in peerInbox.ts.
+  inbox?: import("./peerInbox.js").PeerMessage[];
 };
 
 /**

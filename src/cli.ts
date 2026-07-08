@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { killPeer, listPeers, peerStatus, readPeerLog, resumePeer, spawnPeer } from "./peerManager.js";
+import { enqueuePeerMessage, readPeerInbox } from "./peerInbox.js";
 import { runWaitCommand, WAIT_USAGE } from "./wait.js";
 
 export async function runCliCommand(command: string, argv: string[]): Promise<void> {
@@ -79,10 +80,62 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       }
       return;
     }
+    case "send": {
+      const args = parseFlags(argv);
+      const to = flagString(args, "to");
+      const message = flagString(args, "message") || readStdin();
+      if (!to || !message) {
+        throw new Error("Usage: delamain send --to <peer-id> --message <text> [--from <peer-id>] [--expect-reply] [--response-id <id>]");
+      }
+      const from = flagString(args, "from") || inferSelfPeerId();
+      const { responseId } = enqueuePeerMessage({
+        fromPeerId: from,
+        toPeerId: to,
+        message,
+        expectReply: Boolean(args["expect-reply"]),
+        responseId: flagString(args, "response-id"),
+      });
+      console.log(JSON.stringify({ response_id: responseId ?? null }, null, 2));
+      return;
+    }
+    case "inbox": {
+      const positional = argv[0] && !argv[0].startsWith("--") ? argv[0] : undefined;
+      const args = parseFlags(positional ? argv.slice(1) : argv);
+      const peerId = positional || inferSelfPeerId();
+      console.log(JSON.stringify(readPeerInbox(peerId, { includeDelivered: Boolean(args.all) }), null, 2));
+      return;
+    }
     case "help":
     default:
       printHelp();
   }
+}
+
+// Infer the caller's own peer id by matching cwd against each peer's worktreePath
+// (realpath both sides so symlinked worktrees resolve). Errors clearly on no match.
+function inferSelfPeerId(): string {
+  let cwd: string;
+  try {
+    cwd = realpathSync(process.cwd());
+  } catch {
+    cwd = process.cwd();
+  }
+  const match = listPeers().find((peer) => {
+    if (!peer.worktreePath) {
+      return false;
+    }
+    try {
+      return realpathSync(peer.worktreePath) === cwd;
+    } catch {
+      return false;
+    }
+  });
+  if (!match) {
+    throw new Error(
+      `Could not infer your peer identity from cwd (${cwd}); no peer's worktreePath matches. Pass --from <peer-id> / <peer-id> explicitly.`,
+    );
+  }
+  return match.id;
 }
 
 function parseWaitArgs(argv: string[]): {
@@ -203,6 +256,14 @@ Commands:
   log <peer-id> [lines]
   kill <peer-id> [SIGTERM|SIGKILL]
   wait <peer-id...> [--interval <seconds>] [--timeout <seconds>] [--any]
+  send --to <peer-id> --message <text> [--from <peer-id>] [--expect-reply] [--response-id <id>]
+  inbox [<peer-id>] [--all]
+
+Peer-to-peer messaging:
+  send/inbox move freeform messages between peers via a per-peer inbox
+  (delivered at the recipient's next turn boundary). When --from / <peer-id>
+  is omitted, the caller's identity is inferred by matching cwd to a peer's
+  worktree path.
 
 Codex MCP registration:
   codex mcp add delamain -- node $(pwd)/dist/index.js server
