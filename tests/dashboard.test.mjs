@@ -24,6 +24,8 @@ import {
   projectLabel,
   statusActivity,
   statusColor,
+  triageBucketForStatus,
+  triageGroups,
 } from "../dist/dashboard/model.js";
 import { cyberpunkTheme, defaultTheme } from "../dist/dashboard/theme.js";
 import { bunMissingMessage } from "../dist/dashboard.js";
@@ -553,6 +555,55 @@ test("mutedTheme maps colors, memoizes, and leaves ramp/cyanBand/chip fields on 
   // memoized: same object identity
   assert.equal(mutedTheme(cyberpunkTheme), m);
   assert.notEqual(mutedTheme(defaultTheme), m);
+});
+
+const ALL_DASHBOARD_STATUSES = [
+  "starting", "working", "waiting", "idle", "done", "failed", "frozen", "killed",
+  "gsd_pending", "gsd_running_phase", "gsd_polling_state", "gsd_running_gate_check",
+  "gsd_halted_on_gate_failure", "gsd_completed", "gsd_failed", "cleanup",
+];
+
+test("triageBucketForStatus maps every DashboardStatus to one of the 5 buckets", () => {
+  const valid = new Set(["working", "waiting", "starting", "failed", "done"]);
+  for (const status of ALL_DASHBOARD_STATUSES) {
+    assert.ok(valid.has(triageBucketForStatus(status)), `unexpected bucket for ${status}`);
+  }
+});
+
+test("triageBucketForStatus folds GSD statuses per A1", () => {
+  assert.equal(triageBucketForStatus("gsd_running_phase"), "working");
+  assert.equal(triageBucketForStatus("gsd_polling_state"), "working");
+  assert.equal(triageBucketForStatus("gsd_running_gate_check"), "working");
+  assert.equal(triageBucketForStatus("failed"), "failed");
+  assert.equal(triageBucketForStatus("frozen"), "failed");
+  assert.equal(triageBucketForStatus("gsd_halted_on_gate_failure"), "failed");
+  assert.equal(triageBucketForStatus("gsd_failed"), "failed");
+  assert.equal(triageBucketForStatus("killed"), "failed");
+  assert.equal(triageBucketForStatus("done"), "done");
+  assert.equal(triageBucketForStatus("cleanup"), "done");
+  assert.equal(triageBucketForStatus("gsd_completed"), "done");
+  assert.equal(triageBucketForStatus("idle"), "done");
+  assert.equal(triageBucketForStatus("gsd_pending"), "done");
+  assert.equal(triageBucketForStatus("waiting"), "waiting");
+  assert.equal(triageBucketForStatus("starting"), "starting");
+});
+
+test("triageGroups yields buckets in exact WORKING, WAITING, STARTING, FAILED, DONE order", () => {
+  const view = createDashboardViewModel([
+    peer({ id: "w1", status: "working" }),
+    peer({ id: "wait1", status: "waiting" }),
+    peer({ id: "s1", status: "starting" }),
+    peer({ id: "f1", status: "failed" }),
+    peer({ id: "d1", status: "done" }),
+  ], {}, { now: new Date("2026-05-07T12:05:00Z") });
+
+  const groups = triageGroups(view.peers);
+  assert.deepEqual(groups.map((g) => g.bucket), ["working", "waiting", "starting", "failed", "done"]);
+  assert.equal(groups.find((g) => g.bucket === "working").peers[0].id, "w1");
+  assert.equal(groups.find((g) => g.bucket === "waiting").peers[0].id, "wait1");
+  assert.equal(groups.find((g) => g.bucket === "starting").peers[0].id, "s1");
+  assert.equal(groups.find((g) => g.bucket === "failed").peers[0].id, "f1");
+  assert.equal(groups.find((g) => g.bucket === "done").peers[0].id, "d1");
 });
 
 test("createDashboardViewModel threads context fields onto rows, undefined when unmeasured", () => {

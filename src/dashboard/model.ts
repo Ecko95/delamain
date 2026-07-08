@@ -252,6 +252,41 @@ export function fleetStageForStatus(status: DashboardStatus): FleetStage {
   return "done";
 }
 
+export type TriageBucket = "working" | "waiting" | "starting" | "failed" | "done";
+
+const TRIAGE_ORDER: TriageBucket[] = ["working", "waiting", "starting", "failed", "done"];
+const TRIAGE_LABELS: Record<TriageBucket, string> = {
+  working: "WORKING",
+  waiting: "WAITING",
+  starting: "STARTING",
+  failed: "FAILED",
+  done: "DONE",
+};
+
+export function triageBucketForStatus(status: DashboardStatus): TriageBucket {
+  if (status === "working" || status === "gsd_running_phase" || status === "gsd_polling_state" || status === "gsd_running_gate_check") {
+    return "working";
+  }
+  if (status === "waiting") {
+    return "waiting";
+  }
+  if (status === "starting") {
+    return "starting";
+  }
+  if (status === "failed" || status === "frozen" || status === "gsd_halted_on_gate_failure" || status === "gsd_failed" || status === "killed") {
+    return "failed";
+  }
+  return "done";
+}
+
+export function triageGroups(rows: DashboardPeerRow[]): Array<{ bucket: TriageBucket; label: string; peers: DashboardPeerRow[] }> {
+  return TRIAGE_ORDER.map((bucket) => ({
+    bucket,
+    label: TRIAGE_LABELS[bucket],
+    peers: rows.filter((row) => triageBucketForStatus(row.status) === bucket),
+  }));
+}
+
 export function projectLabel(peer: Pick<PeerRecord, "sourceRepo" | "repo" | "worktreePath">): string {
   const source = peer.sourceRepo || peer.repo;
   const parts = source.split(/[\\/]+/).filter(Boolean);
