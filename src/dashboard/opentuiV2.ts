@@ -1,4 +1,4 @@
-import { Box, Text, StyledText, createCliRenderer, fg as textColor, bg as textBg, dim as dimText, stringToStyledText, type TextChunk } from "@opentui/core";
+import { Box, Text, StyledText, createCliRenderer, fg as textColor, bg as textBg, dim as dimText, stringToStyledText, type TextChunk, type MouseEvent } from "@opentui/core";
 import { worktreeDiffStat } from "../git.js";
 import { killPeer, listPeers, resumePeer } from "../peerManager.js";
 import { readCodexUsage, type CodexUsageLimit, type CodexUsageLevel } from "../codexUsage.js";
@@ -528,10 +528,33 @@ function card(title: string, pane: V2Pane, state: RuntimeState, extra: Record<st
   return Box(
     paneProps(`${collapsed ? "▸" : "▾"} ${title}`, state.focusPane === pane, state.theme, {
       minHeight: collapsed ? 3 : 5,
+      // Mouse: click focuses the pane; wheel scrolls logs / moves peer selection.
+      // A 120ms refresh interval re-renders, so handlers only mutate state.
+      onMouseDown: () => {
+        state.focusPane = pane;
+      },
+      onMouseScroll: (event: MouseEvent) => paneScroll(pane, state, event),
       ...extra,
     }),
     Text({ content: collapsed ? styledText(...dimmedChunks("collapsed", state.theme)) : renderContent() }),
   );
+}
+
+function paneScroll(pane: V2Pane, state: RuntimeState, event: MouseEvent): void {
+  const direction = event.scroll?.direction;
+  if (direction !== "up" && direction !== "down") {
+    return;
+  }
+  const amount = Math.max(1, Math.min(3, event.scroll?.delta || 1));
+  if (pane === "logs") {
+    state.focusPane = "logs";
+    state.logOffset = direction === "up" ? state.logOffset + amount : Math.max(0, state.logOffset - amount);
+  } else if (pane === "peers") {
+    state.focusPane = "peers";
+    state.selectedIndex = Math.max(0, state.selectedIndex + (direction === "up" ? -amount : amount));
+    state.selectedPeerId = undefined;
+    state.logOffset = 0;
+  }
 }
 
 function paneProps(title: string, focused: boolean, theme: Theme, extra: Record<string, unknown> = {}) {
