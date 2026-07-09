@@ -117,7 +117,8 @@ export function readPeerInbox(peerId: string, opts?: { includeDelivered?: boolea
 
 // Drain undelivered messages for a peer: returns them and stamps deliveredAt on
 // each in the store so a second drain never re-delivers. Read-modify-write via
-// updatePeer (same clobber ceiling as enqueue — see handoff open risks).
+// updatePeer, now serialized by withStateLock (store.ts) — the RMW clobber is
+// closed; only a benign double-drain (duplicate resume, not lost mail) remains.
 export function drainDeliverable(peerId: string): PeerMessage[] {
 	const receiver = getPeer(peerId);
 	if (!receiver) {

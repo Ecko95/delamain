@@ -77,3 +77,37 @@ Isolated `DELAMAIN_HOME`, throwaway repo, two real codex peers (alice `47b4edf5`
 - Concurrent state.json writers (pre-existing, now slightly wider surface) — per-peer lock is the upgrade path; `enqueuePeerMessage`/`drainDeliverable` use read-modify-write via `updatePeer`, so two concurrent MCP processes can still clobber. A boundary send racing the runner-exit drain can double-drain (both see undelivered) → at-most a duplicate resume, not lost mail.
 - Peer→CLI send requires `delamain` binary on PATH inside worktrees — unverified for npx-only setups.
 - Delivery not yet exercised in a live fleet round-trip; `deliverPending` proven via injected `resume` in tests, not against a real `resumePeer`/codex spawn. Message loss window: if `resumePeer` throws *after* `drainDeliverable` stamps `deliveredAt`, those messages are marked delivered but never injected (the `!peer.threadId` guard covers the common no-thread case; a real spawn failure would still drop them).
+
+---
+
+## Milestone 2: state.json write-race fix (2026-07-09, orchestrator: Opus 4.8 ultracode)
+
+### Decision (settled by orchestrator, overriding the recon scout's per-peer-files pick)
+
+**Fix = a synchronous stdlib lockfile guarding the read-modify-write critical section in `src/store.ts` (`updatePeer` + `upsertPeer`). NOT per-peer files.**
+
+Why the override (scout recommended per-peer files; orchestrator picked the lock):
+1. **Per-peer files leave the named `inbox` race open.** Acceptance requires surviving concurrent *spawn+heartbeat+inbox* writers. `enqueuePeerMessage` runs in the sender's CLI/MCP process and appends to receiver X's inbox **while X's own runner process heartbeats to X's record** — two processes, same peer record. Per-peer files (`state/<id>.json`) put both on `X.json` → they still clobber. The scout's own residual caveat names exactly this same-peer race. Per-peer files fix only the *cross-peer* clobber that was reproduced, not the full acceptance set.
+2. **We need mutual exclusion regardless**, so per-peer files add format-migration cost without removing the lock requirement.
+3. **The lock keeps `state.json` byte-identical** → zero blast radius on readers (dashboard, any `readState().peers` consumer). Per-peer files change the on-disk format → dashboard/reader migration.
+4. **A dependency (`proper-lockfile`) is the *larger* diff**: its API is async → `updatePeer` becomes async → ripples to ~20 call sites → violates "no MCP/CLI surface change". A hand-rolled *synchronous* lockfile keeps `updatePeer` sync → **zero call-site changes**.
+
+### Surface (verified)
+- `src/store.ts`: `writeState` (sync: temp `${path}.${pid}.tmp` + `renameSync` — atomic single-write, no lock). The race is the two separate syscalls in `updatePeer:48` / `upsertPeer:65` (`readState()` then `writeState()`) with no lock between; cross-process interleave loses updates.
+- Production `writeState()` callers are **only** `store.ts` `updatePeer`+`upsertPeer` (verified `grep`). `src/wait.test.ts` uses a local `writeState` in tests — keep those green.
+- All fs ops are synchronous → within one Node process `updatePeer` is already atomic; the race is strictly **cross-process** (CLI, MCP server, each runner/cursorRunner child, gsdRunner). So the regression test **must use real OS subprocesses**.
+
+### Plan
+- Add `withStateLock<T>(fn: () => T): T` in `store.ts`: acquire `${statePath()}.lock` via `openSync(lock,'wx')` in a bounded synchronous retry loop (sync sleep via `Atomics.wait` on a throwaway `Int32Array`), with an mtime-based stale-lock breaker (steal if lock age > STALE_MS, which is far longer than any legit sub-ms hold); release via `unlinkSync` in `finally` (guard `ENOENT`).
+- Wrap the read-modify-write body of `updatePeer` and `upsertPeer` in `withStateLock(...)`. No signature changes.
+- `// ponytail: global state-write lock; shard per-peer if write throughput ever matters` — names the ceiling.
+- Regression test (`src/stateLock.test.ts` or similar): temp `DELAMAIN_HOME`, seed one peer; fork N≈6 real child processes (via `tsx` on a small committed writer fixture) each doing M≈20 `updatePeer` appends of unique markers to that peer's inbox; assert final inbox length == N*M with all unique markers present (no lost writes). Agent must **demonstrate the test fails with the lock bypassed** and passes with it (evidence in report), so it's a real regression test not a tautology.
+
+### Acceptance
+- `npm run build` exit 0; `npx vitest run` 0 failures (existing 64 + new).
+- MCP/CLI surface unchanged (`updatePeer`/`upsertPeer`/`getPeer`/`readState`/`writeState` signatures identical; no new async).
+- Regression test proves concurrent same-peer writers can't clobber (fails without lock).
+
+### Residual (upgrade path, not this milestone)
+- SIGKILL during the sub-ms lock hold leaks the lockfile → recovered by the stale-breaker on next acquire.
+- Global lock serializes all writes; fine at realistic peer counts (sub-ms critical section). Shard per-peer only if throughput ever matters.
