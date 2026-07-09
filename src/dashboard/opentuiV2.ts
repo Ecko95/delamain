@@ -64,6 +64,7 @@ export async function runOpenTuiDashboardV2(): Promise<void> {
     collapsedPanes: {},
     followSelectedPeer: true,
     forceLogRefresh: false,
+    logAtNewest: true,
     visiblePeers: [],
     logEventLevels: [],
     theme: initialThemeFromEnv(),
@@ -476,6 +477,19 @@ function detailsPane(view: DashboardViewModel, state: RuntimeState, width: numbe
 function logsPane(view: DashboardViewModel, state: RuntimeState, visibleRows: number, extra?: Record<string, unknown>) {
   const content = visibleLogContent(view.logLines, state.logOffset, Math.max(3, visibleRows));
   state.logOffset = content.offset;
+
+  // Edge-triggered footer note when a scroll hits a log boundary (toast-ish).
+  const scrollable = content.totalRows > content.visibleRows;
+  const atOldest = scrollable && content.offset >= Math.max(0, content.totalRows - content.visibleRows);
+  const atNewest = content.offset === 0;
+  if (atOldest && !state.logAtOldest) {
+    state.message = "▲ end of log — nothing older";
+  } else if (atNewest && !state.logAtNewest) {
+    state.message = "▼ end of log — following live";
+  }
+  state.logAtOldest = atOldest;
+  state.logAtNewest = atNewest;
+
   return card(`logs ${content.position}`, "logs", state, extra || { flexGrow: 1 }, () => {
     const lines = withScrollbar(
       content.lines.length > 0 ? content.lines : ["No recent log lines"],
@@ -555,6 +569,10 @@ function footerStatus(state: RuntimeState): StyledText {
   const message = truncate(state.message, 48);
   if (message === "Ready") {
     return styledText(textBg(theme.accent)(textColor("#050403")(" READY ")));
+  }
+  // Log-boundary notes (▲/▼) read as a highlighted toast, not dim status text.
+  if (message.startsWith("▲") || message.startsWith("▼")) {
+    return styledText(textBg(theme.borderFocused)(textColor("#050403")(` ${message} `)));
   }
   return styledText(...dimmedChunks(message, theme));
 }

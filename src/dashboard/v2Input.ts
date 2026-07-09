@@ -23,6 +23,8 @@ export type RuntimeState = {
   collapsedPanes: Partial<Record<V2Pane, boolean>>;
   followSelectedPeer: boolean;
   forceLogRefresh: boolean;
+  logAtOldest?: boolean;
+  logAtNewest?: boolean;
   theme: Theme;
   visiblePeers: DashboardPeerRow[];
   logEventLevels: Array<"info" | "warn" | "error">;
