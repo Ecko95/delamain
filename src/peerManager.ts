@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { createPeerWorktree, gitBranch, gitRoot, gitWorktreeInfo, resolveBaseBranch } from "./git.js";
 import { reconcileFinishedWaitingPeer } from "./lifecycle.js";
+import { drainDeliverable, enqueuePeerMessage, formatInboxPrompt } from "./peerInbox.js";
 import { promptsDir, runsDir } from "./paths.js";
 import { getPeer, readState, updatePeer, upsertPeer } from "./store.js";
 import { killPid, killProcessGroup, pidAlive } from "./processes.js";
@@ -224,6 +225,58 @@ export function resumePeer(options: ResumePeerOptions): PeerRecord {
     lastEvent: `resume runner pid=${runner.pid ?? "unknown"}`,
   }));
   return updated || peer;
+}
+
+export type DeliverPendingResult = { delivered: number; skipped?: string };
+
+// Turn-boundary delivery: if the receiver is at a boundary and has undelivered
+// mail, drain it and resume the peer exactly once with the formatted prompt.
+// Re-reads current status from the store immediately before acting so an
+// operator send_peer_reply racing an auto-delivery can't both resume. `resume`
+// is injectable so tests can run without spawning a real process.
+export function deliverPending(
+  peerId: string,
+  resume: (options: ResumePeerOptions) => PeerRecord = resumePeer,
+): DeliverPendingResult {
+  const peer = getPeer(peerId);
+  if (!peer) {
+    return { delivered: 0, skipped: "unknown-peer" };
+  }
+  if (peer.status !== "waiting" && peer.status !== "idle" && peer.status !== "done") {
+    return { delivered: 0, skipped: `status=${peer.status}` };
+  }
+  if (!peer.threadId) {
+    // resumePeer needs a thread id; without one the messages stay queued for a
+    // later boundary rather than being drained and lost.
+    return { delivered: 0, skipped: "no-thread" };
+  }
+  const messages = drainDeliverable(peerId);
+  if (messages.length === 0) {
+    return { delivered: 0, skipped: "empty" };
+  }
+  resume({ peerId, prompt: formatInboxPrompt(messages) });
+  return { delivered: messages.length };
+}
+
+export type SendPeerMessageInput = {
+  fromPeerId: string;
+  toPeerId: string;
+  message: string;
+  expectReply?: boolean;
+  responseId?: string;
+};
+
+// Single send surface shared by the MCP tool and the CLI: enqueue, then attempt
+// immediate turn-boundary delivery. Keeping both callers on this helper is what
+// guarantees the two surfaces can't diverge on delivery semantics (the CLI
+// shipped enqueue-only once; the live round-trip test caught it).
+export function sendPeerMessage(
+  input: SendPeerMessageInput,
+  resume: (options: ResumePeerOptions) => PeerRecord = resumePeer,
+): { responseId?: string; delivery: DeliverPendingResult } {
+  const { responseId } = enqueuePeerMessage(input);
+  const delivery = deliverPending(input.toPeerId, resume);
+  return { responseId, delivery };
 }
 
 export function listPeers(): PeerRecord[] {

@@ -4,6 +4,7 @@ import {
   peerStatus,
   readPeerLog,
   resumePeer,
+  sendPeerMessage,
   spawnGsdPhaseBatch,
   spawnPeer,
   spawnPeerAndWait,
@@ -13,6 +14,7 @@ import { expandSelectedPhases } from "./gsdPhaseList.js";
 import { inspectGsdMilestone } from "./gsdMilestone.js";
 import { integratePeer, IntegratePeerRefusedError } from "./peerIntegration.js";
 import { classifyFrozenBatch } from "./frozen-eligibility/index.js";
+import { readPeerInbox } from "./peerInbox.js";
 import type { SpawnSizingArgs, TaskScope } from "./taskSizing.js";
 import type { GsdPlanningMode } from "./types.js";
 
@@ -48,7 +50,7 @@ export const CODEX_CONFIG_MAX_ENTRIES = 16;
 export const CODEX_CONFIG_MAX_ENTRY_LEN = 2000;
 export const CODEX_CONFIG_ENTRY_RE = /^[A-Za-z0-9_.-]+=.+$/s;
 
-const TOOLS = [
+export const TOOLS = [
   {
     name: "spawn_peer",
     description:
@@ -187,6 +189,35 @@ const TOOLS = [
         },
       },
       required: ["peer_id", "prompt"],
+    },
+  },
+  {
+    name: "send_peer_message",
+    description:
+      "Send a peer-to-peer message: enqueue a freeform-prose message into the recipient peer's inbox. Delivery is turn-boundary only — the recipient sees it when it next reaches a boundary (not mid-task). Set expect_reply to open a reply thread (mints a response_id the recipient echoes to close it); pass response_id to continue/close an existing thread. Returns { response_id }.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from_peer_id: { type: "string", description: "Sender peer id (id or prefix)." },
+        to_peer_id: { type: "string", description: "Recipient peer id (id or prefix)." },
+        message: { type: "string", description: "Freeform message body." },
+        expect_reply: { type: "boolean", description: "Open a reply thread and mint a response_id when true." },
+        response_id: { type: "string", description: "Existing thread id to continue or close (echo to close)." },
+      },
+      required: ["from_peer_id", "to_peer_id", "message"],
+    },
+  },
+  {
+    name: "read_peer_inbox",
+    description:
+      "Read a peer's inbox: queued peer-to-peer messages plus liveness notices about the senders (errored / awaiting-input / turn-ended / quiet / receiver-cancelled). Undelivered only by default; include_delivered returns full history.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        peer_id: { type: "string", description: "Inbox owner peer id (id or prefix)." },
+        include_delivered: { type: "boolean", description: "Include already-delivered messages. Defaults to false." },
+      },
+      required: ["peer_id"],
     },
   },
   {
@@ -418,7 +449,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<unknown> {
           version: "0.1.0",
         },
         instructions:
-          "Use this MCP server (delamain) to spawn and supervise headless coding peers — Codex or Cursor — across repositories. New peers run in isolated linked worktrees. By default they start from the origin default branch and merge successful changes back there; callers can choose a separate start_ref, merge_branch, and engine ('codex' or 'cursor'). Use list_peers and read_peer_log to monitor progress; use send_peer_reply when a peer reports CODEX_PEERS_STATUS: WAITING.",
+          "Use this MCP server (delamain) to spawn and supervise headless coding peers — Codex or Cursor — across repositories. New peers run in isolated linked worktrees. By default they start from the origin default branch and merge successful changes back there; callers can choose a separate start_ref, merge_branch, and engine ('codex' or 'cursor'). Use list_peers and read_peer_log to monitor progress; use send_peer_reply when a peer reports CODEX_PEERS_STATUS: WAITING. For peer-to-peer messaging, use send_peer_message to enqueue a message into another peer's inbox (delivered at the recipient's next turn boundary) and read_peer_inbox to read queued messages plus sender-liveness notices.",
       };
     case "notifications/initialized":
       return undefined;
@@ -434,7 +465,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<unknown> {
   }
 }
 
-async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
+export async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
   const args = (rawArgs || {}) as Record<string, unknown>;
   switch (name) {
     case "spawn_peer":
@@ -468,6 +499,22 @@ async function callTool(name: unknown, rawArgs: unknown): Promise<unknown> {
         prompt: requiredString(args, "prompt"),
         model: optionalString(args, "model"),
         yolo: bypassEnabled(args),
+      }));
+    case "send_peer_message": {
+      // Shared enqueue + immediate turn-boundary delivery attempt; queued
+      // messages are picked up by the runner-exit drain at the next boundary.
+      const { responseId, delivery } = sendPeerMessage({
+        fromPeerId: requiredString(args, "from_peer_id"),
+        toPeerId: requiredString(args, "to_peer_id"),
+        message: requiredString(args, "message"),
+        expectReply: args.expect_reply === true,
+        responseId: optionalString(args, "response_id"),
+      });
+      return json({ response_id: responseId ?? null, delivery });
+    }
+    case "read_peer_inbox":
+      return json(readPeerInbox(requiredString(args, "peer_id"), {
+        includeDelivered: args.include_delivered === true,
       }));
     case "spawn_peer_and_wait":
       return json(await spawnPeerAndWait({
