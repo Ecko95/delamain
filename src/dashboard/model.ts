@@ -184,7 +184,15 @@ export function clampSelectedIndex(index: number, peerCount: number): number {
 }
 
 export function dashboardPeers(peers: PeerRecord[]): PeerRecord[] {
-  return [...peers].sort((a, b) => statusRank(a) - statusRank(b) || Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  // Secondary sort MUST be stable: ordering by updatedAt made rows jump every time
+  // a peer emitted an event. startedAt never changes during a peer's life, so each
+  // peer keeps a fixed slot within its status group (id breaks ties deterministically).
+  return [...peers].sort(
+    (a, b) =>
+      statusRank(a) - statusRank(b) ||
+      (Date.parse(a.startedAt) || 0) - (Date.parse(b.startedAt) || 0) ||
+      a.id.localeCompare(b.id),
+  );
 }
 
 export function dashboardStatus(peer: PeerRecord): DashboardStatus {
