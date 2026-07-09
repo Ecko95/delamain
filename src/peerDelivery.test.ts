@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { deliverPending } from "./peerManager.js";
+import { deliverPending, sendPeerMessage } from "./peerManager.js";
 import { drainDeliverable, enqueuePeerMessage } from "./peerInbox.js";
 import type { ResumePeerOptions } from "./types.js";
 
@@ -76,6 +76,27 @@ describe("turn-boundary delivery", () => {
 		expect(calls[0].prompt).toContain("[delamain inbox] from p1");
 		expect(calls[0].prompt).toContain("resp-9");
 		expect(calls[0].prompt).toContain("delamain send --to p1 --response-id resp-9");
+	});
+
+	// Regression: the CLI once shipped enqueue-only while the MCP tool delivered.
+	// Both surfaces must route through sendPeerMessage, which always attempts
+	// delivery after the enqueue.
+	it("sendPeerMessage enqueues and attempts boundary delivery in one call", async () => {
+		await seed([peer("p1", "working"), peer("p2", "done", { threadId: "thread-2" })]);
+		const calls: ResumePeerOptions[] = [];
+		const { responseId, delivery } = sendPeerMessage(
+			{ fromPeerId: "p1", toPeerId: "p2", message: "ping", expectReply: true },
+			(opts) => {
+				calls.push(opts);
+				return {} as never;
+			},
+		);
+
+		expect(responseId).toBeTruthy();
+		expect(delivery).toEqual({ delivered: 1 });
+		expect(calls).toHaveLength(1);
+		expect(calls[0].prompt).toContain("[delamain inbox] from p1");
+		expect(calls[0].prompt).toContain(String(responseId));
 	});
 
 	it("does not resume when the receiver is working", async () => {

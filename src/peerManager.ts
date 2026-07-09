@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { createPeerWorktree, gitBranch, gitRoot, gitWorktreeInfo, resolveBaseBranch } from "./git.js";
 import { reconcileFinishedWaitingPeer } from "./lifecycle.js";
-import { drainDeliverable, formatInboxPrompt } from "./peerInbox.js";
+import { drainDeliverable, enqueuePeerMessage, formatInboxPrompt } from "./peerInbox.js";
 import { promptsDir, runsDir } from "./paths.js";
 import { getPeer, readState, updatePeer, upsertPeer } from "./store.js";
 import { killPid, killProcessGroup, pidAlive } from "./processes.js";
@@ -256,6 +256,27 @@ export function deliverPending(
   }
   resume({ peerId, prompt: formatInboxPrompt(messages) });
   return { delivered: messages.length };
+}
+
+export type SendPeerMessageInput = {
+  fromPeerId: string;
+  toPeerId: string;
+  message: string;
+  expectReply?: boolean;
+  responseId?: string;
+};
+
+// Single send surface shared by the MCP tool and the CLI: enqueue, then attempt
+// immediate turn-boundary delivery. Keeping both callers on this helper is what
+// guarantees the two surfaces can't diverge on delivery semantics (the CLI
+// shipped enqueue-only once; the live round-trip test caught it).
+export function sendPeerMessage(
+  input: SendPeerMessageInput,
+  resume: (options: ResumePeerOptions) => PeerRecord = resumePeer,
+): { responseId?: string; delivery: DeliverPendingResult } {
+  const { responseId } = enqueuePeerMessage(input);
+  const delivery = deliverPending(input.toPeerId, resume);
+  return { responseId, delivery };
 }
 
 export function listPeers(): PeerRecord[] {

@@ -1,10 +1,10 @@
 import {
-  deliverPending,
   killPeer,
   listPeers,
   peerStatus,
   readPeerLog,
   resumePeer,
+  sendPeerMessage,
   spawnGsdPhaseBatch,
   spawnPeer,
   spawnPeerAndWait,
@@ -14,7 +14,7 @@ import { expandSelectedPhases } from "./gsdPhaseList.js";
 import { inspectGsdMilestone } from "./gsdMilestone.js";
 import { integratePeer, IntegratePeerRefusedError } from "./peerIntegration.js";
 import { classifyFrozenBatch } from "./frozen-eligibility/index.js";
-import { enqueuePeerMessage, readPeerInbox } from "./peerInbox.js";
+import { readPeerInbox } from "./peerInbox.js";
 import type { SpawnSizingArgs, TaskScope } from "./taskSizing.js";
 import type { GsdPlanningMode } from "./types.js";
 
@@ -501,18 +501,15 @@ export async function callTool(name: unknown, rawArgs: unknown): Promise<unknown
         yolo: bypassEnabled(args),
       }));
     case "send_peer_message": {
-      const toPeerId = requiredString(args, "to_peer_id");
-      const { responseId } = enqueuePeerMessage({
+      // Shared enqueue + immediate turn-boundary delivery attempt; queued
+      // messages are picked up by the runner-exit drain at the next boundary.
+      const { responseId, delivery } = sendPeerMessage({
         fromPeerId: requiredString(args, "from_peer_id"),
-        toPeerId,
+        toPeerId: requiredString(args, "to_peer_id"),
         message: requiredString(args, "message"),
         expectReply: args.expect_reply === true,
         responseId: optionalString(args, "response_id"),
       });
-      // Attempt immediate turn-boundary delivery. No-op unless the receiver is
-      // at a boundary (waiting/idle/done); otherwise the message stays queued
-      // and the runner-exit drain picks it up on the receiver's next boundary.
-      const delivery = deliverPending(toPeerId);
       return json({ response_id: responseId ?? null, delivery });
     }
     case "read_peer_inbox":

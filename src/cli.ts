@@ -1,6 +1,6 @@
 import { readFileSync, realpathSync } from "node:fs";
-import { killPeer, listPeers, peerStatus, readPeerLog, resumePeer, spawnPeer } from "./peerManager.js";
-import { enqueuePeerMessage, readPeerInbox } from "./peerInbox.js";
+import { killPeer, listPeers, peerStatus, readPeerLog, resumePeer, sendPeerMessage, spawnPeer } from "./peerManager.js";
+import { readPeerInbox } from "./peerInbox.js";
 import { runWaitCommand, WAIT_USAGE } from "./wait.js";
 
 export async function runCliCommand(command: string, argv: string[]): Promise<void> {
@@ -88,14 +88,14 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
         throw new Error("Usage: delamain send --to <peer-id> --message <text> [--from <peer-id>] [--expect-reply] [--response-id <id>]");
       }
       const from = flagString(args, "from") || inferSelfPeerId();
-      const { responseId } = enqueuePeerMessage({
+      const { responseId, delivery } = sendPeerMessage({
         fromPeerId: from,
         toPeerId: to,
         message,
         expectReply: Boolean(args["expect-reply"]),
         responseId: flagString(args, "response-id"),
       });
-      console.log(JSON.stringify({ response_id: responseId ?? null }, null, 2));
+      console.log(JSON.stringify({ response_id: responseId ?? null, delivery }, null, 2));
       return;
     }
     case "inbox": {
