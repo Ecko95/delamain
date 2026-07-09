@@ -10,7 +10,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { peersHome } from "./paths.js";
-import { getPeer, upsertPeer } from "./store.js";
+import { getPeer, updatePeer, upsertPeer } from "./store.js";
 import { pushPeerBranch } from "./git.js";
 import type { PeerRecord } from "./types.js";
 
@@ -104,7 +104,11 @@ export async function integratePeer(
   if (!peer) throw new Error(`peer ${peerId} not found`);
   const auditLogPath = join(peersHome(), "integration-audit.log.jsonl");
   const result = await integratePeerWithRecord(peer, { auditLogPath });
-  upsertPeer(result.peer);
+  // Preserve the current (fresh) inbox over the stale pre-await snapshot in
+  // result.peer — mail can arrive DURING the long integration await. Fall back
+  // to upsert (insert-if-absent) if the peer vanished mid-integration.
+  const merged = updatePeer(result.peer.id, (cur) => ({ ...result.peer, inbox: cur.inbox }));
+  if (!merged) upsertPeer(result.peer);
   return result;
 }
 
