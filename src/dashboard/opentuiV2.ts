@@ -2,7 +2,7 @@ import { appendFileSync } from "node:fs";
 import { Box, Text, StyledText, createCliRenderer, fg as textColor, bg as textBg, dim as dimText, stringToStyledText, type TextChunk, type MouseEvent } from "@opentui/core";
 import { worktreeDiffStat } from "../git.js";
 import { killPeer, listPeers, resumePeer } from "../peerManager.js";
-import { readCodexUsage, type CodexUsageLimit, type CodexUsageLevel } from "../codexUsage.js";
+import { readCodexUsage, fetchCodexUsageLive, type CodexUsage, type CodexUsageLimit, type CodexUsageLevel } from "../codexUsage.js";
 import { formatSupervisorTime, readSupervisorTelegramStatus, type SupervisorTelegramStatus } from "../supervisorStatus.js";
 import type { PeerRecord } from "../types.js";
 import { LogBuffer } from "./logEvents.js";
@@ -80,6 +80,27 @@ export async function runOpenTuiDashboardV2(): Promise<void> {
   let lastDiffRefresh = 0;
   let cachedUsage = readCodexUsage();
   let lastUsageRefresh = 0;
+  // Live wham/usage adds the spark bucket; log-based readCodexUsage is the offline fallback.
+  let liveUsage: CodexUsage | undefined;
+  let lastLiveUsageFetch = 0;
+  let liveUsageInflight = false;
+  const maybeFetchLiveUsage = (now: number): void => {
+    if (liveUsageInflight || now - lastLiveUsageFetch < USAGE_REFRESH_MS) {
+      return;
+    }
+    liveUsageInflight = true;
+    lastLiveUsageFetch = now;
+    fetchCodexUsageLive()
+      .then((usage) => {
+        if (usage) {
+          liveUsage = usage;
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        liveUsageInflight = false;
+      });
+  };
   let cachedSupervisorPeerId: string | undefined;
   let cachedSupervisorStatus = readSupervisorTelegramStatus(undefined);
   let lastSupervisorRefresh = 0;
@@ -123,11 +144,13 @@ export async function runOpenTuiDashboardV2(): Promise<void> {
         return cachedDiffText;
       },
       codexUsageProvider: () => {
+        maybeFetchLiveUsage(currentTime);
         if (currentTime - lastUsageRefresh >= USAGE_REFRESH_MS) {
           cachedUsage = readCodexUsage();
           lastUsageRefresh = currentTime;
         }
-        return cachedUsage;
+        // Prefer live (has the spark bucket); fall back to log-based codex-only usage.
+        return liveUsage ?? cachedUsage;
       },
     });
     state.selectedIndex = view.selectedIndex;
@@ -168,12 +191,17 @@ export async function runOpenTuiDashboardV2(): Promise<void> {
   process.once("SIGTERM", quit);
 
   try {
-    refresh();
     if (process.env.CODEX_PEERS_DASHBOARD_SMOKE === "1") {
+      // Smoke renders a single frame; prime the live usage first so the spark
+      // bucket is present in that frame (interactive mode gets it via the loop).
+      liveUsage = (await fetchCodexUsageLive()) ?? liveUsage;
+      lastLiveUsageFetch = Date.now();
+      refresh();
       await renderer.idle();
       cleanup();
       return;
     }
+    refresh();
     interval = setInterval(refresh, 120);
     await new Promise<void>(() => {});
   } finally {
@@ -283,7 +311,7 @@ function wideGrid(
   supervisor: SupervisorTelegramStatus,
 ) {
   const logsHeight = Math.max(9, Math.floor(screenHeight * 0.22));
-  const auxHeight = 7;
+  const auxHeight = 8; // fits codex 5h/weekly + ⚡ spark 5.3 header + spark 5h/weekly
   const mainHeight = Math.max(14, screenHeight - logsHeight - auxHeight - 9);
   const peersWidth = Math.max(44, Math.floor(screenWidth * 0.32));
   const detailsWidth = Math.max(40, Math.floor(screenWidth * 0.3));
@@ -397,11 +425,17 @@ function limitsPane(view: DashboardViewModel, state: RuntimeState, extra?: Recor
       return styledText(...dimmedChunks("Waiting for Codex rate-limit telemetry", state.theme));
     }
     const chunks: TextChunk[] = [];
+    let sparkHeaderShown = false;
     view.codexUsage.limits.forEach((limit, index) => {
-      chunks.push(...limitLine(limit, 12, state.theme));
-      if (index < view.codexUsage!.limits.length - 1) {
+      if (index > 0) {
         chunks.push(...plainChunks("\n"));
       }
+      // Label the separate gpt-5.3-codex-spark bucket with a thunderbolt header.
+      if (limit.family === "spark" && !sparkHeaderShown) {
+        chunks.push(textColor("#ffd166")("⚡ spark 5.3"), ...plainChunks("\n"));
+        sparkHeaderShown = true;
+      }
+      chunks.push(...limitLine(limit, 12, state.theme));
     });
     return styledText(...chunks);
   });
@@ -737,13 +771,14 @@ function limitLine(limit: CodexUsageLimit, barWidth: number, theme: Theme): Text
   const used = Math.max(0, Math.min(barWidth, Math.round((limit.usedPercent / 100) * barWidth)));
   const bar = "█".repeat(used) + "░".repeat(barWidth - used);
   const prefix = limit.level === "skull" ? "💀 " : "";
+  const color = usageLevelColor(limit.level, theme);
   const chunks: TextChunk[] = [
-    textColor(usageLevelColor(limit.level, theme))(`${prefix}${limit.label.padEnd(6)} `),
-    textColor(usageLevelColor(limit.level, theme))(`[${bar}]`),
-    textColor(usageLevelColor(limit.level, theme))(` ${remaining}% left`),
+    textColor(color)(`${prefix}${limit.label.padEnd(6)} `),
+    textColor(color)(`[${bar}]`),
+    textColor(color)(` ${remaining}% left`),
   ];
   if (limit.resetAt) {
-    chunks.push(...dimmedChunks(`\n       ${resetLabel(limit)}`, theme));
+    chunks.push(...dimmedChunks(`  ${resetLabel(limit)}`, theme));
   }
   return chunks;
 }

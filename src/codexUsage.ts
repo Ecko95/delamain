@@ -1,8 +1,12 @@
-import { existsSync, openSync, closeSync, fstatSync, readSync, statSync, readdirSync } from "node:fs";
+import { existsSync, openSync, closeSync, fstatSync, readSync, statSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 export type CodexUsageLevel = "green" | "yellow" | "red" | "skull";
+
+// "codex" = the shared main bucket; "spark" = the separate gpt-5.3-codex-spark
+// bucket, only available from the live wham/usage endpoint (never in local logs).
+export type CodexUsageFamily = "codex" | "spark";
 
 export type CodexUsageLimit = {
   label: string;
@@ -11,6 +15,7 @@ export type CodexUsageLimit = {
   windowMinutes?: number;
   resetAt?: string;
   level: CodexUsageLevel;
+  family?: CodexUsageFamily;
 };
 
 export type CodexUsage = {
@@ -67,6 +72,99 @@ export function readCodexUsage(options: { home?: string; maxBytes?: number } = {
     }
   }
   return latest ? usageFromRateLimitEvent(latest.event, latest.source) : undefined;
+}
+
+// --- live usage (wham/usage) — the only source of the spark bucket ----------
+// Endpoint + shape confirmed against the open-source codex client
+// (codex-rs/backend-client). Auth is READ-ONLY on ~/.codex/auth.json: we use the
+// access_token as-is and never refresh/rewrite it (refresh tokens rotate; a bad
+// write would break the codex CLI login). On any failure we return undefined and
+// the caller falls back to the log-based (codex-only) usage.
+const WHAM_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+const SPARK_METERED_FEATURE = "codex_bengalfox";
+
+type RawUsageWindow = { used_percent?: unknown; limit_window_seconds?: unknown; reset_at?: unknown };
+type RawRateLimitBlock = { primary_window?: RawUsageWindow | null; secondary_window?: RawUsageWindow | null };
+type RawAdditionalLimit = { limit_name?: unknown; metered_feature?: unknown; rate_limit?: RawRateLimitBlock | null };
+type RawWhamUsage = { plan_type?: unknown; rate_limit?: RawRateLimitBlock | null; additional_rate_limits?: RawAdditionalLimit[] | null };
+
+export async function fetchCodexUsageLive(options: { home?: string; signal?: AbortSignal } = {}): Promise<CodexUsage | undefined> {
+  const home = options.home || codexHome();
+  let token: string | undefined;
+  let accountId: string | undefined;
+  try {
+    const auth = JSON.parse(readFileSync(join(home, "auth.json"), "utf8")) as {
+      tokens?: { access_token?: string; account_id?: string };
+    };
+    token = auth.tokens?.access_token;
+    accountId = auth.tokens?.account_id;
+  } catch {
+    return undefined;
+  }
+  if (!token) {
+    return undefined;
+  }
+  try {
+    const response = await fetch(WHAM_USAGE_URL, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
+        "User-Agent": "delamain-dashboard",
+      },
+      signal: options.signal,
+    });
+    if (!response.ok) {
+      return undefined;
+    }
+    return usageFromWham((await response.json()) as RawWhamUsage);
+  } catch {
+    return undefined;
+  }
+}
+
+export function usageFromWham(payload: RawWhamUsage, source = WHAM_USAGE_URL): CodexUsage | undefined {
+  const limits = blockToLimits(payload.rate_limit, "codex");
+  const additional = Array.isArray(payload.additional_rate_limits) ? payload.additional_rate_limits : [];
+  const spark = additional.find(
+    (entry) => entry && (entry.metered_feature === SPARK_METERED_FEATURE || /spark/i.test(String(entry.limit_name ?? ""))),
+  );
+  if (spark) {
+    limits.push(...blockToLimits(spark.rate_limit, "spark"));
+  }
+  if (limits.length === 0) {
+    return undefined;
+  }
+  return {
+    planType: typeof payload.plan_type === "string" ? payload.plan_type : undefined,
+    limits,
+    source,
+  };
+}
+
+function blockToLimits(block: RawRateLimitBlock | null | undefined, family: CodexUsageFamily): CodexUsageLimit[] {
+  return [windowToLimit(block?.primary_window, family), windowToLimit(block?.secondary_window, family)].filter(
+    (limit): limit is CodexUsageLimit => Boolean(limit),
+  );
+}
+
+function windowToLimit(window: RawUsageWindow | null | undefined, family: CodexUsageFamily): CodexUsageLimit | undefined {
+  const usedPercent = numeric(window?.used_percent);
+  if (usedPercent === undefined) {
+    return undefined;
+  }
+  const seconds = numeric(window?.limit_window_seconds);
+  const windowMinutes = seconds === undefined ? undefined : Math.round(seconds / 60);
+  const remainingPercent = clampPercent(100 - usedPercent);
+  const resetAtSeconds = numeric(window?.reset_at);
+  return {
+    label: usageLabel(windowMinutes),
+    usedPercent: clampPercent(usedPercent),
+    remainingPercent,
+    windowMinutes,
+    resetAt: resetAtSeconds === undefined ? undefined : new Date(resetAtSeconds * 1000).toISOString(),
+    level: usageLevel(remainingPercent),
+    family,
+  };
 }
 
 export function usageLevel(remainingPercent: number): CodexUsageLevel {
