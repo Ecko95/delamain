@@ -60,6 +60,18 @@ Order: T1 → (T2 ∥ T3) → T4 → Fable review gate.
 - Diff review of `deliverPending` (status re-read + `threadId` guard + single resume), runner exit hook (try/catch, no-throw into exit path), MCP seam, and `formatInboxPrompt` (sender id, response-id, reply instructions): ACCEPTED, no changes requested.
 - Accepted residual risks: deliveredAt-before-resume loss window on spawn failure; double-drain under state.json write race (duplicate resume, not lost mail). Both named with upgrade paths.
 
+### Live two-peer round-trip (orchestrator, 2026-07-09)
+
+Isolated `DELAMAIN_HOME`, throwaway repo, two real codex peers (alice `47b4edf5`, bob `8093c454`):
+
+1. alice → bob `--expect-reply`: responseId minted, delivered at bob's boundary, bob resumed with the `[delamain inbox]` prompt. PASS (after fix below).
+2. bob autonomously executed the reply command verbatim (`delamain send --to 47b4edf5 --response-id e0a3132d… --message "PONG from bob"`), exit 0, thread correlated. PASS.
+3. alice resumed with the PONG and acknowledged ("ACK" in her log). PASS (after threadId repair, see race below).
+
+**Bug found and fixed:** CLI `send` shipped enqueue-only while the MCP tool delivered — both surfaces now route through a shared `sendPeerMessage()` in peerManager (regression test added; 64 tests green).
+
+**Race observed live (pre-existing, now with reproduction):** two concurrently-spawned runners clobbered alice's `threadId` via state.json read-modify-write — codex emitted `thread.started` but her record held `None`, so delivery skipped `no-thread` (mail stayed queued; the guard worked). Repaired manually from log evidence. Upgrade path: file locking or per-peer state records.
+
 ## Open risks
 
 - Concurrent state.json writers (pre-existing, now slightly wider surface) — per-peer lock is the upgrade path; `enqueuePeerMessage`/`drainDeliverable` use read-modify-write via `updatePeer`, so two concurrent MCP processes can still clobber. A boundary send racing the runner-exit drain can double-drain (both see undelivered) → at-most a duplicate resume, not lost mail.
