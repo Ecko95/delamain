@@ -914,22 +914,13 @@ function plainChunks(text: string): TextChunk[] {
   return stringToStyledText(text).chunks;
 }
 
-function rowRuleChunks(theme: Theme, width: number): TextChunk[] {
-  if (!theme.rowRule) {
-    return [];
-  }
-  return [textColor(theme.textDim)(theme.rowRule.repeat(width))];
-}
-
-function appendThemedLines(chunks: TextChunk[], lines: string[], theme: Theme, rowRuleWidth: number): void {
+function appendThemedLines(chunks: TextChunk[], lines: string[], theme: Theme, _rowRuleWidth: number): void {
+  // Log lines are dense/contiguous — no rule between them (the per-line ───
+  // separators read as visual noise in a fast-scrolling log).
   lines.forEach((line, index) => {
     chunks.push(...logLineChunks(line, theme));
     if (index < lines.length - 1) {
       chunks.push(...plainChunks("\n"));
-      if (theme.rowRule) {
-        chunks.push(...rowRuleChunks(theme, rowRuleWidth));
-        chunks.push(...plainChunks("\n"));
-      }
     }
   });
 }
