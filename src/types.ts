@@ -99,6 +99,9 @@ export type PeerRecord = {
   // Citadel-adoption: ids of peers whose work this peer builds on. Integration
   // is refused until every dependency has integrationStatus "merged".
   dependsOn?: string[];
+  // Citadel-adoption: repo-relative path prefixes this peer intends to write.
+  // Suffix ":ro" marks a read-only claim (never conflicts). Enforced at spawn.
+  claims?: string[];
   // S1/S2 context-window observability (codex engine). SEPARATE from `status`;
   // computed from the peer's session JSONL in codexContext.ts. Absent until the
   // first token_count event is seen.
@@ -158,6 +161,8 @@ export type SpawnPeerOptions = {
   developerInstructions?: string;
   codexConfig?: string[];
   dependsOn?: string[];
+  claims?: string[];
+  claimsOverride?: boolean;
 };
 
 export type ResumePeerOptions = {

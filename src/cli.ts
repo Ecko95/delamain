@@ -13,7 +13,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       const prompt = flagString(args, "prompt") || readStdin();
       const repo = flagString(args, "repo");
       if (!repo || !prompt) {
-        throw new Error("Usage: delamain spawn --repo <git-repo> --prompt <task> [--name <name>] [--start-ref <ref>] [--merge-branch <branch>] [--engine codex|cursor] [--model <model>] [--yolo] [--depends-on <peer-id,peer-id>]");
+        throw new Error("Usage: delamain spawn --repo <git-repo> --prompt <task> [--name <name>] [--start-ref <ref>] [--merge-branch <branch>] [--engine codex|cursor] [--model <model>] [--yolo] [--depends-on <peer-id,peer-id>] [--claims <path,path:ro>] [--claims-override]");
       }
       console.log(JSON.stringify(spawnPeer({
         repo,
@@ -28,6 +28,8 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
         engine: flagString(args, "engine") as "codex" | "cursor" | undefined,
         cursorOptions: buildCursorOptions(args),
         dependsOn: flagString(args, "depends-on")?.split(",").map((s) => s.trim()).filter(Boolean),
+        claims: flagString(args, "claims")?.split(",").map((s) => s.trim()).filter(Boolean),
+        claimsOverride: Boolean(args["claims-override"]),
       }), null, 2));
       return;
     }
@@ -286,7 +288,7 @@ Commands:
   --d, -d                        Run the live terminal dashboard
   --d2, -d2                      Run the v2 grid terminal dashboard
   tmux-status                    Print one tmux status-line summary
-  spawn --repo <git-repo> --prompt <task> [--start-ref <ref>] [--merge-branch <branch>] [--target-branch <branch>] [--engine codex|cursor] [--model <model>] [--sandbox <mode>] [--yolo] [--depends-on <peer-id,peer-id>]
+  spawn --repo <git-repo> --prompt <task> [--start-ref <ref>] [--merge-branch <branch>] [--target-branch <branch>] [--engine codex|cursor] [--model <model>] [--sandbox <mode>] [--yolo] [--depends-on <peer-id,peer-id>] [--claims <path,path:ro>] [--claims-override]
         cursor engine: [--cursor-cloud] [--cursor-approve-mcps] [--no-cursor-force]
   resume <peer-id> --prompt <message> [--model <model>] [--yolo]
   list
