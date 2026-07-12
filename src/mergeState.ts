@@ -4,7 +4,7 @@ import { updatePeer } from "./store.js";
 import type { PeerRecord } from "./types.js";
 
 export type PrView = {
-  state: "OPEN" | "MERGED" | "CLOSED" | string;
+  state: "OPEN" | "MERGED" | "CLOSED" | (string & {});
   mergeCommit?: { oid?: string } | null;
 };
 
@@ -24,11 +24,10 @@ export function applyPrState(peer: PeerRecord, pr: PrView): PeerRecord | undefin
     };
   }
   if (pr.state === "CLOSED") {
-    return {
-      ...peer,
-      integrationError: `PR #${peer.integrationPrNumber} closed without merge`,
-      lastEvent: `PR #${peer.integrationPrNumber} closed without merge`,
-    };
+    const message = `PR #${peer.integrationPrNumber} closed without merge`;
+    // Idempotent: already recorded — don't rewrite state / re-report as changed.
+    if (peer.integrationError === message) return undefined;
+    return { ...peer, integrationError: message, lastEvent: message };
   }
   return undefined;
 }
@@ -46,23 +45,30 @@ export function ghPrView(peer: PeerRecord): PrView {
 
 /** Refresh one peer; returns the updated record or undefined when unchanged. */
 export function refreshMergeState(peer: PeerRecord, view: GhPrViewFn = ghPrView): PeerRecord | undefined {
+  if (peer.integrationStatus !== "pushed" || !peer.integrationPrNumber) return undefined;
   let pr: PrView;
   try {
     pr = view(peer);
-  } catch {
+  } catch (error) {
     // gh unavailable / network / PR deleted — leave the record alone.
+    console.error(`merge-state: peer ${peer.id}: gh pr view failed: ${error instanceof Error ? error.message : String(error)}`);
     return undefined;
   }
-  const next = applyPrState(peer, pr);
-  if (!next) return undefined;
-  return updatePeer(peer.id, () => next);
+  if (!applyPrState(peer, pr)) return undefined;
+  // Re-apply against the fresh record inside updatePeer's locked read-modify-write
+  // so a snapshot taken before the gh call can't clobber concurrent updates.
+  let changed: PeerRecord | undefined;
+  updatePeer(peer.id, (fresh) => {
+    changed = applyPrState(fresh, pr);
+    return changed ?? fresh;
+  });
+  return changed;
 }
 
 /** Refresh every pushed-with-PR peer. Returns the records that changed. */
 export function refreshAllMergeStates(view: GhPrViewFn = ghPrView): PeerRecord[] {
   const changed: PeerRecord[] = [];
   for (const peer of listPeers()) {
-    if (peer.integrationStatus !== "pushed" || !peer.integrationPrNumber) continue;
     const next = refreshMergeState(peer, view);
     if (next) changed.push(next);
   }
