@@ -1,4 +1,4 @@
-import type { PeerRecord } from "../types.js";
+import { TERMINAL_PEER_STATUSES, type PeerRecord } from "../types.js";
 import { fleetStageForStatus, type DashboardPeerRow, type DashboardStatus } from "./model.js";
 import { cyberpunkTheme, defaultTheme, type Theme } from "./theme.js";
 import { initialThemeFromEnv } from "./v2Input.js";
@@ -546,7 +546,7 @@ export type PaletteEntry = {
   run: (state: RuntimeStateV3, actions: DashboardV3Actions) => void;
 };
 
-const TERMINAL_STATUSES = new Set<DashboardStatus>(["done", "failed", "killed", "gsd_completed", "gsd_failed"]);
+const TERMINAL_STATUSES = new Set<DashboardStatus>(TERMINAL_PEER_STATUSES);
 
 export function paletteEntries(state: RuntimeStateV3): PaletteEntry[] {
   const entries: PaletteEntry[] = [];

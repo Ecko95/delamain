@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -75,6 +75,49 @@ describe("sweepPeers", () => {
     const result = sweepPeers({ nowMs: NOW, olderThanDays: 7, dryRun: true });
     expect(result.archived.map((p) => p.id)).toEqual(["old00000"]);
     expect(readState().peers).toHaveLength(1);
+    expect(existsSync(archivePath())).toBe(false);
+  });
+
+  it("leaves waiting peers alone even with dead pids and a stale heartbeat", () => {
+    const waiting = peer("wait0000", {
+      status: "waiting",
+      runnerPid: 999999999,
+      lastHeartbeatAt: new Date(NOW - 2 * DAY).toISOString(),
+    });
+    writeState({ version: 1, updatedAt: new Date(NOW).toISOString(), peers: [waiting] });
+
+    const result = sweepPeers({ nowMs: NOW, olderThanDays: 7 });
+
+    expect(result.markedDead).toEqual([]);
+    expect(readState().peers[0].status).toBe("waiting");
+  });
+
+  it("leaves gsd_phase_batch peers alone (no pids by design)", () => {
+    const gsd = peer("gsd00000", {
+      status: "working",
+      kind: "gsd_phase_batch",
+      lastHeartbeatAt: new Date(NOW - 2 * DAY).toISOString(),
+    });
+    writeState({ version: 1, updatedAt: new Date(NOW).toISOString(), peers: [gsd] });
+
+    const result = sweepPeers({ nowMs: NOW, olderThanDays: 7 });
+
+    expect(result.markedDead).toEqual([]);
+    expect(readState().peers[0].status).toBe("working");
+  });
+
+  it("renames a corrupt archive aside and still writes the swept peers", () => {
+    const old = peer("old00000", { status: "done", finishedAt: new Date(NOW - 10 * DAY).toISOString() });
+    writeState({ version: 1, updatedAt: new Date(NOW).toISOString(), peers: [old] });
+    writeFileSync(archivePath(), "not json", "utf8");
+
+    sweepPeers({ nowMs: NOW, olderThanDays: 7 });
+
+    const archive = JSON.parse(readFileSync(archivePath(), "utf8"));
+    expect(archive.peers.map((p: PeerRecord) => p.id)).toEqual(["old00000"]);
+    const corrupt = readdirSync(home).filter((name) => name.startsWith("state.archive.json.corrupt-"));
+    expect(corrupt).toHaveLength(1);
+    expect(readFileSync(join(home, corrupt[0]), "utf8")).toBe("not json");
   });
 
   it("appends to an existing archive instead of clobbering it", () => {

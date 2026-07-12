@@ -19,6 +19,16 @@ export type PeerStatus =
   | "gsd_completed"
   | "gsd_failed";
 
+// Statuses that mean the peer's run is over. Shared by the sweep and the
+// dashboards (see dashboard/v3Input.ts) so membership has one source of truth.
+export const TERMINAL_PEER_STATUSES: ReadonlySet<PeerStatus> = new Set<PeerStatus>([
+  "done",
+  "failed",
+  "killed",
+  "gsd_completed",
+  "gsd_failed",
+]);
+
 export type PeerIntegrationStatus = "pending" | "skipped" | "pushed" | "failed" | "merged";
 
 export type PeerKind = "generic" | "gsd_phase_batch";

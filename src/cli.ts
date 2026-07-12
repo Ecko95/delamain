@@ -124,8 +124,15 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
     case "sweep": {
       const args = parseFlags(argv);
       const olderThan = flagString(args, "older-than");
+      let olderThanDays: number | undefined;
+      if (olderThan !== undefined) {
+        olderThanDays = Number(olderThan);
+        if (!Number.isFinite(olderThanDays) || olderThanDays < 0) {
+          throw new Error("--older-than must be a non-negative number of days");
+        }
+      }
       const result = sweepPeers({
-        olderThanDays: olderThan ? Number(olderThan) : undefined,
+        olderThanDays,
         dryRun: Boolean(args["dry-run"]),
       });
       console.log(JSON.stringify({

@@ -1,14 +1,17 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { archivePath } from "./paths.js";
 import { readState, writeState } from "./store.js";
+import { TERMINAL_PEER_STATUSES } from "./types.js";
 import type { PeerRecord, PeerState } from "./types.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Non-terminal peer with a dead pid and no heartbeat for this long => failed.
+// Pid-expected peer with a dead pid and no heartbeat for this long => failed.
 const DEAD_AFTER_MS = 6 * 60 * 60 * 1000;
 
-// Matches the dashboard's terminal set (src/dashboard/v3Input.ts).
-const TERMINAL_STATUSES = new Set(["done", "failed", "killed", "gsd_completed", "gsd_failed"]);
+// Statuses where a live pid is EXPECTED (mirrors peerManager's isActive).
+// waiting/idle peers persist their status as the process exits by design, and
+// GSD-kind peers carry no pids/heartbeats at all — never dead-mark those.
+const PID_EXPECTED_STATUSES = new Set<string>(["starting", "working"]);
 
 export type SweepOptions = {
   nowMs?: number;
@@ -32,9 +35,12 @@ function pidAlive(pid: number | undefined): boolean {
   }
 }
 
+function lastSeenStamp(peer: PeerRecord): string {
+  return peer.lastHeartbeatAt ?? peer.finishedAt ?? peer.updatedAt;
+}
+
 function lastSeenMs(peer: PeerRecord): number {
-  const stamp = peer.lastHeartbeatAt ?? peer.finishedAt ?? peer.updatedAt;
-  const ms = Date.parse(stamp);
+  const ms = Date.parse(lastSeenStamp(peer));
   return Number.isFinite(ms) ? ms : 0;
 }
 
@@ -64,9 +70,9 @@ function appendToArchive(peers: PeerRecord[]): void {
 
 /**
  * Citadel core/coordination/sweep.js pattern, adapted: (1) terminal peers older
- * than the cutoff move to state.archive.json; (2) non-terminal peers whose pids
- * are all dead and whose heartbeat is stale get marked failed (archived on the
- * NEXT sweep once they age past the cutoff).
+ * than the cutoff move to state.archive.json; (2) pid-expected peers (starting/
+ * working, non-GSD) whose pids are all dead and whose heartbeat is stale get
+ * marked failed (archived on the NEXT sweep once they age past the cutoff).
  *
  * ponytail: no state lock — the repo has none; read-modify-write with atomic
  * rename matches store.ts's updatePeer/upsertPeer. Add locking store-wide if
@@ -82,16 +88,16 @@ export function sweepPeers(options: SweepOptions = {}): SweepResult {
   const kept: PeerRecord[] = [];
 
   for (const peer of state.peers) {
-    const terminal = TERMINAL_STATUSES.has(peer.status);
-    if (terminal && lastSeenMs(peer) < cutoffMs) {
+    if (TERMINAL_PEER_STATUSES.has(peer.status) && lastSeenMs(peer) < cutoffMs) {
       archived.push(peer);
       continue;
     }
-    if (!terminal && !anyPidAlive(peer) && nowMs - lastSeenMs(peer) > DEAD_AFTER_MS) {
+    const pidExpected = PID_EXPECTED_STATUSES.has(peer.status) && peer.kind !== "gsd_phase_batch";
+    if (pidExpected && !anyPidAlive(peer) && nowMs - lastSeenMs(peer) > DEAD_AFTER_MS) {
       const dead: PeerRecord = {
         ...peer,
         status: "failed",
-        error: `swept: no live pids and no heartbeat since ${peer.lastHeartbeatAt ?? peer.updatedAt}`,
+        error: `swept: no live pids and no heartbeat since ${lastSeenStamp(peer)}`,
         finishedAt: peer.finishedAt ?? new Date(nowMs).toISOString(),
         updatedAt: new Date(nowMs).toISOString(),
       };
