@@ -3,6 +3,7 @@ import { killPeer, listPeers, peerStatus, readPeerLog, resumePeer, sendPeerMessa
 import { refreshAllMergeStates, refreshMergeState } from "./mergeState.js";
 import { getPeer } from "./store.js";
 import { readPeerInbox } from "./peerInbox.js";
+import { sweepPeers } from "./sweep.js";
 import { runWaitCommand, WAIT_USAGE } from "./wait.js";
 
 export async function runCliCommand(command: string, argv: string[]): Promise<void> {
@@ -118,6 +119,21 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       const args = parseFlags(positional ? argv.slice(1) : argv);
       const peerId = positional || inferSelfPeerId();
       console.log(JSON.stringify(readPeerInbox(peerId, { includeDelivered: Boolean(args.all) }), null, 2));
+      return;
+    }
+    case "sweep": {
+      const args = parseFlags(argv);
+      const olderThan = flagString(args, "older-than");
+      const result = sweepPeers({
+        olderThanDays: olderThan ? Number(olderThan) : undefined,
+        dryRun: Boolean(args["dry-run"]),
+      });
+      console.log(JSON.stringify({
+        archived: result.archived.map((p) => p.id),
+        markedDead: result.markedDead.map((p) => p.id),
+        kept: result.kept,
+        dryRun: Boolean(args["dry-run"]),
+      }, null, 2));
       return;
     }
     case "help":
@@ -274,6 +290,7 @@ Commands:
   wait <peer-id...> [--interval <seconds>] [--timeout <seconds>] [--any]
   send --to <peer-id> --message <text> [--from <peer-id>] [--expect-reply] [--response-id <id>]
   inbox [<peer-id>] [--all]
+  sweep [--dry-run] [--older-than <days>]  Archive stale terminal peers; mark dead-pid stale peers failed
 
 Peer-to-peer messaging:
   send/inbox move freeform messages between peers via a per-peer inbox
