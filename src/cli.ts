@@ -5,6 +5,7 @@ import { getPeer } from "./store.js";
 import { readPeerInbox } from "./peerInbox.js";
 import { sweepPeers } from "./sweep.js";
 import { runWaitCommand, WAIT_USAGE } from "./wait.js";
+import { wavesView } from "./waves.js";
 
 export async function runCliCommand(command: string, argv: string[]): Promise<void> {
   switch (command) {
@@ -142,6 +143,18 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
         markedDead: result.markedDead.map((p) => p.id),
         kept: result.kept,
         dryRun: Boolean(args["dry-run"]),
+      }, null, 2));
+      return;
+    }
+    case "waves": {
+      const view = wavesView(listPeers());
+      console.log(JSON.stringify({
+        running: view.running.map((p) => ({ id: p.id, task: p.task })),
+        awaitingIntegration: view.awaitingIntegration.map((p) => ({ id: p.id, task: p.task })),
+        mergeReady: view.mergeReady.map((p) => ({ id: p.id, pr: p.integrationPrUrl })),
+        mergeBlocked: view.mergeBlocked.map((x) => ({ id: x.peer.id, blockers: x.blockers })),
+        merged: view.merged.map((p) => ({ id: p.id, sha: p.integrationMergeCommitSha })),
+        claimConflicts: view.claimConflicts,
       }, null, 2));
       return;
     }
@@ -300,6 +313,7 @@ Commands:
   send --to <peer-id> --message <text> [--from <peer-id>] [--expect-reply] [--response-id <id>]
   inbox [<peer-id>] [--all]
   sweep [--dry-run] [--older-than <days>]  Archive stale terminal peers; mark dead-pid stale peers failed
+  waves                          Fleet readiness: running / merge-ready / merge-blocked / conflicts
 
 Peer-to-peer messaging:
   send/inbox move freeform messages between peers via a per-peer inbox
