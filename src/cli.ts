@@ -2,6 +2,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import { killPeer, listPeers, peerStatus, readPeerLog, resumePeer, sendPeerMessage, spawnPeer } from "./peerManager.js";
 import { refreshAllMergeStates, refreshMergeState } from "./mergeState.js";
 import { getPeer } from "./store.js";
+import { readPeerCost } from "./peerCost.js";
 import { readPeerInbox } from "./peerInbox.js";
 import { sweepPeers } from "./sweep.js";
 import { runWaitCommand, WAIT_USAGE } from "./wait.js";
@@ -144,6 +145,21 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
         kept: result.kept,
         dryRun: Boolean(args["dry-run"]),
       }, null, 2));
+      return;
+    }
+    case "cost": {
+      const peerId = argv[0];
+      let targets;
+      if (peerId) {
+        const peer = getPeer(peerId);
+        if (!peer) throw new Error(`No peer matching ${peerId}`);
+        targets = [peer];
+      } else {
+        targets = listPeers();
+      }
+      const rows = targets.map((p) => readPeerCost(p));
+      const total = rows.reduce((sum, r) => sum + (r.usd ?? 0), 0);
+      console.log(JSON.stringify({ peers: rows, totalUsd: Math.round(total * 100) / 100 }, null, 2));
       return;
     }
     case "waves": {
@@ -314,6 +330,7 @@ Commands:
   inbox [<peer-id>] [--all]
   sweep [--dry-run] [--older-than <days>]  Archive stale terminal peers; mark dead-pid stale peers failed
   waves                          Fleet readiness: running / merge-ready / merge-blocked / conflicts
+  cost [peer-id]                 Notional token cost per peer from codex rollout logs
 
 Peer-to-peer messaging:
   send/inbox move freeform messages between peers via a per-peer inbox
