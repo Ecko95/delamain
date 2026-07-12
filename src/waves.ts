@@ -1,4 +1,4 @@
-import { claimsOverlap, normalizeClaim } from "./claims.js";
+import { findClaimConflicts } from "./claims.js";
 import { validateMergeOrder, type MergeOrderBlocker } from "./mergeOrder.js";
 import { TERMINAL_PEER_STATUSES } from "./types.js";
 import type { PeerRecord } from "./types.js";
@@ -26,7 +26,9 @@ export function wavesView(peers: PeerRecord[]): WavesView {
   for (const peer of peers) {
     if (peer.integrationStatus === "merged") {
       view.merged.push(peer);
-    } else if (peer.integrationStatus === "pushed") {
+    } else if (peer.integrationStatus === "pushed" && TERMINAL_PEER_STATUSES.has(peer.status)) {
+      // A resumed peer keeps integrationStatus "pushed" while producing new
+      // commits — only terminal-status peers count as merge-ready/blocked.
       const order = validateMergeOrder(peer, peers);
       if (order.ok) view.mergeReady.push(peer);
       else view.mergeBlocked.push({ peer, blockers: order.blockers });
@@ -39,18 +41,8 @@ export function wavesView(peers: PeerRecord[]): WavesView {
 
   const active = peers.filter((p) => !TERMINAL_PEER_STATUSES.has(p.status));
   for (let i = 0; i < active.length; i++) {
-    for (let j = i + 1; j < active.length; j++) {
-      for (const oursRaw of active[i].claims ?? []) {
-        const ours = normalizeClaim(oursRaw);
-        if (ours.readOnly) continue;
-        for (const theirsRaw of active[j].claims ?? []) {
-          const theirs = normalizeClaim(theirsRaw);
-          if (theirs.readOnly) continue;
-          if (claimsOverlap(ours.path, theirs.path)) {
-            view.claimConflicts.push({ a: active[i].id, b: active[j].id, ours: ours.path, theirs: theirs.path });
-          }
-        }
-      }
+    for (const c of findClaimConflicts(active[i].claims ?? [], active.slice(i + 1))) {
+      view.claimConflicts.push({ a: active[i].id, b: c.peerId, ours: c.ours, theirs: c.theirs });
     }
   }
   return view;

@@ -24,6 +24,13 @@ describe("wavesView", () => {
     expect(view.merged.map((p) => p.id)).toEqual(["aaa"]);
   });
 
+  it("buckets a resumed pushed peer as running, not merge-ready", () => {
+    const resumed = peer("aaa", { status: "starting", integrationStatus: "pushed" });
+    const view = wavesView([resumed]);
+    expect(view.mergeReady).toHaveLength(0);
+    expect(view.running.map((p) => p.id)).toEqual(["aaa"]);
+  });
+
   it("reports claim conflicts among running peers", () => {
     const p1 = peer("aaa", { claims: ["src/api"] });
     const p2 = peer("bbb", { claims: ["src/api/users"] });
