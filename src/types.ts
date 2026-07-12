@@ -19,7 +19,7 @@ export type PeerStatus =
   | "gsd_completed"
   | "gsd_failed";
 
-export type PeerIntegrationStatus = "pending" | "skipped" | "pushed" | "failed";
+export type PeerIntegrationStatus = "pending" | "skipped" | "pushed" | "failed" | "merged";
 
 export type PeerKind = "generic" | "gsd_phase_batch";
 

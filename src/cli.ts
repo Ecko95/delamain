@@ -1,5 +1,7 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { killPeer, listPeers, peerStatus, readPeerLog, resumePeer, sendPeerMessage, spawnPeer } from "./peerManager.js";
+import { refreshAllMergeStates, refreshMergeState } from "./mergeState.js";
+import { getPeer } from "./store.js";
 import { readPeerInbox } from "./peerInbox.js";
 import { runWaitCommand, WAIT_USAGE } from "./wait.js";
 
@@ -46,6 +48,18 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
         throw new Error("Usage: delamain status <peer-id>");
       }
       console.log(JSON.stringify(peerStatus(peerId), null, 2));
+      return;
+    }
+    case "merge-state": {
+      const peerId = argv[0];
+      if (peerId) {
+        const peer = getPeer(peerId);
+        if (!peer) throw new Error(`No peer matching ${peerId}`);
+        const next = refreshMergeState(peer);
+        console.log(JSON.stringify(next ?? { unchanged: true, id: peer.id, integrationStatus: peer.integrationStatus }, null, 2));
+        return;
+      }
+      console.log(JSON.stringify(refreshAllMergeStates(), null, 2));
       return;
     }
     case "log": {
@@ -253,6 +267,7 @@ Commands:
   resume <peer-id> --prompt <message> [--model <model>] [--yolo]
   list
   status <peer-id>
+  merge-state [peer-id]          Refresh merged/closed state of pushed PRs via gh
   log <peer-id> [lines]
   kill <peer-id> [SIGTERM|SIGKILL]
   wait <peer-id...> [--interval <seconds>] [--timeout <seconds>] [--any]
