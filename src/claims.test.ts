@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claimsOverlap, findClaimConflicts, normalizeClaim } from "./claims.js";
+import { assertValidClaims, claimsOverlap, findClaimConflicts, normalizeClaim } from "./claims.js";
 import type { PeerRecord } from "./types.js";
 
 function activePeer(id: string, claims: string[], status = "working"): PeerRecord {
@@ -19,6 +19,20 @@ describe("claimsOverlap", () => {
     expect(claimsOverlap("src/api/users", "src/api")).toBe(true);
     expect(claimsOverlap("src/api", "src/apiV2")).toBe(false);
     expect(claimsOverlap("src/api", "src/web")).toBe(false);
+  });
+
+  it("exact equality overlaps", () => {
+    expect(claimsOverlap("src/api", "src/api")).toBe(true);
+  });
+});
+
+describe("assertValidClaims", () => {
+  it("accepts repo-relative paths and :ro claims", () => {
+    expect(() => assertValidClaims(["src/api", "docs:ro"])).not.toThrow();
+  });
+
+  it.each([".", "./", "/abs/path", "a/../b", "a\\b", "docs:ro/"])("rejects %j naming the bad claim", (claim) => {
+    expect(() => assertValidClaims([claim])).toThrow(`Invalid claim "${claim}"`);
   });
 });
 

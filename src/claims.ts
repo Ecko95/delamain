@@ -12,6 +12,29 @@ export function normalizeClaim(raw: string): Claim {
   return { path, readOnly };
 }
 
+/**
+ * Reject degenerate claims that could never overlap anything (and would persist
+ * that way, leaving every future spawn unprotected): empty/".", absolute paths,
+ * ".." segments, backslashes, or a stray ":" (e.g. "docs:ro/" — the trailing
+ * slash defeats the :ro suffix, so ":" survives into the write-claim path).
+ * Applies to ALL claims including :ro; claimsOverride never skips this.
+ */
+export function assertValidClaims(raw: string[]): void {
+  for (const claim of raw) {
+    const { path } = normalizeClaim(claim);
+    const bad =
+      path === "" ||
+      path === "." ||
+      path.startsWith("/") ||
+      path.includes(":") ||
+      path.includes("\\") ||
+      path.split("/").includes("..");
+    if (bad) {
+      throw new Error(`Invalid claim "${claim}": expected a repo-relative path prefix, optionally suffixed :ro (e.g. src/api or docs:ro).`);
+    }
+  }
+}
+
 /** Prefix overlap on path-segment boundaries: src/api ~ src/api/users, not src/apiV2. */
 export function claimsOverlap(a: string, b: string): boolean {
   if (a === b) return true;
