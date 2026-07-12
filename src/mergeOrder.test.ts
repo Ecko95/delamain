@@ -32,6 +32,14 @@ describe("validateMergeOrder", () => {
     expect(result.blockers[0]).toMatchObject({ dep: "bbb", status: "pushed" });
   });
 
+  it("blocks with status 'pending' when a dependency has no integrationStatus", () => {
+    const d = peer("ddd", undefined);
+    const c = peer("ccc", "pushed", ["ddd"]);
+    const result = validateMergeOrder(c, [d, c]);
+    expect(result.ok).toBe(false);
+    expect(result.blockers[0]).toMatchObject({ dep: "ddd", status: "pending" });
+  });
+
   it("blocks on missing dependencies", () => {
     const c = peer("ccc", "pushed", ["zzz"]);
     const result = validateMergeOrder(c, [c]);

@@ -263,7 +263,7 @@ Commands:
   --d, -d                        Run the live terminal dashboard
   --d2, -d2                      Run the v2 grid terminal dashboard
   tmux-status                    Print one tmux status-line summary
-  spawn --repo <git-repo> --prompt <task> [--start-ref <ref>] [--merge-branch <branch>] [--target-branch <branch>] [--engine codex|cursor] [--model <model>] [--sandbox <mode>] [--yolo]
+  spawn --repo <git-repo> --prompt <task> [--start-ref <ref>] [--merge-branch <branch>] [--target-branch <branch>] [--engine codex|cursor] [--model <model>] [--sandbox <mode>] [--yolo] [--depends-on <peer-id,peer-id>]
         cursor engine: [--cursor-cloud] [--cursor-approve-mcps] [--no-cursor-force]
   resume <peer-id> --prompt <message> [--model <model>] [--yolo]
   list

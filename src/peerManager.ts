@@ -54,11 +54,11 @@ export function spawnPeer(options: SpawnPeerOptions & SpawnSizingArgs): PeerReco
   // resolved id — validateMergeOrder later does exact-id lookups.
   const dependsOnInput = options.dependsOn?.filter(Boolean);
   const dependsOn = dependsOnInput?.length
-    ? dependsOnInput.map((dep) => {
+    ? [...new Set(dependsOnInput.map((dep) => {
         const resolved = getPeer(dep);
         if (!resolved) throw new Error(`--depends-on: no peer matching ${dep}`);
         return resolved.id;
-      })
+      }))]
     : undefined;
   const mergeBranch = resolveBaseBranch(sourceRepo, options.mergeBranch || options.targetBranch);
   const isolated = createPeerWorktree(repo, id, {

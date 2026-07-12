@@ -112,7 +112,7 @@ export async function integratePeer(
       peer.id,
       peer.status,
       `merge-order: ${order.blockers.map((b) => `${b.dep} is ${b.status}`).join(", ")}. ` +
-        `Merge dependencies first (delamain merge-state), or spawn without --depends-on.`,
+        `Merge dependencies first (delamain merge-state).`,
     );
   }
   const auditLogPath = join(peersHome(), "integration-audit.log.jsonl");
