@@ -86,6 +86,9 @@ export type PeerRecord = {
   integrationMergeCommitSha?: string;
   integrationPrNumber?: number;
   integrationPrUrl?: string;
+  // Citadel-adoption: ids of peers whose work this peer builds on. Integration
+  // is refused until every dependency has integrationStatus "merged".
+  dependsOn?: string[];
   // S1/S2 context-window observability (codex engine). SEPARATE from `status`;
   // computed from the peer's session JSONL in codexContext.ts. Absent until the
   // first token_count event is seen.
@@ -144,6 +147,7 @@ export type SpawnPeerOptions = {
   reasoningEffort?: ReasoningEffort;
   developerInstructions?: string;
   codexConfig?: string[];
+  dependsOn?: string[];
 };
 
 export type ResumePeerOptions = {

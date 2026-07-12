@@ -49,6 +49,17 @@ export function spawnPeer(options: SpawnPeerOptions & SpawnSizingArgs): PeerReco
       : options.sizeOverride && sizing.reasons.length > 0
         ? `sizing: override — ${sizing.reasons.join("; ")}`
         : "";
+  // Citadel-adoption: validate + persist merge-order dependencies before any
+  // worktree is provisioned. getPeer matches by id-prefix, so persist the FULL
+  // resolved id — validateMergeOrder later does exact-id lookups.
+  const dependsOnInput = options.dependsOn?.filter(Boolean);
+  const dependsOn = dependsOnInput?.length
+    ? dependsOnInput.map((dep) => {
+        const resolved = getPeer(dep);
+        if (!resolved) throw new Error(`--depends-on: no peer matching ${dep}`);
+        return resolved.id;
+      })
+    : undefined;
   const mergeBranch = resolveBaseBranch(sourceRepo, options.mergeBranch || options.targetBranch);
   const isolated = createPeerWorktree(repo, id, {
     startRef: options.startRef,
@@ -85,6 +96,7 @@ export function spawnPeer(options: SpawnPeerOptions & SpawnSizingArgs): PeerReco
     reasoningEffort: options.reasoningEffort,
     developerInstructions: options.developerInstructions,
     codexConfig: options.codexConfig,
+    dependsOn,
     startedAt: now(),
     updatedAt: now(),
     lastHeartbeatAt: now(),

@@ -10,8 +10,9 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { peersHome } from "./paths.js";
-import { getPeer, upsertPeer } from "./store.js";
+import { getPeer, readState, upsertPeer } from "./store.js";
 import { pushPeerBranch } from "./git.js";
+import { validateMergeOrder } from "./mergeOrder.js";
 import type { PeerRecord } from "./types.js";
 
 export type IntegrationOutcome = {
@@ -102,6 +103,18 @@ export async function integratePeer(
 ): Promise<{ peer: PeerRecord; outcome: IntegrationOutcome }> {
   const peer = getPeer(peerId);
   if (!peer) throw new Error(`peer ${peerId} not found`);
+  // Citadel-adoption merge-order gate: refuse until every dependsOn peer is
+  // merged. Lives here (not in integratePeerWithRecord, which stays pure of
+  // the store) so unit tests can still drive the core with fixtures.
+  const order = validateMergeOrder(peer, readState().peers);
+  if (!order.ok) {
+    throw new IntegratePeerRefusedError(
+      peer.id,
+      peer.status,
+      `merge-order: ${order.blockers.map((b) => `${b.dep} is ${b.status}`).join(", ")}. ` +
+        `Merge dependencies first (delamain merge-state), or spawn without --depends-on.`,
+    );
+  }
   const auditLogPath = join(peersHome(), "integration-audit.log.jsonl");
   const result = await integratePeerWithRecord(peer, { auditLogPath });
   upsertPeer(result.peer);

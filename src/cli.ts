@@ -12,7 +12,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       const prompt = flagString(args, "prompt") || readStdin();
       const repo = flagString(args, "repo");
       if (!repo || !prompt) {
-        throw new Error("Usage: delamain spawn --repo <git-repo> --prompt <task> [--name <name>] [--start-ref <ref>] [--merge-branch <branch>] [--engine codex|cursor] [--model <model>] [--yolo]");
+        throw new Error("Usage: delamain spawn --repo <git-repo> --prompt <task> [--name <name>] [--start-ref <ref>] [--merge-branch <branch>] [--engine codex|cursor] [--model <model>] [--yolo] [--depends-on <peer-id,peer-id>]");
       }
       console.log(JSON.stringify(spawnPeer({
         repo,
@@ -26,6 +26,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
         yolo: bypassEnabled(args),
         engine: flagString(args, "engine") as "codex" | "cursor" | undefined,
         cursorOptions: buildCursorOptions(args),
+        dependsOn: flagString(args, "depends-on")?.split(",").map((s) => s.trim()).filter(Boolean),
       }), null, 2));
       return;
     }
