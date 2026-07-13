@@ -1,7 +1,12 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { killPeer, listPeers, peerStatus, readPeerLog, resumePeer, sendPeerMessage, spawnPeer } from "./peerManager.js";
+import { refreshAllMergeStates, refreshMergeState } from "./mergeState.js";
+import { getPeer } from "./store.js";
+import { readPeerCost } from "./peerCost.js";
 import { readPeerInbox } from "./peerInbox.js";
+import { sweepPeers } from "./sweep.js";
 import { runWaitCommand, WAIT_USAGE } from "./wait.js";
+import { wavesView } from "./waves.js";
 
 export async function runCliCommand(command: string, argv: string[]): Promise<void> {
   switch (command) {
@@ -10,7 +15,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       const prompt = flagString(args, "prompt") || readStdin();
       const repo = flagString(args, "repo");
       if (!repo || !prompt) {
-        throw new Error("Usage: delamain spawn --repo <git-repo> --prompt <task> [--name <name>] [--start-ref <ref>] [--merge-branch <branch>] [--engine codex|cursor] [--model <model>] [--yolo]");
+        throw new Error("Usage: delamain spawn --repo <git-repo> --prompt <task> [--name <name>] [--start-ref <ref>] [--merge-branch <branch>] [--engine codex|cursor] [--model <model>] [--yolo] [--depends-on <peer-id,peer-id>] [--claims <path,path:ro>] [--claims-override]");
       }
       console.log(JSON.stringify(spawnPeer({
         repo,
@@ -24,6 +29,9 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
         yolo: bypassEnabled(args),
         engine: flagString(args, "engine") as "codex" | "cursor" | undefined,
         cursorOptions: buildCursorOptions(args),
+        dependsOn: flagString(args, "depends-on")?.split(",").map((s) => s.trim()).filter(Boolean),
+        claims: flagString(args, "claims")?.split(",").map((s) => s.trim()).filter(Boolean),
+        claimsOverride: Boolean(args["claims-override"]),
       }), null, 2));
       return;
     }
@@ -46,6 +54,18 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
         throw new Error("Usage: delamain status <peer-id>");
       }
       console.log(JSON.stringify(peerStatus(peerId), null, 2));
+      return;
+    }
+    case "merge-state": {
+      const peerId = argv[0];
+      if (peerId) {
+        const peer = getPeer(peerId);
+        if (!peer) throw new Error(`No peer matching ${peerId}`);
+        const next = refreshMergeState(peer);
+        console.log(JSON.stringify(next ?? { unchanged: true, id: peer.id, integrationStatus: peer.integrationStatus }, null, 2));
+        return;
+      }
+      console.log(JSON.stringify(refreshAllMergeStates(), null, 2));
       return;
     }
     case "log": {
@@ -103,6 +123,55 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       const args = parseFlags(positional ? argv.slice(1) : argv);
       const peerId = positional || inferSelfPeerId();
       console.log(JSON.stringify(readPeerInbox(peerId, { includeDelivered: Boolean(args.all) }), null, 2));
+      return;
+    }
+    case "sweep": {
+      const args = parseFlags(argv);
+      const olderThan = flagString(args, "older-than");
+      let olderThanDays: number | undefined;
+      if (olderThan !== undefined) {
+        olderThanDays = Number(olderThan);
+        if (!Number.isFinite(olderThanDays) || olderThanDays < 0) {
+          throw new Error("--older-than must be a non-negative number of days");
+        }
+      }
+      const result = sweepPeers({
+        olderThanDays,
+        dryRun: Boolean(args["dry-run"]),
+      });
+      console.log(JSON.stringify({
+        archived: result.archived.map((p) => p.id),
+        markedDead: result.markedDead.map((p) => p.id),
+        kept: result.kept,
+        dryRun: Boolean(args["dry-run"]),
+      }, null, 2));
+      return;
+    }
+    case "cost": {
+      const peerId = argv[0];
+      let targets;
+      if (peerId) {
+        const peer = getPeer(peerId);
+        if (!peer) throw new Error(`No peer matching ${peerId}`);
+        targets = [peer];
+      } else {
+        targets = listPeers();
+      }
+      const rows = targets.map((p) => readPeerCost(p));
+      const total = rows.reduce((sum, r) => sum + (r.usd ?? 0), 0);
+      console.log(JSON.stringify({ peers: rows, totalUsd: Math.round(total * 100) / 100 }, null, 2));
+      return;
+    }
+    case "waves": {
+      const view = wavesView(listPeers());
+      console.log(JSON.stringify({
+        running: view.running.map((p) => ({ id: p.id, task: p.task })),
+        awaitingIntegration: view.awaitingIntegration.map((p) => ({ id: p.id, task: p.task })),
+        mergeReady: view.mergeReady.map((p) => ({ id: p.id, pr: p.integrationPrUrl })),
+        mergeBlocked: view.mergeBlocked.map((x) => ({ id: x.peer.id, blockers: x.blockers })),
+        merged: view.merged.map((p) => ({ id: p.id, sha: p.integrationMergeCommitSha })),
+        claimConflicts: view.claimConflicts,
+      }, null, 2));
       return;
     }
     case "help":
@@ -248,16 +317,20 @@ Commands:
   --d, -d                        Run the live terminal dashboard
   --d2, -d2                      Run the v2 grid terminal dashboard
   tmux-status                    Print one tmux status-line summary
-  spawn --repo <git-repo> --prompt <task> [--start-ref <ref>] [--merge-branch <branch>] [--target-branch <branch>] [--engine codex|cursor] [--model <model>] [--sandbox <mode>] [--yolo]
+  spawn --repo <git-repo> --prompt <task> [--start-ref <ref>] [--merge-branch <branch>] [--target-branch <branch>] [--engine codex|cursor] [--model <model>] [--sandbox <mode>] [--yolo] [--depends-on <peer-id,peer-id>] [--claims <path,path:ro>] [--claims-override]
         cursor engine: [--cursor-cloud] [--cursor-approve-mcps] [--no-cursor-force]
   resume <peer-id> --prompt <message> [--model <model>] [--yolo]
   list
   status <peer-id>
+  merge-state [peer-id]          Refresh merged/closed state of pushed PRs via gh
   log <peer-id> [lines]
   kill <peer-id> [SIGTERM|SIGKILL]
   wait <peer-id...> [--interval <seconds>] [--timeout <seconds>] [--any]
   send --to <peer-id> --message <text> [--from <peer-id>] [--expect-reply] [--response-id <id>]
   inbox [<peer-id>] [--all]
+  sweep [--dry-run] [--older-than <days>]  Archive stale terminal peers; mark dead-pid stale peers failed
+  waves                          Fleet readiness: running / merge-ready / merge-blocked / conflicts
+  cost [peer-id]                 Notional token cost per peer from codex rollout logs
 
 Peer-to-peer messaging:
   send/inbox move freeform messages between peers via a per-peer inbox

@@ -5,6 +5,7 @@ import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
+import { assertValidClaims, findClaimConflicts } from "./claims.js";
 import { createPeerWorktree, gitBranch, gitRoot, gitWorktreeInfo, resolveBaseBranch } from "./git.js";
 import { reconcileFinishedWaitingPeer } from "./lifecycle.js";
 import { drainDeliverable, enqueuePeerMessage, formatInboxPrompt } from "./peerInbox.js";
@@ -49,6 +50,31 @@ export function spawnPeer(options: SpawnPeerOptions & SpawnSizingArgs): PeerReco
       : options.sizeOverride && sizing.reasons.length > 0
         ? `sizing: override — ${sizing.reasons.join("; ")}`
         : "";
+  // Citadel-adoption: validate + persist merge-order dependencies before any
+  // worktree is provisioned. getPeer matches by id-prefix, so persist the FULL
+  // resolved id — validateMergeOrder later does exact-id lookups.
+  const dependsOnInput = options.dependsOn?.filter(Boolean);
+  const dependsOn = dependsOnInput?.length
+    ? [...new Set(dependsOnInput.map((dep) => {
+        const resolved = getPeer(dep);
+        if (!resolved) throw new Error(`--depends-on: no peer matching ${dep}`);
+        return resolved.id;
+      }))]
+    : undefined;
+  // Citadel-adoption: refuse spawns whose write-claims overlap an active peer's,
+  // before any worktree is provisioned. Raw strings persist; comparison normalizes.
+  const claims = options.claims?.filter(Boolean);
+  if (claims?.length) assertValidClaims(claims); // always runs — claimsOverride only skips the CONFLICT check
+  if (claims?.length && !options.claimsOverride) {
+    // ponytail: TOCTOU ceiling — two concurrent spawns can both pass this read
+    // (claims are CLI-only today); upgrade to a state lock when the
+    // a2a-state-race-lock branch lands.
+    const conflicts = findClaimConflicts(claims, readState().peers);
+    if (conflicts.length) {
+      const detail = conflicts.map((c) => `${c.ours} overlaps ${c.theirs} (peer ${c.peerId})`).join("; ");
+      throw new Error(`Claim conflict: ${detail}. Pass claimsOverride/--claims-override to spawn anyway.`);
+    }
+  }
   const mergeBranch = resolveBaseBranch(sourceRepo, options.mergeBranch || options.targetBranch);
   const isolated = createPeerWorktree(repo, id, {
     startRef: options.startRef,
@@ -85,6 +111,8 @@ export function spawnPeer(options: SpawnPeerOptions & SpawnSizingArgs): PeerReco
     reasoningEffort: options.reasoningEffort,
     developerInstructions: options.developerInstructions,
     codexConfig: options.codexConfig,
+    dependsOn,
+    claims,
     startedAt: now(),
     updatedAt: now(),
     lastHeartbeatAt: now(),
