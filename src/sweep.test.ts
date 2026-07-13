@@ -53,6 +53,37 @@ describe("sweepPeers", () => {
     expect(archive.peers.map((p: PeerRecord) => p.id)).toEqual(["old00000"]);
   });
 
+  it("keeps old terminal peers referenced by a live peer dependency", () => {
+    const old = peer("old00000", { status: "done", finishedAt: new Date(NOW - 10 * DAY).toISOString() });
+    const dependent = peer("dep00000", {
+      status: "waiting",
+      updatedAt: new Date(NOW).toISOString(),
+      dependsOn: ["old00000"],
+    });
+    writeState({ version: 1, updatedAt: new Date(NOW).toISOString(), peers: [old, dependent] });
+
+    const result = sweepPeers({ nowMs: NOW, olderThanDays: 7 });
+
+    expect(result.archived).toEqual([]);
+    expect(readState().peers.map((p) => p.id).sort()).toEqual(["dep00000", "old00000"]);
+    expect(existsSync(archivePath())).toBe(false);
+  });
+
+  it("keeps old terminal peers with an open PR", () => {
+    const pushed = peer("push0000", {
+      status: "done",
+      finishedAt: new Date(NOW - 10 * DAY).toISOString(),
+      integrationStatus: "pushed",
+    });
+    writeState({ version: 1, updatedAt: new Date(NOW).toISOString(), peers: [pushed] });
+
+    const result = sweepPeers({ nowMs: NOW, olderThanDays: 7 });
+
+    expect(result.archived).toEqual([]);
+    expect(readState().peers.map((p) => p.id)).toEqual(["push0000"]);
+    expect(existsSync(archivePath())).toBe(false);
+  });
+
   it("marks dead-pid stale non-terminal peers failed (does not archive them yet)", () => {
     const zombie = peer("zomb0000", {
       status: "working",

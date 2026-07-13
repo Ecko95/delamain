@@ -86,9 +86,17 @@ export function sweepPeers(options: SweepOptions = {}): SweepResult {
   const archived: PeerRecord[] = [];
   const markedDead: PeerRecord[] = [];
   const kept: PeerRecord[] = [];
+  // ponytail: conservative across one sweep; a peer referenced only by another
+  // peer archived this round survives until the next sweep, which converges.
+  const referencedIds = new Set(state.peers.flatMap((peer) => peer.dependsOn ?? []));
 
   for (const peer of state.peers) {
-    if (TERMINAL_PEER_STATUSES.has(peer.status) && lastSeenMs(peer) < cutoffMs) {
+    if (
+      TERMINAL_PEER_STATUSES.has(peer.status) &&
+      lastSeenMs(peer) < cutoffMs &&
+      !referencedIds.has(peer.id) &&
+      peer.integrationStatus !== "pushed"
+    ) {
       archived.push(peer);
       continue;
     }
