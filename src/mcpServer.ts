@@ -118,6 +118,18 @@ export const TOOLS = [
           description:
             `Codex engine only. Extra 'key=value' pairs passed as -c flags after delamain's own, in order (so these win on conflict). Each entry must match ${CODEX_CONFIG_ENTRY_RE.source}, max ${CODEX_CONFIG_MAX_ENTRIES} entries, max ${CODEX_CONFIG_MAX_ENTRY_LEN} chars each.`,
         },
+        depends_on: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional peer ids (or id prefixes) whose work must merge first. Persisted as merge-order dependencies; integrate_peer refuses until every listed peer is merged.",
+        },
+        claims: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional repo-relative path prefixes this peer will edit, ':ro' suffix for read-only (e.g. src/api or docs:ro). Spawn is refused when a write claim overlaps an active peer's claims (fail-closed; no override via MCP).",
+        },
         ...SIZING_SCHEMA_PROPS,
       },
       required: ["repo", "prompt"],
@@ -279,6 +291,18 @@ export const TOOLS = [
           items: { type: "string" },
           maxItems: CODEX_CONFIG_MAX_ENTRIES,
           description: "Codex engine only. See spawn_peer.",
+        },
+        depends_on: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional peer ids (or id prefixes) whose work must merge first. Persisted as merge-order dependencies; integrate_peer refuses until every listed peer is merged.",
+        },
+        claims: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional repo-relative path prefixes this peer will edit, ':ro' suffix for read-only (e.g. src/api or docs:ro). Spawn is refused when a write claim overlaps an active peer's claims (fail-closed; no override via MCP).",
         },
         timeout_ms: {
           type: "number",
@@ -479,6 +503,9 @@ export async function callTool(name: unknown, rawArgs: unknown): Promise<unknown
         yolo: bypassEnabled(args),
         engine: engineValue(args),
         cursorOptions: cursorOptionsValue(args),
+        // No claimsOverride here on purpose — MCP-driven spawns stay fail-closed on claim conflicts.
+        dependsOn: optionalStringArray(args, "depends_on", "dependsOn"),
+        claims: optionalStringArray(args, "claims"),
         ...codexTuningOptions(args, engineValue(args)),
         ...sizingOptions(args),
       }));
@@ -527,6 +554,9 @@ export async function callTool(name: unknown, rawArgs: unknown): Promise<unknown
         yolo: bypassEnabled(args),
         engine: engineValue(args),
         cursorOptions: cursorOptionsValue(args),
+        // No claimsOverride here on purpose — MCP-driven spawns stay fail-closed on claim conflicts.
+        dependsOn: optionalStringArray(args, "depends_on", "dependsOn"),
+        claims: optionalStringArray(args, "claims"),
         ...codexTuningOptions(args, engineValue(args)),
         ...sizingOptions(args),
         ...waitOptions(args),
@@ -661,6 +691,15 @@ function optionalString(args: Record<string, unknown>, key: string): string | un
 function optionalNumber(args: Record<string, unknown>, key: string): number | undefined {
   const value = args[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function optionalStringArray(args: Record<string, unknown>, key: string, alias?: string): string[] | undefined {
+  const raw = args[key] ?? (alias ? args[alias] : undefined);
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw) || raw.some((entry) => typeof entry !== "string")) {
+    throw new Error(`${key} must be an array of strings`);
+  }
+  return raw as string[];
 }
 
 function waitOptions(args: Record<string, unknown>): {

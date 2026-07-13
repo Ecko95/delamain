@@ -57,7 +57,7 @@ export function spawnPeer(options: SpawnPeerOptions & SpawnSizingArgs): PeerReco
   const dependsOn = dependsOnInput?.length
     ? [...new Set(dependsOnInput.map((dep) => {
         const resolved = getPeer(dep);
-        if (!resolved) throw new Error(`--depends-on: no peer matching ${dep}`);
+        if (!resolved) throw new Error(`depends_on/--depends-on: no peer matching ${dep}`);
         return resolved.id;
       }))]
     : undefined;
@@ -66,13 +66,13 @@ export function spawnPeer(options: SpawnPeerOptions & SpawnSizingArgs): PeerReco
   const claims = options.claims?.filter(Boolean);
   if (claims?.length) assertValidClaims(claims); // always runs — claimsOverride only skips the CONFLICT check
   if (claims?.length && !options.claimsOverride) {
-    // ponytail: TOCTOU ceiling — two concurrent spawns can both pass this read
-    // (claims are CLI-only today); upgrade to a state lock when the
-    // a2a-state-race-lock branch lands.
+    // ponytail: TOCTOU ceiling — two concurrent spawns (CLI or MCP) can both
+    // pass this read; upgrade to a state lock when the a2a-state-race-lock
+    // branch lands.
     const conflicts = findClaimConflicts(claims, readState().peers);
     if (conflicts.length) {
       const detail = conflicts.map((c) => `${c.ours} overlaps ${c.theirs} (peer ${c.peerId})`).join("; ");
-      throw new Error(`Claim conflict: ${detail}. Pass claimsOverride/--claims-override to spawn anyway.`);
+      throw new Error(`Claim conflict: ${detail}. Use --claims-override (CLI only) to spawn anyway.`);
     }
   }
   const mergeBranch = resolveBaseBranch(sourceRepo, options.mergeBranch || options.targetBranch);
