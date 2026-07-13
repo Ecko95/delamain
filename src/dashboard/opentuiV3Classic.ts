@@ -13,7 +13,7 @@ import { worktreeDiffStat } from "../git.js";
 import { killPeer, listPeers, resumePeer } from "../peerManager.js";
 import { readCodexUsage, type CodexUsageLimit, type CodexUsageLevel } from "../codexUsage.js";
 import { formatSupervisorTime, readSupervisorTelegramStatus, type SupervisorTelegramStatus } from "../supervisorStatus.js";
-import type { PeerRecord } from "../types.js";
+import { TERMINAL_PEER_STATUSES, type PeerRecord } from "../types.js";
 import { LogBuffer } from "./logEvents.js";
 import {
   expireToasts,
@@ -1114,7 +1114,7 @@ function filterPaletteLabels(state: RuntimeStateV3): string[] {
   for (const peer of state.visiblePeers.filter((p) => p.status === "waiting")) {
     labels.push(`↳ answer ${peer.id}`);
   }
-  const terminal = new Set(["done", "failed", "killed", "gsd_completed", "gsd_failed"]);
+  const terminal = new Set<DashboardStatus>(TERMINAL_PEER_STATUSES);
   for (const peer of state.visiblePeers.filter((p) => !terminal.has(p.status))) {
     labels.push(`✕ kill ${peer.id}`);
   }

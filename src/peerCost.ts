@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { codexHome } from "./codexContext.js";
 import { peersHome } from "./paths.js";
@@ -56,7 +56,8 @@ export function findRolloutFile(threadId: string): string | undefined {
     let best: { path: string; mtime: number } | undefined;
     for (const file of walkJsonl(root)) {
       if (!file.endsWith(suffix)) continue;
-      const mtime = statSync(file).mtimeMs;
+      const mtime = statSync(file, { throwIfNoEntry: false })?.mtimeMs;
+      if (mtime === undefined) continue; // vanished between walk and stat
       if (!best || mtime > best.mtime) best = { path: file, mtime };
     }
     if (best) return best.path;
@@ -65,10 +66,17 @@ export function findRolloutFile(threadId: string): string | undefined {
 }
 
 function walkJsonl(dir: string, out: string[] = []): string[] {
-  if (!existsSync(dir)) return out;
-  for (const name of readdirSync(dir)) {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return out; // missing, or vanished between walk steps
+  }
+  for (const name of names) {
     const full = join(dir, name);
-    if (statSync(full).isDirectory()) walkJsonl(full, out);
+    const stat = statSync(full, { throwIfNoEntry: false });
+    if (!stat) continue; // vanished between readdir and stat
+    if (stat.isDirectory()) walkJsonl(full, out);
     else if (name.endsWith(".jsonl")) out.push(full);
   }
   return out;
