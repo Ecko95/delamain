@@ -184,16 +184,11 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       const args = parseFlags(positional ? argv.slice(1) : argv);
       const scriptPath = positional || flagString(args, "script");
       if (!scriptPath) {
-        throw new Error("Usage: delamain run-workflow <file> [--timeout-ms <ms>] [--repo <git-repo>] [--name <name>] [--detach]");
+        throw new Error("Usage: delamain run-workflow <file> [--timeout-ms <ms>] [--max-agents <n>] [--budget-tokens <n>] [--repo <git-repo>] [--name <name>] [--detach]");
       }
-      const timeoutMsRaw = flagString(args, "timeout-ms");
-      let timeoutMs: number | undefined;
-      if (timeoutMsRaw !== undefined) {
-        timeoutMs = Number(timeoutMsRaw);
-        if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-          throw new Error("--timeout-ms must be a positive number of milliseconds");
-        }
-      }
+      const timeoutMs = positiveFlag(args, "timeout-ms", "milliseconds");
+      const maxAgents = positiveFlag(args, "max-agents", "leaves");
+      const budgetTokens = positiveFlag(args, "budget-tokens", "tokens");
       // Fail fast on a rejected script before persisting the run record; the
       // sandbox re-validates the same source at execution time.
       validateWorkflowSource(readFileSync(scriptPath, "utf8"), scriptPath);
@@ -201,6 +196,8 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
         repo: flagString(args, "repo") || process.cwd(),
         scriptPath,
         timeoutMs,
+        maxAgents,
+        budgetTokens,
         name: flagString(args, "name"),
       });
       spawnWorkflowRunner(run.id);
@@ -241,6 +238,16 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
     default:
       printHelp();
   }
+}
+
+function positiveFlag(args: Record<string, string | boolean>, key: string, unit: string): number | undefined {
+  const raw = flagString(args, key);
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`--${key} must be a positive number of ${unit}`);
+  }
+  return value;
 }
 
 // Poll the store until the detached workflow runner drives the record to a
@@ -414,8 +421,8 @@ Commands:
   log <peer-id> [lines]
   kill <peer-id> [SIGTERM|SIGKILL]
   wait <peer-id...> [--interval <seconds>] [--timeout <seconds>] [--any]
-  run-workflow <file> [--timeout-ms <ms>] [--repo <git-repo>] [--name <name>] [--detach]
-                                 Run a sandboxed workflow script (ctx.agent leaves, integrate:false)
+  run-workflow <file> [--timeout-ms <ms>] [--max-agents <n>] [--budget-tokens <n>] [--repo <git-repo>] [--name <name>] [--detach]
+                                 Run a sandboxed workflow (ctx.agent/parallel/pipeline leaves, integrate:false, OS-jailed)
   workflow <workflow-id>         Print a workflow run record as JSON
   send --to <peer-id> --message <text> [--from <peer-id>] [--expect-reply] [--response-id <id>]
   inbox [<peer-id>] [--all]

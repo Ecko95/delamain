@@ -24,7 +24,25 @@ export type WorkflowAgentOpts = {
   schema?: Record<string, unknown>;
   /** Display name for the spawned leaf peer. */
   label?: string;
+  /** Progress-group label (defaults to the current ctx.phase()). */
+  phase?: string;
 };
+
+/** Token budget view exposed to the script (SP1 wave 2). */
+export type WorkflowBudget = {
+  /** budgetTokens for the run, or null when uncapped. */
+  total: number | null;
+  /** Tokens spent by finished leaves so far. */
+  spent(): number;
+  /** total - spent (Infinity when uncapped). */
+  remaining(): number;
+};
+
+/** A unit of work for ctx.parallel — a thunk returning a promise. */
+export type WorkflowThunk = () => Promise<unknown>;
+
+/** A ctx.pipeline stage: receives (prev, originalItem, index). */
+export type WorkflowStage = (prev: unknown, item: unknown, index: number) => Promise<unknown> | unknown;
 
 /** The capability surface injected into the sandboxed script. */
 export type WorkflowCtx = {
@@ -35,8 +53,24 @@ export type WorkflowCtx = {
    * when the peer dies.
    */
   agent(prompt: string, opts?: WorkflowAgentOpts): Promise<unknown>;
+  /**
+   * Barrier fan-out: run all thunks concurrently under the agent semaphore,
+   * await every one. A throwing thunk resolves to null (never rejects), so
+   * filter with .filter(Boolean).
+   */
+  parallel(thunks: WorkflowThunk[]): Promise<unknown[]>;
+  /**
+   * No-barrier streaming: each item flows through every stage independently
+   * (item A can be at stage 3 while B is still at stage 1). A stage throw
+   * drops that item to null and skips its remaining stages.
+   */
+  pipeline(items: unknown[], ...stages: WorkflowStage[]): Promise<unknown[]>;
+  /** Set the current progress-group label applied to subsequent agents. */
+  phase(title: string): void;
   /** Narrator line appended to the run log. */
   log(message: string): void;
+  /** Token budget for the run (SP1 wave 2). */
+  budget: WorkflowBudget;
 };
 
 export type WorkflowSpec = {
@@ -57,10 +91,16 @@ export type WorkflowRunConfig = {
   repo: string;
   /** Wall-clock termination guard enforced by engine.ts. */
   timeoutMs?: number;
+  /** Hard cap on total leaves spawned over the run (guard → halted). */
+  maxAgents?: number;
+  /** Cumulative leaf-token budget (guard → halted). */
+  budgetTokens?: number;
   status: WorkflowStatus;
   /** JSON-serializable value the script returned (status "done"). */
   result?: unknown;
   error?: string;
+  /** Cumulative leaf tokens spent (budget accounting). */
+  tokensSpent?: number;
   /** Leaf peer ids spawned by ctx.agent, in spawn order. */
   agentPeerIds: string[];
   /** Determinism shims: Math.random seed + fixed Date epoch for the child. */

@@ -20,11 +20,16 @@ type InitMessage = {
   filename: string;
   seed: number;
   startTimeMs: number;
+  budgetTotal: number | null;
 };
 
 type ParentReply =
-  | { type: "result"; id: number; result: unknown }
-  | { type: "error"; id: number; error: string };
+  | { type: "result"; id: number; result: unknown; budgetSpent?: number }
+  | { type: "error"; id: number; error: string; budgetSpent?: number };
+
+// Eventually-consistent mirror of the parent's budget accounting. The parent
+// stamps the current spend on every reply; the script reads it via ctx.budget.
+let budgetSpent = 0;
 
 function send(message: unknown): void {
   process.send?.(message);
@@ -63,6 +68,9 @@ process.on("message", (raw: unknown) => {
     }
     return;
   }
+  if (typeof message.budgetSpent === "number") {
+    budgetSpent = message.budgetSpent;
+  }
   const entry = pending.get(message.id);
   if (!entry) return;
   pending.delete(message.id);
@@ -74,11 +82,77 @@ process.on("message", (raw: unknown) => {
 });
 
 async function runWorkflow(init: InitMessage): Promise<void> {
+  // Current progress-group label. Captured per agent() call (best-effort;
+  // concurrent phases race, which is acknowledged in the design).
+  let currentPhase: string | undefined;
+
+  const total = init.budgetTotal;
+  const budget = Object.freeze({
+    total,
+    spent: () => budgetSpent,
+    remaining: () => (total === null ? Number.POSITIVE_INFINITY : Math.max(0, total - budgetSpent)),
+  });
+
+  const agent = (prompt: unknown, opts: unknown) => {
+    const merged =
+      opts && typeof opts === "object"
+        ? { phase: currentPhase, ...(opts as Record<string, unknown>) }
+        : currentPhase !== undefined
+          ? { phase: currentPhase }
+          : undefined;
+    return bridgeCall("agent", merged === undefined ? [prompt] : [prompt, merged]);
+  };
+
+  // parallel: barrier fan-out; a throwing thunk resolves to null.
+  const parallel = (thunks: unknown) => {
+    if (!Array.isArray(thunks)) {
+      return Promise.reject(new TypeError("ctx.parallel(thunks) requires an array of functions"));
+    }
+    return Promise.all(
+      thunks.map(async (thunk) => {
+        if (typeof thunk !== "function") return null;
+        try {
+          return await thunk();
+        } catch {
+          return null;
+        }
+      }),
+    );
+  };
+
+  // pipeline: no-barrier streaming; each item runs its own stage chain. A
+  // stage throw drops that item to null and skips its remaining stages.
+  const pipeline = (items: unknown, ...stages: unknown[]) => {
+    if (!Array.isArray(items)) {
+      return Promise.reject(new TypeError("ctx.pipeline(items, ...stages) requires an array of items"));
+    }
+    return Promise.all(
+      items.map(async (item, index) => {
+        let acc: unknown = item;
+        for (const stage of stages) {
+          if (typeof stage !== "function") continue;
+          try {
+            acc = await (stage as (p: unknown, it: unknown, i: number) => unknown)(acc, item, index);
+          } catch {
+            return null;
+          }
+        }
+        return acc;
+      }),
+    );
+  };
+
   const ctx = Object.freeze({
-    agent: (prompt: unknown, opts: unknown) => bridgeCall("agent", opts === undefined ? [prompt] : [prompt, opts]),
+    agent,
+    parallel,
+    pipeline,
+    phase: (title: unknown) => {
+      currentPhase = title === undefined || title === null ? undefined : String(title);
+    },
     log: (message: unknown) => {
       void bridgeCall("log", [typeof message === "string" ? message : String(message)]);
     },
+    budget,
   });
   const consoleShim = Object.freeze({
     log: (...args: unknown[]) => ctx.log(args.map(String).join(" ")),

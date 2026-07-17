@@ -16,11 +16,13 @@
 // The ctx interface is frozen so those layers harden later without API change.
 
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExecuteScriptRequest, ScriptExecution } from "./engine.js";
+import { buildJailPlan } from "./jail.js";
 
 const require = createRequire(import.meta.url);
 
@@ -77,26 +79,73 @@ type ChildMessage =
 export type SandboxExecuteRequest = ExecuteScriptRequest & {
   /** Override the child entry (tests). Defaults to ./sandbox-child.js. */
   childPath?: string;
+  /** Loud degraded-mode + jail-status notices for the run log. */
+  onWarning?: (message: string) => void;
 };
 
+let scratchCounter = 0;
+
 /**
- * Read + AST-validate the script, spawn the sandbox child, bridge its ctx
- * calls, and expose the run as a killable ScriptExecution handle.
+ * Read + AST-validate the script, spawn the sandbox child (wrapped in the OS
+ * jail when available), bridge its ctx calls, and expose the run as a killable
+ * ScriptExecution handle.
  */
 export function executeWorkflowScript(request: SandboxExecuteRequest): ScriptExecution {
   const scriptPath = resolve(request.scriptPath);
   const source = readFileSync(scriptPath, "utf8");
   validateWorkflowSource(source, scriptPath);
 
+  const warn = request.onWarning ?? (() => {});
   const childPath = request.childPath ?? join(dirname(fileURLToPath(import.meta.url)), "sandbox-child.js");
-  const child = spawn(process.execPath, ["--experimental-vm-modules", "--disable-warning=ExperimentalWarning", childPath], {
+  const nodeArgs = ["--experimental-vm-modules", "--disable-warning=ExperimentalWarning", childPath];
+
+  // Per-run scratch dir: the only writable path Landlock grants the child.
+  scratchCounter += 1;
+  const scratchDir = join(tmpdir(), `delamain-wf-scratch-${process.pid}-${scratchCounter}`);
+  try {
+    mkdirSync(scratchDir, { recursive: true });
+  } catch {
+    /* fall back to tmp root */
+  }
+
+  // OS jail (spec §7): the real deny-fs/shell/net boundary. node:vm alone is
+  // not a security boundary — if the jail can't engage on this host, we run
+  // unjailed and say so loudly (trusted scripts only).
+  const noJail = process.env.DELAMAIN_SANDBOX_NO_JAIL === "1";
+  const plan = noJail ? { available: false, reason: "DELAMAIN_SANDBOX_NO_JAIL=1", prefixArgs: [], env: {} } : buildJailPlan({ childPath, scratchDir });
+
+  let command: string;
+  let commandArgs: string[];
+  let spawnEnv: NodeJS.ProcessEnv = process.env;
+  if (plan.available && plan.command) {
+    command = plan.command;
+    commandArgs = [...plan.prefixArgs, process.execPath, ...nodeArgs];
+    spawnEnv = { ...process.env, ...plan.env };
+  } else {
+    warn(`SANDBOX DEGRADED: OS jail inactive — trusted scripts only (${plan.reason ?? "unavailable"})`);
+    command = process.execPath;
+    commandArgs = nodeArgs;
+  }
+
+  const child = spawn(command, commandArgs, {
     stdio: ["ignore", "ignore", "pipe", "ipc"],
+    env: spawnEnv,
   });
 
   let stderrTail = "";
+  let stderrLineBuf = "";
   child.stderr?.setEncoding("utf8");
   child.stderr?.on("data", (chunk: string) => {
     stderrTail = `${stderrTail}${chunk}`.slice(-4000);
+    // Forward the jail's own per-layer degraded warnings to the run log.
+    stderrLineBuf += chunk;
+    let idx = stderrLineBuf.indexOf("\n");
+    while (idx !== -1) {
+      const line = stderrLineBuf.slice(0, idx);
+      stderrLineBuf = stderrLineBuf.slice(idx + 1);
+      if (line.includes("SANDBOX DEGRADED")) warn(line.trim());
+      idx = stderrLineBuf.indexOf("\n");
+    }
   });
 
   let settled = false;
@@ -117,11 +166,15 @@ export function executeWorkflowScript(request: SandboxExecuteRequest): ScriptExe
         void request
           .onCall(message.method, message.args ?? [])
           .then((value) => {
-            if (child.connected) child.send({ type: "result", id: message.id, result: value ?? null });
+            if (child.connected) {
+              child.send({ type: "result", id: message.id, result: value ?? null, budgetSpent: request.getBudgetSpent() });
+            }
           })
           .catch((error: unknown) => {
             const text = error instanceof Error ? error.message : String(error);
-            if (child.connected) child.send({ type: "error", id: message.id, error: text });
+            if (child.connected) {
+              child.send({ type: "error", id: message.id, error: text, budgetSpent: request.getBudgetSpent() });
+            }
           });
         return;
       }
@@ -156,8 +209,18 @@ export function executeWorkflowScript(request: SandboxExecuteRequest): ScriptExe
       filename: scriptPath,
       seed: request.seed,
       startTimeMs: request.startTimeMs,
+      budgetTotal: request.budgetTotal,
     });
   });
+
+  const cleanupScratch = () => {
+    try {
+      rmSync(scratchDir, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  };
+  child.on("exit", cleanupScratch);
 
   return {
     result,

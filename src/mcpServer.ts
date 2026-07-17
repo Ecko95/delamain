@@ -409,6 +409,8 @@ export const TOOLS = [
         script_path: { type: "string", description: "Path to a workflow script file. Provide this or script." },
         repo: { type: "string", description: "Repository the workflow's agents run against. Defaults to the server's cwd." },
         timeout_ms: { type: "number", description: "Wall-clock termination guard; the run is halted (child + leaf peers killed) when exceeded." },
+        max_agents: { type: "number", description: "Hard cap on total leaf agents spawned over the run; exceeding it halts the run." },
+        budget_tokens: { type: "number", description: "Cumulative leaf-token budget; exhausting it halts the run." },
         name: { type: "string", description: "Optional display name for the workflow run." },
       },
     },
@@ -671,6 +673,8 @@ export async function callTool(name: unknown, rawArgs: unknown): Promise<unknown
         repo: optionalString(args, "repo") ?? process.cwd(),
         scriptPath: scriptPath as string,
         timeoutMs: optionalNumber(args, "timeout_ms") ?? optionalNumber(args, "timeoutMs"),
+        maxAgents: optionalNumber(args, "max_agents") ?? optionalNumber(args, "maxAgents"),
+        budgetTokens: optionalNumber(args, "budget_tokens") ?? optionalNumber(args, "budgetTokens"),
         name: optionalString(args, "name"),
       });
       spawnWorkflowRunner(run.id);

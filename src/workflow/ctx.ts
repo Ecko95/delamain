@@ -48,6 +48,12 @@ export type AgentCallDeps = {
   removeAgentResultFile: (peer: PeerRecord) => void;
   /** Engine hook: invoked once per spawned leaf so the run records its ids. */
   onAgentSpawned?: (peer: PeerRecord) => void;
+  // SP1 wave 2 — semaphore/guard gating (pool.ts). acquire() runs before
+  // spawnPeer (may throw WorkflowAbortedError to abort this leaf); release()
+  // runs in finally; recordUsage() accounts the terminal leaf's tokens.
+  acquire?: () => Promise<void>;
+  release?: () => void;
+  recordUsage?: (peer: PeerRecord) => void;
   log?: (line: string) => void;
 };
 
@@ -71,61 +77,77 @@ export async function runAgentCall(
   const schema = opts.schema;
   const fullPrompt = schema ? `${prompt}\n${schemaInstruction(schema)}` : prompt;
   const waitTimeoutMs = config.waitTimeoutMs ?? DEFAULT_AGENT_WAIT_TIMEOUT_MS;
+  const label = opts.phase ? (opts.label ? `${opts.phase}:${opts.label}` : opts.phase) : opts.label;
 
-  const spawned = deps.spawnPeer({
-    repo: config.repo,
-    prompt: fullPrompt,
-    name: opts.label,
-    engine: "codex",
-    model: opts.model,
-    integrate: false,
-  });
-  deps.onAgentSpawned?.(spawned);
-  deps.log?.(`agent ${spawned.id} spawned${opts.label ? ` (${opts.label})` : ""}`);
+  // Two-pool gate: block on a semaphore slot + guard check before spawning.
+  // A halted run makes this throw, aborting just this leaf (parallel/pipeline
+  // degrade it to null); a hard-cap/budget trip additionally halts the run.
+  await deps.acquire?.();
 
-  for (let attempt = 0; attempt <= SCHEMA_MAX_RETRIES; attempt += 1) {
-    const wait = await deps.waitForPeer({ peerId: spawned.id, timeoutMs: waitTimeoutMs });
-    const peer = wait.peer;
-    if (wait.timedOut) {
-      throw new WorkflowAgentError(`agent ${peer.id} still active after ${waitTimeoutMs}ms wait`, peer.id);
-    }
-    if (peer.status === "waiting") {
-      throw new WorkflowAgentError(
-        `agent ${peer.id} is waiting for orchestrator input (${peer.question ?? "no question"}); interactive agents are not supported in workflows`,
-        peer.id,
-      );
-    }
-    if (peer.status !== "done") {
-      throw new WorkflowAgentError(
-        `agent ${peer.id} finished with status ${peer.status}${peer.error ? `: ${peer.error}` : ""}`,
-        peer.id,
-      );
-    }
-
-    if (!schema) {
-      return peer.finalResult ?? "";
-    }
-
-    const extracted = extractAgentResult({
-      resultFileContent: deps.readAgentResultFile(peer),
-      finalResult: peer.finalResult,
+  let lastPeer: PeerRecord | undefined;
+  try {
+    const spawned = deps.spawnPeer({
+      repo: config.repo,
+      prompt: fullPrompt,
+      name: label,
+      engine: "codex",
+      model: opts.model,
+      integrate: false,
     });
-    const errors = extracted.ok ? validateAgainstSchema(extracted.value, schema).errors : [extracted.error];
-    if (extracted.ok && errors.length === 0) {
-      deps.log?.(`agent ${peer.id} result validated (${extracted.source})`);
-      return extracted.value;
-    }
+    lastPeer = spawned;
+    deps.onAgentSpawned?.(spawned);
+    deps.log?.(`agent ${spawned.id} spawned${label ? ` (${label})` : ""}`);
 
-    if (attempt >= SCHEMA_MAX_RETRIES) {
-      throw new WorkflowAgentError(
-        `agent ${peer.id} result failed schema validation after ${SCHEMA_MAX_RETRIES} retries: ${errors.join("; ")}`,
-        peer.id,
-      );
+    for (let attempt = 0; attempt <= SCHEMA_MAX_RETRIES; attempt += 1) {
+      const wait = await deps.waitForPeer({ peerId: spawned.id, timeoutMs: waitTimeoutMs });
+      const peer = wait.peer;
+      lastPeer = peer;
+      if (wait.timedOut) {
+        throw new WorkflowAgentError(`agent ${peer.id} still active after ${waitTimeoutMs}ms wait`, peer.id);
+      }
+      if (peer.status === "waiting") {
+        throw new WorkflowAgentError(
+          `agent ${peer.id} is waiting for orchestrator input (${peer.question ?? "no question"}); interactive agents are not supported in workflows`,
+          peer.id,
+        );
+      }
+      if (peer.status !== "done") {
+        throw new WorkflowAgentError(
+          `agent ${peer.id} finished with status ${peer.status}${peer.error ? `: ${peer.error}` : ""}`,
+          peer.id,
+        );
+      }
+
+      if (!schema) {
+        return peer.finalResult ?? "";
+      }
+
+      const extracted = extractAgentResult({
+        resultFileContent: deps.readAgentResultFile(peer),
+        finalResult: peer.finalResult,
+      });
+      const errors = extracted.ok ? validateAgainstSchema(extracted.value, schema).errors : [extracted.error];
+      if (extracted.ok && errors.length === 0) {
+        deps.log?.(`agent ${peer.id} result validated (${extracted.source})`);
+        return extracted.value;
+      }
+
+      if (attempt >= SCHEMA_MAX_RETRIES) {
+        throw new WorkflowAgentError(
+          `agent ${peer.id} result failed schema validation after ${SCHEMA_MAX_RETRIES} retries: ${errors.join("; ")}`,
+          peer.id,
+        );
+      }
+      deps.log?.(`agent ${peer.id} schema mismatch (attempt ${attempt + 1}): ${errors.join("; ")} — resuming`);
+      deps.removeAgentResultFile(peer);
+      deps.resumePeer({ peerId: peer.id, prompt: schemaRetryPrompt(errors, schema) });
     }
-    deps.log?.(`agent ${peer.id} schema mismatch (attempt ${attempt + 1}): ${errors.join("; ")} — resuming`);
-    deps.removeAgentResultFile(peer);
-    deps.resumePeer({ peerId: peer.id, prompt: schemaRetryPrompt(errors, schema) });
+    // Unreachable: the loop either returns or throws on the last attempt.
+    throw new WorkflowAgentError(`agent ${spawned.id} retry loop exited unexpectedly`, spawned.id);
+  } finally {
+    // A spawned leaf always spent something and always frees its slot, whether
+    // it validated, failed, or threw.
+    if (lastPeer) deps.recordUsage?.(lastPeer);
+    deps.release?.();
   }
-  // Unreachable: the loop either returns or throws on the last attempt.
-  throw new WorkflowAgentError(`agent ${spawned.id} retry loop exited unexpectedly`, spawned.id);
 }
