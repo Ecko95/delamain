@@ -40,6 +40,11 @@ export function statePath(): string {
 	return join(peersHome(), "state.json");
 }
 
+// SP1 wave 3: SQLite state DB (replaces the whole-file state.json RMW).
+export function stateDbPath(): string {
+	return join(peersHome(), "state.db");
+}
+
 export function archivePath(): string {
 	return join(peersHome(), "state.archive.json");
 }
