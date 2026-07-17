@@ -54,6 +54,20 @@ function db(): DatabaseSync {
       updated_at TEXT
     );
     CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+    CREATE TABLE IF NOT EXISTS workflow_agents (
+      workflow_id TEXT NOT NULL,
+      call_index  INTEGER NOT NULL,
+      prompt_hash TEXT NOT NULL,
+      opts_hash   TEXT NOT NULL,
+      engine      TEXT,
+      model       TEXT,
+      phase       TEXT,
+      result_json TEXT NOT NULL,
+      tokens      INTEGER,
+      status      TEXT NOT NULL,
+      created_at  TEXT,
+      PRIMARY KEY (workflow_id, call_index)
+    );
   `);
   handle.prepare("INSERT OR IGNORE INTO meta(key, value) VALUES('version', ?)").run(String(STATE_VERSION));
   cached = { path, handle };
@@ -207,6 +221,70 @@ export function upsertPeer(peer: PeerRecord): void {
     handle.exec("ROLLBACK");
     throw err;
   }
+}
+
+// --- SP1 wave 3: ctx.agent() journal (resume / longest-prefix replay, §14) ---
+
+export type AgentJournalRow = {
+  workflowId: string;
+  callIndex: number;
+  promptHash: string;
+  optsHash: string;
+  engine?: string;
+  model?: string;
+  phase?: string;
+  resultJson: string;
+  tokens?: number;
+  status: string; // "done"
+  createdAt?: string;
+};
+
+/** Durably record one completed ctx.agent() call (INSERT OR REPLACE by index). */
+export function journalAgentCall(row: AgentJournalRow): void {
+  const handle = db();
+  handle
+    .prepare(
+      `INSERT OR REPLACE INTO workflow_agents
+       (workflow_id, call_index, prompt_hash, opts_hash, engine, model, phase, result_json, tokens, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      row.workflowId,
+      row.callIndex,
+      row.promptHash,
+      row.optsHash,
+      row.engine ?? null,
+      row.model ?? null,
+      row.phase ?? null,
+      row.resultJson,
+      row.tokens ?? null,
+      row.status,
+      row.createdAt ?? new Date().toISOString(),
+    );
+}
+
+/** All journaled calls for a workflow, ordered by call index. */
+export function readAgentJournal(workflowId: string): AgentJournalRow[] {
+  const handle = db();
+  const rows = handle
+    .prepare(
+      `SELECT workflow_id, call_index, prompt_hash, opts_hash, engine, model, phase, result_json, tokens, status, created_at
+       FROM workflow_agents WHERE workflow_id = ? ORDER BY call_index ASC`,
+    )
+    .all(workflowId) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    workflowId: r.workflow_id as string,
+    callIndex: r.call_index as number,
+    promptHash: r.prompt_hash as string,
+    optsHash: r.opts_hash as string,
+    engine: (r.engine as string) ?? undefined,
+    model: (r.model as string) ?? undefined,
+    phase: (r.phase as string) ?? undefined,
+    resultJson: r.result_json as string,
+    tokens: (r.tokens as number) ?? undefined,
+    status: r.status as string,
+    createdAt: (r.created_at as string) ?? undefined,
+  }));
 }
 
 /**

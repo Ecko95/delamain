@@ -9,14 +9,15 @@
 
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { killPeer, resumePeer, spawnPeer, waitForPeer } from "../peerManager.js";
 import { readPeerCost } from "../peerCost.js";
-import { runsDir } from "../paths.js";
-import { getPeer, updatePeer, upsertPeer } from "../store.js";
+import { peersHome, runsDir } from "../paths.js";
+import { pidAlive } from "../processes.js";
+import { getPeer, journalAgentCall, readAgentJournal, updatePeer, upsertPeer } from "../store.js";
 import type { PeerRecord } from "../types.js";
 import { runWorkflowRun, type WorkflowEngineDeps } from "./engine.js";
 import { executeWorkflowScript } from "./sandbox.js";
@@ -119,24 +120,30 @@ export function dispatchWorkflow(
   if (!isWorkflowRunRecord(peer)) {
     throw new Error(`dispatchWorkflow: peer ${workflowId} kind=${peer.kind ?? "generic"} is not a workflow_run`);
   }
+  // Dedupe only CONCURRENT dispatches of the same id; a settled run is evicted
+  // so it can be re-dispatched (that is exactly a resume — replay the journal).
   const existing = workflowRunners.get(peer.id);
   if (existing) {
     return existing;
   }
   const deps: WorkflowEngineDeps = { ...buildRealDeps(), ...depsOverride };
-  const promise = runWorkflowRun(peer, deps).catch((err: Error) => {
-    const merged = updatePeer(peer.id, (current) => ({
-      ...current,
-      status: "failed",
-      error: err.message,
-      lastEvent: `workflow engine threw: ${err.message}`,
-      updatedAt: new Date().toISOString(),
-      finishedAt: new Date().toISOString(),
-      workflow: current.workflow ? { ...current.workflow, status: "failed", error: err.message } : current.workflow,
-    }));
-    if (!merged) throw err;
-    return merged;
-  });
+  const promise = runWorkflowRun(peer, deps)
+    .catch((err: Error) => {
+      const merged = updatePeer(peer.id, (current) => ({
+        ...current,
+        status: "failed",
+        error: err.message,
+        lastEvent: `workflow engine threw: ${err.message}`,
+        updatedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        workflow: current.workflow ? { ...current.workflow, status: "failed", error: err.message } : current.workflow,
+      }));
+      if (!merged) throw err;
+      return merged;
+    })
+    .finally(() => {
+      workflowRunners.delete(peer.id);
+    });
   workflowRunners.set(peer.id, promise);
   return promise;
 }
@@ -164,12 +171,26 @@ export async function runWorkflowRunnerChild(argv: string[]): Promise<void> {
   if (!workflowId) {
     throw new Error("run-workflow-runner requires --workflow-id");
   }
+  const release = acquireRunLock(workflowId);
+  if (!release) {
+    // Another runner process owns this workflow; don't double-drive it.
+    updatePeer(workflowId, (current) => ({
+      ...current,
+      updatedAt: new Date().toISOString(),
+      lastEvent: "resume refused: workflow already running in another process",
+    }));
+    return;
+  }
   updatePeer(workflowId, (current) => ({
     ...current,
     runnerPid: process.pid,
     updatedAt: new Date().toISOString(),
   }));
-  await dispatchWorkflow(workflowId);
+  try {
+    await dispatchWorkflow(workflowId);
+  } finally {
+    release();
+  }
 }
 
 function buildRealDeps(): WorkflowEngineDeps {
@@ -217,6 +238,92 @@ function buildRealDeps(): WorkflowEngineDeps {
       }
     },
     executeScript: executeWorkflowScript,
+    readJournal: (workflowId) => readAgentJournal(workflowId),
+    writeJournal: (row) => journalAgentCall(row),
     now: () => Date.now(),
   };
+}
+
+// ---------------------------------------------------------------------------
+// SP1 wave 3 — resume + run lock (§14).
+// ---------------------------------------------------------------------------
+
+/**
+ * Re-dispatch an existing workflow_run record. Its journal (from the prior,
+ * possibly killed, run) is preserved; the engine replays the longest unchanged
+ * prefix and runs only the remainder live. Seed/startTimeMs are kept so the
+ * determinism shims produce the same execution.
+ */
+export function resumeWorkflowRun(workflowId: string): PeerRecord {
+  const peer = getPeer(workflowId);
+  if (!peer) {
+    throw new Error(`resumeWorkflowRun: unknown workflow ${workflowId}`);
+  }
+  if (!isWorkflowRunRecord(peer)) {
+    throw new Error(`resumeWorkflowRun: peer ${workflowId} is not a workflow_run (kind=${peer.kind ?? "generic"})`);
+  }
+  if (peer.status === "working" || peer.status === "starting") {
+    throw new Error(`resumeWorkflowRun: workflow ${peer.id} is still active (${peer.status}); kill it before resuming`);
+  }
+  const reset = updatePeer(peer.id, (current) => ({
+    ...current,
+    status: "starting",
+    error: undefined,
+    finishedAt: undefined,
+    updatedAt: new Date().toISOString(),
+    lastEvent: `resume requested (${current.workflow?.agentPeerIds?.length ?? 0} prior agents journaled)`,
+    workflow: current.workflow ? { ...current.workflow, status: "pending", error: undefined } : current.workflow,
+  }));
+  const record = reset ?? peer;
+  spawnWorkflowRunner(record.id);
+  return record;
+}
+
+function lockPath(workflowId: string): string {
+  return join(peersHome(), "workflow-locks", `${workflowId}.lock`);
+}
+
+/**
+ * Cross-process run lock so a workflow id can't be driven by two runner
+ * processes at once (e.g. a resume racing a still-live run). Reuses the gsd-pi
+ * lockfile + pid-liveness pattern: a stale lock whose owner is dead is stolen.
+ * Returns a release fn, or null when the workflow is already running.
+ */
+export function acquireRunLock(workflowId: string): (() => void) | null {
+  const path = lockPath(workflowId);
+  mkdirSync(dirname(path), { recursive: true });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const fd = openSync(path, "wx");
+      writeSync(fd, `${process.pid}\n`);
+      closeSync(fd);
+      return () => {
+        try {
+          unlinkSync(path);
+        } catch {
+          /* already gone */
+        }
+      };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+        throw err;
+      }
+      // Lock exists — steal it only if the owner pid is dead.
+      let ownerPid: number | undefined;
+      try {
+        ownerPid = Number(readFileSync(path, "utf8").trim()) || undefined;
+      } catch {
+        ownerPid = undefined;
+      }
+      if (ownerPid && pidAlive(ownerPid)) {
+        return null; // genuinely running elsewhere
+      }
+      try {
+        unlinkSync(path); // stale → remove and retry once
+      } catch {
+        /* raced with another stealer */
+      }
+    }
+  }
+  return null;
 }

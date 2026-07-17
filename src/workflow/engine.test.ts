@@ -82,6 +82,8 @@ function makeDeps(executor: ExecutorImpl) {
       killed.push(peerId);
     },
     tokensForPeer: () => 0,
+    readJournal: () => [],
+    writeJournal: () => {},
     executeScript: (request) => executor(request),
     now: () => Date.now(),
   };
@@ -224,6 +226,8 @@ describe("runWorkflowRun — two-pool concurrency + guards", () => {
       appendLog: async () => {},
       killPeer: () => {},
       tokensForPeer: () => opts.tokens ?? 0,
+      readJournal: () => [],
+      writeJournal: () => {},
       executeScript: () => ({ result: Promise.resolve(null), kill: () => {} }),
       now: () => Date.now(),
     };
@@ -306,5 +310,145 @@ describe("runWorkflowRun — two-pool concurrency + guards", () => {
     const final = await runWorkflowRun(makeRunRecord({ budgetTokens: 1000 }), runner, { maxConcurrency: 2 });
     expect(final.status).toBe("done");
     expect(sampled).toBe(50);
+  });
+});
+
+describe("runWorkflowRun — journaling + resume replay", () => {
+  const SCHEMA = { type: "object" };
+
+  // Deps with an in-memory journal; each live leaf returns a result echoing its
+  // prompt so replayed (journaled) vs live results are distinguishable.
+  function makeJournalDeps() {
+    const journal: any[] = [];
+    const prompts = new Map<string, string>();
+    const spawns: string[] = [];
+    let n = 0;
+    const deps: WorkflowEngineDeps = {
+      spawnPeer: (o) => {
+        n += 1;
+        const id = `leaf-${n}`;
+        prompts.set(id, o.prompt);
+        spawns.push(o.prompt.split("\n")[0]); // original prompt (schema instr is appended after)
+        return { id, repo: "/wt", task: "t", status: "starting", startedAt: "t", updatedAt: "t", logPath: "/l" };
+      },
+      waitForPeer: async ({ peerId }) => ({
+        peer: {
+          id: peerId as string,
+          repo: "/wt",
+          task: "t",
+          status: "done",
+          finalResult: `\`\`\`json\n${JSON.stringify({ v: `live:${peerId}` })}\n\`\`\``,
+          startedAt: "t",
+          updatedAt: "t",
+          logPath: "/l",
+        },
+        timedOut: false,
+        elapsedMs: 1,
+      }),
+      resumePeer: () => {
+        throw new Error("unused");
+      },
+      readAgentResultFile: () => undefined,
+      removeAgentResultFile: () => {},
+      updatePeer: (_id, patch) => ({ ...makeRunRecord(), ...patch, id: "wf-1" }) as PeerRecord,
+      appendLog: async () => {},
+      killPeer: () => {},
+      tokensForPeer: () => 0,
+      readJournal: () => journal.map((r) => ({ ...r })),
+      writeJournal: (row) => {
+        const i = journal.findIndex((r) => r.callIndex === row.callIndex);
+        if (i >= 0) journal[i] = { ...row };
+        else journal.push({ ...row });
+      },
+      executeScript: () => ({ result: Promise.resolve(null), kill: () => {} }),
+      now: () => Date.now(),
+    };
+    return { deps, journal, spawns };
+  }
+
+  // A script that issues the given agent calls in order (index = position).
+  function scriptExec(calls: Array<{ prompt: string }>) {
+    return (req: { onCall: (m: string, a: unknown[]) => Promise<unknown> }) => ({
+      result: (async () => {
+        const out: unknown[] = [];
+        for (let i = 0; i < calls.length; i += 1) {
+          out.push(await req.onCall("agent", [calls[i].prompt, { schema: SCHEMA }, i]));
+        }
+        return out;
+      })(),
+      kill: () => {},
+    });
+  }
+
+  it("a fresh run journals every agent call", async () => {
+    const { deps, journal, spawns } = makeJournalDeps();
+    const runner = { ...deps, executeScript: scriptExec([{ prompt: "a" }, { prompt: "b" }, { prompt: "c" }]) } as WorkflowEngineDeps;
+    const final = await runWorkflowRun(makeRunRecord(), runner);
+    expect(final.status).toBe("done");
+    expect(spawns).toEqual(["a", "b", "c"]);
+    expect(journal.map((r) => r.callIndex)).toEqual([0, 1, 2]);
+    expect(final.workflow?.replayedAgents).toBe(0);
+  });
+
+  it("resuming an identical completed run replays 100% from the journal (zero spawns)", async () => {
+    const first = makeJournalDeps();
+    const script = scriptExec([{ prompt: "a" }, { prompt: "b" }, { prompt: "c" }]);
+    await runWorkflowRun(makeRunRecord(), { ...first.deps, executeScript: script } as WorkflowEngineDeps);
+    expect(first.spawns.length).toBe(3);
+
+    // Resume: reuse the SAME journal, fresh spawn tracking.
+    const second = makeJournalDeps();
+    second.journal.push(...first.journal);
+    const final = await runWorkflowRun(makeRunRecord(), { ...second.deps, executeScript: script } as WorkflowEngineDeps);
+    expect(second.spawns).toEqual([]); // nothing re-spawned
+    expect(final.workflow?.replayedAgents).toBe(3);
+    // Replayed results are the journaled ones.
+    expect(final.workflow?.result).toEqual([{ v: "live:leaf-1" }, { v: "live:leaf-2" }, { v: "live:leaf-3" }]);
+  });
+
+  it("resumes from the longest unchanged prefix: replays before divergence, runs the rest live", async () => {
+    // Journal a 3-call run.
+    const first = makeJournalDeps();
+    await runWorkflowRun(
+      makeRunRecord(),
+      { ...first.deps, executeScript: scriptExec([{ prompt: "a" }, { prompt: "b" }, { prompt: "c" }]) } as WorkflowEngineDeps,
+    );
+
+    // Resume with call 1's prompt CHANGED → divergence at index 1; calls 1 and 2
+    // run live even though call 2's prompt is unchanged (state after 1 differs).
+    const second = makeJournalDeps();
+    second.journal.push(...first.journal);
+    const final = await runWorkflowRun(
+      makeRunRecord(),
+      { ...second.deps, executeScript: scriptExec([{ prompt: "a" }, { prompt: "b-CHANGED" }, { prompt: "c" }]) } as WorkflowEngineDeps,
+    );
+    expect(final.workflow?.replayedAgents).toBe(1); // only call 0
+    expect(second.spawns).toEqual(["b-CHANGED", "c"]); // 1 and 2 ran live
+    // Journal now reflects the new run at indices 1 and 2.
+    expect(second.journal.find((r) => r.callIndex === 1).promptHash).not.toEqual(first.journal[1].promptHash);
+  });
+
+  it("a killed run (partial journal) resumes: completed prefix replays, the rest runs live", async () => {
+    // Simulate a kill after 2 of 4 calls by journaling only indices 0,1.
+    const partial = makeJournalDeps();
+    await runWorkflowRun(
+      makeRunRecord(),
+      { ...partial.deps, executeScript: scriptExec([{ prompt: "a" }, { prompt: "b" }]) } as WorkflowEngineDeps,
+    );
+    expect(partial.journal.map((r) => r.callIndex)).toEqual([0, 1]);
+
+    // Resume the full 4-call script; 0,1 replay, 2,3 run live.
+    const resumed = makeJournalDeps();
+    resumed.journal.push(...partial.journal);
+    const final = await runWorkflowRun(
+      makeRunRecord(),
+      {
+        ...resumed.deps,
+        executeScript: scriptExec([{ prompt: "a" }, { prompt: "b" }, { prompt: "c" }, { prompt: "d" }]),
+      } as WorkflowEngineDeps,
+    );
+    expect(final.workflow?.replayedAgents).toBe(2);
+    expect(resumed.spawns).toEqual(["c", "d"]);
+    expect(resumed.journal.map((r) => r.callIndex).sort()).toEqual([0, 1, 2, 3]);
   });
 });

@@ -93,6 +93,11 @@ async function runWorkflow(init: InitMessage): Promise<void> {
     remaining: () => (total === null ? Number.POSITIVE_INFINITY : Math.max(0, total - budgetSpent)),
   });
 
+  // Monotonic per-agent-call index. Assigned in the deterministic order the
+  // script issues ctx.agent() calls, so the same script + inputs map calls
+  // 1:1 to their journal rows on resume (§14).
+  let agentIndex = 0;
+
   const agent = (prompt: unknown, opts: unknown) => {
     const merged =
       opts && typeof opts === "object"
@@ -100,7 +105,9 @@ async function runWorkflow(init: InitMessage): Promise<void> {
         : currentPhase !== undefined
           ? { phase: currentPhase }
           : undefined;
-    return bridgeCall("agent", merged === undefined ? [prompt] : [prompt, merged]);
+    const index = agentIndex;
+    agentIndex += 1;
+    return bridgeCall("agent", [prompt, merged ?? null, index]);
   };
 
   // parallel: barrier fan-out; a throwing thunk resolves to null.

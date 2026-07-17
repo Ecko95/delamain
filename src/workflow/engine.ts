@@ -16,6 +16,8 @@
 
 import { runAgentCall, type AgentCallDeps } from "./ctx.js";
 import { RunController, resolveMaxConcurrency, type RunControllerDeps } from "./pool.js";
+import { ReplayPlan, hashOpts, hashPrompt } from "./journal.js";
+import type { AgentJournalRow } from "../store.js";
 import type { PeerRecord } from "../types.js";
 import type { WorkflowRunConfig } from "./types.js";
 
@@ -64,6 +66,9 @@ export type WorkflowEngineDeps = AgentCallDeps &
     /** Kill a still-active leaf peer when the run is halted. Best-effort. */
     killPeer: (peerId: string) => void;
     executeScript: (request: ExecuteScriptRequest) => ScriptExecution;
+    // SP1 wave 3 — resume/journaling (§14). Injected so replay is testable.
+    readJournal: (workflowId: string) => AgentJournalRow[];
+    writeJournal: (row: AgentJournalRow) => void;
     now: () => number;
   };
 
@@ -79,6 +84,9 @@ export async function runWorkflowRun(
 
   const startedAt = deps.now();
   const agentPeerIds: string[] = [];
+  // Resume: replay the longest unchanged prefix of ctx.agent() calls from the
+  // journal (empty for a fresh run → every call runs live and is journaled).
+  const replayPlan = new ReplayPlan(deps.readJournal(peer.id));
   let current = patch(deps, peer.id, workflow, {
     status: "working",
     lastEvent: `workflow running: ${workflow.scriptPath}`,
@@ -119,8 +127,26 @@ export async function runWorkflowRun(
       return undefined;
     }
     if (method === "agent") {
-      const [prompt, agentOpts] = args as [string, Record<string, unknown> | undefined];
-      return runAgentCall(
+      const [prompt, rawOpts, callIndexRaw] = args as [string, Record<string, unknown> | null, number | undefined];
+      const agentOpts = rawOpts ?? undefined;
+      const callIndex = typeof callIndexRaw === "number" ? callIndexRaw : -1;
+      const promptHash = hashPrompt(prompt);
+      const optsHash = hashOpts(agentOpts);
+
+      // Resume: serve from the journal when this call is within the unchanged
+      // prefix. No spawn, no semaphore, no budget — the work already happened.
+      if (callIndex >= 0) {
+        const decision = replayPlan.decide(callIndex, promptHash, optsHash);
+        if (decision.replay) {
+          log(`agent[${callIndex}] replayed from journal (cache hit)`);
+          current = patch(deps, peer.id, currentWorkflow(current, workflow), {
+            workflowPatch: { replayedAgents: replayPlan.replayedCount },
+          });
+          return decision.result;
+        }
+      }
+
+      const result = await runAgentCall(
         {
           ...deps,
           onAgentSpawned: (leaf) => {
@@ -136,6 +162,27 @@ export async function runWorkflowRun(
         prompt,
         agentOpts,
       );
+
+      // Durably journal the completed call BEFORE returning it to the script,
+      // so a crash immediately after can still replay this call on resume.
+      if (callIndex >= 0) {
+        try {
+          deps.writeJournal({
+            workflowId: peer.id,
+            callIndex,
+            promptHash,
+            optsHash,
+            engine: (agentOpts?.engine as string) ?? "codex",
+            model: agentOpts?.model as string | undefined,
+            phase: agentOpts?.phase as string | undefined,
+            resultJson: JSON.stringify(result ?? null),
+            status: "done",
+          });
+        } catch {
+          /* journaling is best-effort; a failed write just means a re-run here on resume */
+        }
+      }
+      return result;
     }
     throw new Error(`unknown ctx method: ${method}`);
   };
@@ -201,6 +248,7 @@ export async function runWorkflowRun(
         result: toJsonSafe(result),
         agentPeerIds: [...agentPeerIds],
         tokensSpent: controller.budgetSnapshot().spent,
+        replayedAgents: replayPlan.replayedCount,
       },
     });
     return current;
@@ -221,6 +269,7 @@ export async function runWorkflowRun(
         error: message,
         agentPeerIds: [...agentPeerIds],
         tokensSpent: controller.budgetSnapshot().spent,
+        replayedAgents: replayPlan.replayedCount,
       },
     });
     return current;

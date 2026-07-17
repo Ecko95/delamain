@@ -18,7 +18,7 @@ import { inspectGsdMilestone } from "./gsdMilestone.js";
 import { integratePeer, IntegratePeerRefusedError } from "./peerIntegration.js";
 import { classifyFrozenBatch } from "./frozen-eligibility/index.js";
 import { readPeerInbox } from "./peerInbox.js";
-import { spawnWorkflowRun, spawnWorkflowRunner, workflowStatus } from "./workflow/manager.js";
+import { resumeWorkflowRun, spawnWorkflowRun, spawnWorkflowRunner, workflowStatus } from "./workflow/manager.js";
 import { validateWorkflowSource } from "./workflow/sandbox.js";
 import { workflowsDir } from "./paths.js";
 import type { SpawnSizingArgs, TaskScope } from "./taskSizing.js";
@@ -412,6 +412,7 @@ export const TOOLS = [
         max_agents: { type: "number", description: "Hard cap on total leaf agents spawned over the run; exceeding it halts the run." },
         budget_tokens: { type: "number", description: "Cumulative leaf-token budget; exhausting it halts the run." },
         name: { type: "string", description: "Optional display name for the workflow run." },
+        resume: { type: "string", description: "Resume an existing workflow id: replay its journaled agent prefix and run only the remainder live (ignores script/script_path)." },
       },
     },
   },
@@ -653,6 +654,11 @@ export async function callTool(name: unknown, rawArgs: unknown): Promise<unknown
       return json(result);
     }
     case "run_workflow": {
+      const resumeId = optionalString(args, "resume");
+      if (resumeId) {
+        const resumed = resumeWorkflowRun(resumeId);
+        return json({ workflow_id: resumed.id, status: resumed.status, resumed: true, workflow: resumed.workflow });
+      }
       const inlineScript = optionalString(args, "script");
       let scriptPath = optionalString(args, "script_path") ?? optionalString(args, "scriptPath");
       if (!inlineScript && !scriptPath) {
