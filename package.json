@@ -9,7 +9,7 @@
     "codex-peers": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js && bash scripts/build-jail.sh",
     "dev": "tsx src/index.ts",
     "server": "node dist/index.js server",
     "dashboard": "node dist/index.js dashboard",
