@@ -80,13 +80,13 @@ function makeController(opts: {
 
 // Simulate one gated leaf lifecycle: acquire → spawn → work → recordUsage/release.
 async function runLeaf(controller: RunController, id: string, work: () => Promise<void>) {
-  await controller.acquire();
+  const slot = await controller.acquire();
   try {
     controller.markSpawned(leaf(id));
     await work();
   } finally {
     controller.recordUsage(leaf(id));
-    controller.release();
+    controller.release(slot);
   }
 }
 
@@ -147,6 +147,35 @@ describe("RunController guards", () => {
     const b = controller.budgetSnapshot();
     expect(b.total).toBeNull();
     expect(b.remaining).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("release(token) frees exactly the acquired slot under interleaved acquire/release", async () => {
+    // Regression for the wave-2 shared-pendingRelease bug: concurrent leaves
+    // must each free their OWN slot, not whichever token was set last.
+    const { controller } = makeController({ maxConcurrency: 2 });
+    const t0 = await controller.acquire(); // active 1
+    await controller.acquire(); // active 2 → full
+    let third: unknown;
+    let thirdResolved = false;
+    const p3 = controller.acquire().then((t) => {
+      thirdResolved = true;
+      third = t;
+      return t;
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(thirdResolved).toBe(false); // queued behind the two live slots
+
+    // Free the FIRST token (interleaved). Per-token release must let the queued
+    // acquire proceed; a shared-field impl would leak/mismatch here.
+    controller.release(t0);
+    await p3;
+    expect(thirdResolved).toBe(true);
+    controller.release(third);
+
+    // No permits leaked: a fresh acquire still resolves promptly.
+    const again = await controller.acquire();
+    expect(again).toBeTypeOf("function");
+    controller.release(again);
   });
 
   it("halt() kills every live leaf and is idempotent", async () => {

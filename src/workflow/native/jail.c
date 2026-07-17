@@ -188,11 +188,26 @@ static void apply_seccomp(int block_net) {
   BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (nr), 0, 1),                             \
   BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA))
 
+/*
+ * On x86-64 the deny-list matches native syscall numbers only, so an x32
+ * syscall (same arch, nr | 0x40000000) would slip past it. Deny every x32
+ * syscall up front — node uses the native ABI exclusively, so this can't break
+ * legitimate use. No-op on non-x86-64 (no X32 bit).
+ */
+#if defined(__x86_64__)
+#define X32_GUARD                                                              \
+  BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0x40000000, 0, 1),                       \
+  BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA)),
+#else
+#define X32_GUARD
+#endif
+
   struct sock_filter net_filter[] = {
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
     BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_NATIVE, 1, 0),
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+    X32_GUARD
 #ifdef __NR_socket
     DENY(__NR_socket),
 #endif
@@ -217,12 +232,14 @@ static void apply_seccomp(int block_net) {
     BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_NATIVE, 1, 0),
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+    X32_GUARD
 #ifdef __NR_ptrace
     DENY(__NR_ptrace),
 #endif
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
   };
 #undef DENY
+#undef X32_GUARD
 
   struct sock_fprog prog;
   if (block_net) {

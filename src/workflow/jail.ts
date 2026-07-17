@@ -7,7 +7,7 @@
 // surface a loud degraded-mode warning (spec §7).
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, realpathSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -121,7 +121,23 @@ export function buildJailPlan(opts: { childPath: string; scratchDir: string; str
   // Only the private scratch dir is writable — NOT the whole tmp root, so a
   // secret dropped elsewhere in /tmp is unreadable to the jailed child.
   const rwPaths = existingPaths([opts.scratchDir]);
-  const execPaths = existingPaths([node, findElfInterpreter()]);
+
+  // node needs EXECUTE on itself AND on its dynamic loader (Landlock checks the
+  // interpreter during execve). Resolve the loader from node's own ELF
+  // PT_INTERP; if that can't be found on disk we would produce a broken EXEC
+  // list where node silently fails to start under the jail — degrade LOUDLY
+  // instead (spec §7), so the run continues unjailed with a warning rather than
+  // hard-failing with an opaque "child exited unexpectedly".
+  const interp = resolveElfInterpreter(node);
+  if (interp === "unresolvable") {
+    return {
+      available: false,
+      prefixArgs: [],
+      env: {},
+      reason: "could not resolve node's ELF interpreter (dynamic loader); would break execve under Landlock",
+    };
+  }
+  const execPaths = existingPaths(interp === "static" ? [node] : [node, interp]);
 
   return {
     available: true,
@@ -137,12 +153,55 @@ export function buildJailPlan(opts: { childPath: string; scratchDir: string; str
   };
 }
 
-function findElfInterpreter(): string {
-  // The dynamic loader node needs; glibc x86-64/arm64 common paths.
+/**
+ * Read the dynamic loader path from an ELF binary's PT_INTERP segment.
+ * Returns the interpreter path, "static" (no PT_INTERP → no loader needed), or
+ * "unresolvable" (PT_INTERP present but the file is missing, or the ELF can't
+ * be parsed). 64-bit little-endian ELF (x86-64/arm64); anything else falls back
+ * to the common loader guesses.
+ */
+function resolveElfInterpreter(binary: string): string | "static" | "unresolvable" {
+  try {
+    const fd = openSync(binary, "r");
+    try {
+      const header = Buffer.alloc(64);
+      readSync(fd, header, 0, 64, 0);
+      if (header.readUInt32LE(0) !== 0x464c457f) return guessInterpreter(); // not ELF magic
+      const is64 = header[4] === 2;
+      const isLE = header[5] === 1;
+      if (!is64 || !isLE) return guessInterpreter();
+      const phoff = Number(header.readBigUInt64LE(0x20));
+      const phentsize = header.readUInt16LE(0x36);
+      const phnum = header.readUInt16LE(0x38);
+      const PT_INTERP = 3;
+      for (let i = 0; i < phnum; i += 1) {
+        const ph = Buffer.alloc(phentsize);
+        readSync(fd, ph, 0, phentsize, phoff + i * phentsize);
+        if (ph.readUInt32LE(0) === PT_INTERP) {
+          const pOffset = Number(ph.readBigUInt64LE(0x08));
+          const pFilesz = Number(ph.readBigUInt64LE(0x20));
+          const buf = Buffer.alloc(pFilesz);
+          readSync(fd, buf, 0, pFilesz, pOffset);
+          const interp = buf.toString("utf8").replace(/\0.*$/, "").trim();
+          if (!interp) return "unresolvable";
+          return existsSync(interp) ? interp : "unresolvable";
+        }
+      }
+      return "static"; // no PT_INTERP → statically linked, no loader to grant
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return guessInterpreter();
+  }
+}
+
+/** Fallback when the ELF can't be parsed: common glibc loaders, or unresolvable. */
+function guessInterpreter(): string | "unresolvable" {
   for (const p of ["/lib64/ld-linux-x86-64.so.2", "/lib/ld-linux-aarch64.so.1", "/lib64/ld-linux-aarch64.so.1"]) {
     if (existsSync(p)) return p;
   }
-  return "/lib64/ld-linux-x86-64.so.2";
+  return "unresolvable";
 }
 
 export type JailProbe = {

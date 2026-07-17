@@ -101,6 +101,8 @@ export type WorkflowRunConfig = {
   error?: string;
   /** Cumulative leaf tokens spent (budget accounting). */
   tokensSpent?: number;
+  /** ctx.agent calls served from the journal on resume (§14). */
+  replayedAgents?: number;
   /** Leaf peer ids spawned by ctx.agent, in spawn order. */
   agentPeerIds: string[];
   /** Determinism shims: Math.random seed + fixed Date epoch for the child. */

@@ -9,7 +9,7 @@ import { readPeerInbox } from "./peerInbox.js";
 import { sweepPeers } from "./sweep.js";
 import { runWaitCommand, WAIT_USAGE } from "./wait.js";
 import { wavesView } from "./waves.js";
-import { spawnWorkflowRun, spawnWorkflowRunner, workflowStatus } from "./workflow/manager.js";
+import { resumeWorkflowRun, spawnWorkflowRun, spawnWorkflowRunner, workflowStatus } from "./workflow/manager.js";
 import { validateWorkflowSource } from "./workflow/sandbox.js";
 import { TERMINAL_PEER_STATUSES } from "./types.js";
 
@@ -182,25 +182,32 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
     case "run-workflow": {
       const positional = argv[0] && !argv[0].startsWith("--") ? argv[0] : undefined;
       const args = parseFlags(positional ? argv.slice(1) : argv);
-      const scriptPath = positional || flagString(args, "script");
-      if (!scriptPath) {
-        throw new Error("Usage: delamain run-workflow <file> [--timeout-ms <ms>] [--max-agents <n>] [--budget-tokens <n>] [--repo <git-repo>] [--name <name>] [--detach]");
+      // Resume an existing run: replay its journaled prefix, run the rest live.
+      const resumeId = flagString(args, "resume");
+      let run: ReturnType<typeof spawnWorkflowRun>;
+      if (resumeId) {
+        run = resumeWorkflowRun(resumeId);
+      } else {
+        const scriptPath = positional || flagString(args, "script");
+        if (!scriptPath) {
+          throw new Error("Usage: delamain run-workflow <file> [--timeout-ms <ms>] [--max-agents <n>] [--budget-tokens <n>] [--repo <git-repo>] [--name <name>] [--detach]  |  delamain run-workflow --resume <workflow-id>");
+        }
+        const timeoutMs = positiveFlag(args, "timeout-ms", "milliseconds");
+        const maxAgents = positiveFlag(args, "max-agents", "leaves");
+        const budgetTokens = positiveFlag(args, "budget-tokens", "tokens");
+        // Fail fast on a rejected script before persisting the run record; the
+        // sandbox re-validates the same source at execution time.
+        validateWorkflowSource(readFileSync(scriptPath, "utf8"), scriptPath);
+        run = spawnWorkflowRun({
+          repo: flagString(args, "repo") || process.cwd(),
+          scriptPath,
+          timeoutMs,
+          maxAgents,
+          budgetTokens,
+          name: flagString(args, "name"),
+        });
+        spawnWorkflowRunner(run.id);
       }
-      const timeoutMs = positiveFlag(args, "timeout-ms", "milliseconds");
-      const maxAgents = positiveFlag(args, "max-agents", "leaves");
-      const budgetTokens = positiveFlag(args, "budget-tokens", "tokens");
-      // Fail fast on a rejected script before persisting the run record; the
-      // sandbox re-validates the same source at execution time.
-      validateWorkflowSource(readFileSync(scriptPath, "utf8"), scriptPath);
-      const run = spawnWorkflowRun({
-        repo: flagString(args, "repo") || process.cwd(),
-        scriptPath,
-        timeoutMs,
-        maxAgents,
-        budgetTokens,
-        name: flagString(args, "name"),
-      });
-      spawnWorkflowRunner(run.id);
       if (args.detach) {
         console.log(JSON.stringify({ workflow_id: run.id, status: run.status, workflow: run.workflow }, null, 2));
         return;
@@ -215,6 +222,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
             result: final.peer.workflow?.result ?? null,
             error: final.peer.workflow?.error ?? final.peer.error,
             agent_peer_ids: final.peer.workflow?.agentPeerIds ?? [],
+            replayed_agents: final.peer.workflow?.replayedAgents ?? 0,
             ...(final.diedEarly ? { runner_died: true } : {}),
           },
           null,
@@ -423,6 +431,8 @@ Commands:
   wait <peer-id...> [--interval <seconds>] [--timeout <seconds>] [--any]
   run-workflow <file> [--timeout-ms <ms>] [--max-agents <n>] [--budget-tokens <n>] [--repo <git-repo>] [--name <name>] [--detach]
                                  Run a sandboxed workflow (ctx.agent/parallel/pipeline leaves, integrate:false, OS-jailed)
+  run-workflow --resume <workflow-id>
+                                 Resume a workflow: replay its journaled agent prefix, run the rest live
   workflow <workflow-id>         Print a workflow run record as JSON
   send --to <peer-id> --message <text> [--from <peer-id>] [--expect-reply] [--response-id <id>]
   inbox [<peer-id>] [--all]
