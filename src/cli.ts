@@ -1,12 +1,17 @@
 import { readFileSync, realpathSync } from "node:fs";
+import { setTimeout as delay } from "node:timers/promises";
 import { killPeer, listPeers, peerStatus, readPeerLog, resumePeer, sendPeerMessage, spawnPeer } from "./peerManager.js";
 import { refreshAllMergeStates, refreshMergeState } from "./mergeState.js";
 import { getPeer } from "./store.js";
+import { pidAlive } from "./processes.js";
 import { readPeerCost } from "./peerCost.js";
 import { readPeerInbox } from "./peerInbox.js";
 import { sweepPeers } from "./sweep.js";
 import { runWaitCommand, WAIT_USAGE } from "./wait.js";
 import { wavesView } from "./waves.js";
+import { spawnWorkflowRun, spawnWorkflowRunner, workflowStatus } from "./workflow/manager.js";
+import { validateWorkflowSource } from "./workflow/sandbox.js";
+import { TERMINAL_PEER_STATUSES } from "./types.js";
 
 export async function runCliCommand(command: string, argv: string[]): Promise<void> {
   switch (command) {
@@ -174,9 +179,92 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       }, null, 2));
       return;
     }
+    case "run-workflow": {
+      const positional = argv[0] && !argv[0].startsWith("--") ? argv[0] : undefined;
+      const args = parseFlags(positional ? argv.slice(1) : argv);
+      const scriptPath = positional || flagString(args, "script");
+      if (!scriptPath) {
+        throw new Error("Usage: delamain run-workflow <file> [--timeout-ms <ms>] [--repo <git-repo>] [--name <name>] [--detach]");
+      }
+      const timeoutMsRaw = flagString(args, "timeout-ms");
+      let timeoutMs: number | undefined;
+      if (timeoutMsRaw !== undefined) {
+        timeoutMs = Number(timeoutMsRaw);
+        if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+          throw new Error("--timeout-ms must be a positive number of milliseconds");
+        }
+      }
+      // Fail fast on a rejected script before persisting the run record; the
+      // sandbox re-validates the same source at execution time.
+      validateWorkflowSource(readFileSync(scriptPath, "utf8"), scriptPath);
+      const run = spawnWorkflowRun({
+        repo: flagString(args, "repo") || process.cwd(),
+        scriptPath,
+        timeoutMs,
+        name: flagString(args, "name"),
+      });
+      spawnWorkflowRunner(run.id);
+      if (args.detach) {
+        console.log(JSON.stringify({ workflow_id: run.id, status: run.status, workflow: run.workflow }, null, 2));
+        return;
+      }
+      const final = await waitForWorkflowRun(run.id);
+      console.log(
+        JSON.stringify(
+          {
+            workflow_id: final.peer.id,
+            status: final.peer.status,
+            workflow_status: final.peer.workflow?.status,
+            result: final.peer.workflow?.result ?? null,
+            error: final.peer.workflow?.error ?? final.peer.error,
+            agent_peer_ids: final.peer.workflow?.agentPeerIds ?? [],
+            ...(final.diedEarly ? { runner_died: true } : {}),
+          },
+          null,
+          2,
+        ),
+      );
+      if (final.peer.workflow?.status !== "done") {
+        process.exitCode = 1;
+      }
+      return;
+    }
+    case "workflow": {
+      const workflowId = argv[0];
+      if (!workflowId) {
+        throw new Error("Usage: delamain workflow <workflow-id>");
+      }
+      console.log(JSON.stringify(workflowStatus(workflowId), null, 2));
+      return;
+    }
     case "help":
     default:
       printHelp();
+  }
+}
+
+// Poll the store until the detached workflow runner drives the record to a
+// terminal status (or dies without doing so).
+async function waitForWorkflowRun(workflowId: string): Promise<{ peer: NonNullable<ReturnType<typeof getPeer>>; diedEarly: boolean }> {
+  for (;;) {
+    const peer = getPeer(workflowId);
+    if (!peer) {
+      throw new Error(`workflow ${workflowId} disappeared from the store`);
+    }
+    if (TERMINAL_PEER_STATUSES.has(peer.status)) {
+      return { peer, diedEarly: false };
+    }
+    if (peer.runnerPid && !pidAlive(peer.runnerPid)) {
+      // One grace re-read: the runner may have exited between its final
+      // store write and this poll.
+      await delay(500);
+      const settled = getPeer(workflowId);
+      if (settled && TERMINAL_PEER_STATUSES.has(settled.status)) {
+        return { peer: settled, diedEarly: false };
+      }
+      return { peer: settled ?? peer, diedEarly: true };
+    }
+    await delay(1000);
   }
 }
 
@@ -326,6 +414,9 @@ Commands:
   log <peer-id> [lines]
   kill <peer-id> [SIGTERM|SIGKILL]
   wait <peer-id...> [--interval <seconds>] [--timeout <seconds>] [--any]
+  run-workflow <file> [--timeout-ms <ms>] [--repo <git-repo>] [--name <name>] [--detach]
+                                 Run a sandboxed workflow script (ctx.agent leaves, integrate:false)
+  workflow <workflow-id>         Print a workflow run record as JSON
   send --to <peer-id> --message <text> [--from <peer-id>] [--expect-reply] [--response-id <id>]
   inbox [<peer-id>] [--all]
   sweep [--dry-run] [--older-than <days>]  Archive stale terminal peers; mark dead-pid stale peers failed

@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   killPeer,
   listPeers,
@@ -15,6 +18,9 @@ import { inspectGsdMilestone } from "./gsdMilestone.js";
 import { integratePeer, IntegratePeerRefusedError } from "./peerIntegration.js";
 import { classifyFrozenBatch } from "./frozen-eligibility/index.js";
 import { readPeerInbox } from "./peerInbox.js";
+import { spawnWorkflowRun, spawnWorkflowRunner, workflowStatus } from "./workflow/manager.js";
+import { validateWorkflowSource } from "./workflow/sandbox.js";
+import { workflowsDir } from "./paths.js";
 import type { SpawnSizingArgs, TaskScope } from "./taskSizing.js";
 import type { GsdPlanningMode } from "./types.js";
 
@@ -393,6 +399,32 @@ export const TOOLS = [
     },
   },
   {
+    name: "run_workflow",
+    description:
+      "Run a code-defined workflow script (export const meta + export default async run(ctx)) in the sandboxed workflow engine. The script's only capability is ctx: ctx.agent(prompt, {schema, model, label}) spawns ONE codex leaf peer in a throwaway worktree with integrate:false and returns its (optionally JSON-Schema-validated) result; ctx.log(msg) writes to the run log. Returns { workflow_id } immediately; poll workflow_status. The run terminates on script return (status done) or on timeout_ms (status halted).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        script: { type: "string", description: "Inline workflow script source (TS/JS module). Provide this or script_path." },
+        script_path: { type: "string", description: "Path to a workflow script file. Provide this or script." },
+        repo: { type: "string", description: "Repository the workflow's agents run against. Defaults to the server's cwd." },
+        timeout_ms: { type: "number", description: "Wall-clock termination guard; the run is halted (child + leaf peers killed) when exceeded." },
+        name: { type: "string", description: "Optional display name for the workflow run." },
+      },
+    },
+  },
+  {
+    name: "workflow_status",
+    description: "Get a workflow run's status: workflow-level status (pending/running/done/failed/halted), result, error, and spawned agent peer ids.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workflow_id: { type: "string", description: "Workflow id (or id prefix) returned by run_workflow." },
+      },
+      required: ["workflow_id"],
+    },
+  },
+  {
     name: "integrate_peer",
     description:
       "Integrate a completed peer via pull request: commit and push the peer's own branch to origin, then open a PR into the target branch (main/master by default) and enable GitHub auto-merge so it lands once checks pass. Never advances the target branch directly. Refuses peers in running/halted/failed states. Requires gh authenticated for the repo's owner. Returns pr_number/pr_url/auto_merge_enabled.",
@@ -617,6 +649,43 @@ export async function callTool(name: unknown, rawArgs: unknown): Promise<unknown
       }
       const result = await classifyFrozenBatch(repo, phaseIdsRaw as string[]);
       return json(result);
+    }
+    case "run_workflow": {
+      const inlineScript = optionalString(args, "script");
+      let scriptPath = optionalString(args, "script_path") ?? optionalString(args, "scriptPath");
+      if (!inlineScript && !scriptPath) {
+        throw new Error("run_workflow requires either 'script' (inline source) or 'script_path'");
+      }
+      if (inlineScript && scriptPath) {
+        throw new Error("run_workflow accepts 'script' or 'script_path', not both");
+      }
+      if (inlineScript) {
+        validateWorkflowSource(inlineScript, "inline-script");
+        mkdirSync(workflowsDir(), { recursive: true });
+        scriptPath = join(workflowsDir(), `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}.ts`);
+        writeFileSync(scriptPath, inlineScript, "utf8");
+      } else {
+        validateWorkflowSource(readFileSync(scriptPath as string, "utf8"), scriptPath);
+      }
+      const run = spawnWorkflowRun({
+        repo: optionalString(args, "repo") ?? process.cwd(),
+        scriptPath: scriptPath as string,
+        timeoutMs: optionalNumber(args, "timeout_ms") ?? optionalNumber(args, "timeoutMs"),
+        name: optionalString(args, "name"),
+      });
+      spawnWorkflowRunner(run.id);
+      return json({ workflow_id: run.id, status: run.status, workflow: run.workflow });
+    }
+    case "workflow_status": {
+      const peer = workflowStatus(requiredString(args, "workflow_id"));
+      return json({
+        workflow_id: peer.id,
+        status: peer.status,
+        workflow: peer.workflow,
+        error: peer.error ?? null,
+        last_event: peer.lastEvent ?? null,
+        runner_pid: peer.runnerPid ?? null,
+      });
     }
     case "integrate_peer": {
       try {
