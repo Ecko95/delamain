@@ -13,6 +13,7 @@
 //     Tripping any guard halts the run and kills every live leaf.
 
 import type { PeerRecord } from "../types.js";
+import type { SlotToken } from "./ctx.js";
 
 /** FIFO counting semaphore. acquire() resolves with a single-use release fn. */
 export class Semaphore {
@@ -161,11 +162,12 @@ export class RunController {
    * becomes) halted — that rejects this one agent() bridge call; hard-cap
    * trips additionally halt the whole run.
    */
-  acquire = async (): Promise<void> => {
+  acquire = async (): Promise<SlotToken> => {
     if (this.haltReasonValue) {
       throw new WorkflowAbortedError(this.haltReasonValue);
     }
-    // Synchronous guard + claim — no await between check and increment.
+    // Synchronous guard + claim — no await between check and increment, so
+    // concurrent callers can't overshoot maxAgents.
     if (this.guards.maxAgents !== undefined && this.spawnedCount >= this.guards.maxAgents) {
       this.halt(`maxAgents=${this.guards.maxAgents} reached`);
       throw new WorkflowAbortedError(this.haltReasonValue as string);
@@ -179,22 +181,25 @@ export class RunController {
 
     const release = await this.semaphore.acquire();
     // A wall-clock timeout (or another agent's hard-cap trip) may have halted
-    // the run while we queued; don't spawn into a dead run.
+    // the run while we queued; don't spawn into a dead run. Undo the claim so
+    // maxAgents isn't charged for a leaf that never spawned.
     if (this.haltReasonValue) {
       release();
+      this.spawnedCount -= 1;
       throw new WorkflowAbortedError(this.haltReasonValue);
     }
-    this.pendingRelease = release;
+    // Return the slot's own release closure as the token. Each leaf holds its
+    // OWN token (never a shared field), so concurrent leaves can't free each
+    // other's slots — the wave-2 fan-out permit-leak fix.
+    return release as SlotToken;
   };
 
-  /** Matches acquire(); called from runAgentCall's finally. */
-  release = (): void => {
-    const release = this.pendingRelease;
-    this.pendingRelease = undefined;
-    if (release) release();
+  /** Frees exactly the slot acquire() returned. Called from runAgentCall's finally. */
+  release = (token: SlotToken): void => {
+    if (typeof token === "function") {
+      (token as () => void)();
+    }
   };
-
-  private pendingRelease: (() => void) | undefined;
 
   /** Track a spawned leaf as alive (peak concurrency = max live at once). */
   markSpawned = (peer: PeerRecord): void => {

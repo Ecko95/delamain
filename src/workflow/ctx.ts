@@ -49,13 +49,17 @@ export type AgentCallDeps = {
   /** Engine hook: invoked once per spawned leaf so the run records its ids. */
   onAgentSpawned?: (peer: PeerRecord) => void;
   // SP1 wave 2 — semaphore/guard gating (pool.ts). acquire() runs before
-  // spawnPeer (may throw WorkflowAbortedError to abort this leaf); release()
-  // runs in finally; recordUsage() accounts the terminal leaf's tokens.
-  acquire?: () => Promise<void>;
-  release?: () => void;
+  // spawnPeer (may throw WorkflowAbortedError to abort this leaf) and returns
+  // an opaque slot token; release(token) runs in finally and frees exactly
+  // that leaf's slot; recordUsage() accounts the terminal leaf's tokens.
+  acquire?: () => Promise<SlotToken>;
+  release?: (token: SlotToken) => void;
   recordUsage?: (peer: PeerRecord) => void;
   log?: (line: string) => void;
 };
+
+/** Opaque per-leaf semaphore slot handle threaded acquire() → release(). */
+export type SlotToken = unknown;
 
 export type AgentCallConfig = {
   repo: string;
@@ -82,7 +86,9 @@ export async function runAgentCall(
   // Two-pool gate: block on a semaphore slot + guard check before spawning.
   // A halted run makes this throw, aborting just this leaf (parallel/pipeline
   // degrade it to null); a hard-cap/budget trip additionally halts the run.
-  await deps.acquire?.();
+  // The returned token frees THIS leaf's slot in the finally — never a shared
+  // field, so concurrent leaves can't release each other's slots.
+  const slot = await deps.acquire?.();
 
   let lastPeer: PeerRecord | undefined;
   try {
@@ -148,6 +154,6 @@ export async function runAgentCall(
     // A spawned leaf always spent something and always frees its slot, whether
     // it validated, failed, or threw.
     if (lastPeer) deps.recordUsage?.(lastPeer);
-    deps.release?.();
+    deps.release?.(slot);
   }
 }
