@@ -91,10 +91,41 @@ export type WorkflowCtx = {
   pipeline(items: unknown[], ...stages: WorkflowStage[]): Promise<unknown[]>;
   /** Set the current progress-group label applied to subsequent agents. */
   phase(title: string): void;
+  /**
+   * Adversarial jury (SP1 wave 5): spawn `jurors` read-only agents (default 3)
+   * that each try to REFUTE the claim, defaulting to refuted when uncertain.
+   * The claim survives unless a strict majority refutes it. Jurors can be
+   * engine-diverse (rotate `engines`) and perspective-diverse (rotate `lens`).
+   * Built on parallel()+agent(); a juror that can't vote is dropped.
+   */
+  verify(claim: string, opts?: WorkflowVerifyOpts): Promise<WorkflowVerifyResult>;
   /** Narrator line appended to the run log. */
   log(message: string): void;
   /** Token budget for the run (SP1 wave 2). */
   budget: WorkflowBudget;
+};
+
+export type WorkflowVerifyOpts = {
+  /** Number of jurors (default 3). */
+  jurors?: number;
+  /** Perspectives rotated across jurors (e.g. ["correctness","security","repro"]). */
+  lens?: string[];
+  /** Engines rotated across jurors for diversity (e.g. ["codex","cursor"]). */
+  engines?: Array<"codex" | "cursor">;
+  /** Optional model override for every juror. */
+  model?: string;
+};
+
+export type WorkflowVerdict = { refuted: boolean; reason: string; lens: string | null; engine: string };
+
+export type WorkflowVerifyResult = {
+  claim: string;
+  /** True unless a strict majority of voting jurors refuted the claim. */
+  survived: boolean;
+  refutedCount: number;
+  /** Number of jurors that actually returned a verdict. */
+  jurors: number;
+  verdicts: WorkflowVerdict[];
 };
 
 export type WorkflowSpec = {
