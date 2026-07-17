@@ -93,8 +93,8 @@ export const TOOLS = [
         },
         engine: {
           type: "string",
-          enum: ["codex", "cursor"],
-          description: "Which CLI to drive the peer. Defaults to 'codex'. 'cursor' shells out to cursor-agent (uses your Cursor work seat for billing).",
+          enum: ["codex", "cursor", "pi"],
+          description: "Which CLI to drive the peer. Defaults to 'codex'. 'cursor' shells out to cursor-agent (uses your Cursor work seat for billing). 'pi' shells out to the pi coding agent (requires `pi /login` or a provider API key; pass an explicit provider/id model).",
         },
         cursor_options: {
           type: "object",
@@ -103,6 +103,14 @@ export const TOOLS = [
             cloud: { type: "boolean", description: "Run the peer on Cursor's cloud infra (--cloud). Does not consume local CPU." },
             approve_mcps: { type: "boolean", description: "Auto-approve MCP servers (--approve-mcps), e.g. for chrome-devtools browser MCP." },
             force: { type: "boolean", description: "Pass --force (default true). Set false to require manual file-edit approvals." },
+          },
+        },
+        pi_options: {
+          type: "object",
+          description: "Pi-engine-only options. Ignored when engine != 'pi'.",
+          properties: {
+            tools: { type: "array", items: { type: "string" }, description: "Allowlist of pi tool names (e.g. read,bash,edit,write). Omit for pi's defaults." },
+            thinking: { type: "string", description: "Pi thinking level: off, minimal, low, medium, high, xhigh." },
           },
         },
         reasoning_effort: {
@@ -270,7 +278,7 @@ export const TOOLS = [
         },
         engine: {
           type: "string",
-          enum: ["codex", "cursor"],
+          enum: ["codex", "cursor", "pi"],
           description: "Which CLI to drive the peer. Defaults to 'codex'.",
         },
         cursor_options: {
@@ -555,6 +563,7 @@ export async function callTool(name: unknown, rawArgs: unknown): Promise<unknown
         yolo: bypassEnabled(args),
         engine: engineValue(args),
         cursorOptions: cursorOptionsValue(args),
+        piOptions: piOptionsValue(args),
         // No claimsOverride here on purpose — MCP-driven spawns stay fail-closed on claim conflicts.
         dependsOn: optionalStringArray(args, "depends_on", "dependsOn"),
         claims: optionalStringArray(args, "claims"),
@@ -606,6 +615,7 @@ export async function callTool(name: unknown, rawArgs: unknown): Promise<unknown
         yolo: bypassEnabled(args),
         engine: engineValue(args),
         cursorOptions: cursorOptionsValue(args),
+        piOptions: piOptionsValue(args),
         // No claimsOverride here on purpose — MCP-driven spawns stay fail-closed on claim conflicts.
         dependsOn: optionalStringArray(args, "depends_on", "dependsOn"),
         claims: optionalStringArray(args, "claims"),
@@ -869,10 +879,20 @@ function bypassEnabled(args: Record<string, unknown>): boolean {
   );
 }
 
-function engineValue(args: Record<string, unknown>): "codex" | "cursor" | undefined {
+function engineValue(args: Record<string, unknown>): "codex" | "cursor" | "pi" | undefined {
   const raw = args.engine;
-  if (raw === "cursor" || raw === "codex") return raw;
+  if (raw === "cursor" || raw === "codex" || raw === "pi") return raw;
   return undefined;
+}
+
+function piOptionsValue(args: Record<string, unknown>): { tools?: string[]; thinking?: string } | undefined {
+  const raw = args.pi_options ?? args.piOptions;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const record = raw as Record<string, unknown>;
+  const out: { tools?: string[]; thinking?: string } = {};
+  if (Array.isArray(record.tools)) out.tools = record.tools.filter((t): t is string => typeof t === "string");
+  if (typeof record.thinking === "string") out.thinking = record.thinking;
+  return out.tools?.length || out.thinking ? out : undefined;
 }
 
 function cursorOptionsValue(
@@ -937,14 +957,14 @@ export function codexConfigValue(args: Record<string, unknown>): string[] | unde
 
 export function codexTuningOptions(
   args: Record<string, unknown>,
-  engine: "codex" | "cursor" | undefined,
+  engine: "codex" | "cursor" | "pi" | undefined,
 ): { reasoningEffort?: ReasoningEffortValue; developerInstructions?: string; codexConfig?: string[] } {
   const reasoningEffort = reasoningEffortValue(args);
   const developerInstructions = developerInstructionsValue(args);
   const codexConfig = codexConfigValue(args);
-  if (engine === "cursor" && (reasoningEffort !== undefined || developerInstructions !== undefined || codexConfig !== undefined)) {
+  if ((engine === "cursor" || engine === "pi") && (reasoningEffort !== undefined || developerInstructions !== undefined || codexConfig !== undefined)) {
     throw new Error(
-      "reasoning_effort, developer_instructions, and codex_config are codex-engine-only; do not pass them with engine='cursor'",
+      `reasoning_effort, developer_instructions, and codex_config are codex-engine-only; do not pass them with engine='${engine}'`,
     );
   }
   return { reasoningEffort, developerInstructions, codexConfig };

@@ -37,7 +37,7 @@ export type PeerIntegrationStatus = "pending" | "skipped" | "pushed" | "failed" 
 
 export type PeerKind = "generic" | "gsd_phase_batch" | "workflow_run";
 
-export type PeerEngine = "codex" | "cursor";
+export type PeerEngine = "codex" | "cursor" | "pi";
 
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
@@ -45,6 +45,12 @@ export type CursorRunOptions = {
 	cloud?: boolean;
 	approveMcps?: boolean;
 	force?: boolean;
+};
+
+// SP2 — pi-engine-only options. Ignored when engine != "pi".
+export type PiRunOptions = {
+	tools?: string[];
+	thinking?: string;
 };
 
 export type GsdPlanningMode = "dynamic" | "frozen";
@@ -78,6 +84,7 @@ export type PeerRecord = {
   enginePid?: number;
   engine?: PeerEngine;
   cursorOptions?: CursorRunOptions;
+  piOptions?: PiRunOptions;
   // Codex-engine-only tuning knobs (persisted so resume reuses them).
   reasoningEffort?: ReasoningEffort;
   developerInstructions?: string;
@@ -169,6 +176,7 @@ export type SpawnPeerOptions = {
   yolo?: boolean;
   engine?: PeerEngine;
   cursorOptions?: CursorRunOptions;
+  piOptions?: PiRunOptions;
   // Codex-engine-only tuning knobs; validated + engine-guarded at the MCP boundary.
   reasoningEffort?: ReasoningEffort;
   developerInstructions?: string;

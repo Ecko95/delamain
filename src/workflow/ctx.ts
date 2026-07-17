@@ -76,11 +76,11 @@ export async function runAgentCall(
     throw new WorkflowAgentError("ctx.agent requires a non-empty prompt string");
   }
   const engine = opts.engine ?? "codex";
-  if (engine === "pi") {
-    throw new WorkflowAgentError("ctx.agent engine 'pi' arrives in SP2 (Pi engine); use 'codex' or 'cursor'");
+  if (engine !== "codex" && engine !== "cursor" && engine !== "pi") {
+    throw new WorkflowAgentError(`ctx.agent engine ${JSON.stringify(opts.engine)} is not supported (use 'codex', 'cursor', or 'pi')`);
   }
-  if (engine !== "codex" && engine !== "cursor") {
-    throw new WorkflowAgentError(`ctx.agent engine ${JSON.stringify(opts.engine)} is not supported (use 'codex' or 'cursor')`);
+  if (engine === "pi" && !opts.model) {
+    throw new WorkflowAgentError("ctx.agent engine 'pi' requires an explicit model (e.g. openai-codex/gpt-5.4-mini) — pi's runtime default is nondeterministic");
   }
   if (opts.multiAgent && engine !== "codex") {
     throw new WorkflowAgentError("ctx.agent multiAgent is codex-engine-only");
@@ -126,6 +126,7 @@ export async function runAgentCall(
       engine,
       model: opts.model,
       cursorOptions: engine === "cursor" ? opts.cursorOptions : undefined,
+      piOptions: engine === "pi" ? opts.piOptions : undefined,
       codexConfig,
       disableHooks,
       integrate: false,

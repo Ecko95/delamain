@@ -48,8 +48,16 @@ export type WorkflowAgentOpts = {
   phase?: string;
   /** Cursor-engine-only options (ignored for other engines). */
   cursorOptions?: WorkflowCursorOptions;
+  /** Pi-engine-only options (ignored for other engines). */
+  piOptions?: WorkflowPiOptions;
   /** Codex-engine-only: opt-in bounded multi_agent for this leaf. */
   multiAgent?: WorkflowMultiAgent;
+};
+
+/** Pi-engine-only options for ctx.agent (SP2). */
+export type WorkflowPiOptions = {
+  tools?: string[];
+  thinking?: string;
 };
 
 /** Token budget view exposed to the script (SP1 wave 2). */
