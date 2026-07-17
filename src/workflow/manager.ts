@@ -14,6 +14,7 @@ import { appendFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { killPeer, resumePeer, spawnPeer, waitForPeer } from "../peerManager.js";
+import { readPeerCost } from "../peerCost.js";
 import { runsDir } from "../paths.js";
 import { getPeer, updatePeer, upsertPeer } from "../store.js";
 import type { PeerRecord } from "../types.js";
@@ -26,6 +27,10 @@ export type SpawnWorkflowRunOptions = {
   repo: string;
   scriptPath: string;
   timeoutMs?: number;
+  /** Hard cap on total leaves (termination guard). */
+  maxAgents?: number;
+  /** Cumulative leaf-token budget (termination guard). */
+  budgetTokens?: number;
   name?: string;
 };
 
@@ -53,6 +58,8 @@ export function spawnWorkflowRun(options: SpawnWorkflowRunOptions): PeerRecord {
       scriptPath,
       repo: resolve(options.repo),
       timeoutMs: options.timeoutMs,
+      maxAgents: options.maxAgents,
+      budgetTokens: options.budgetTokens,
       status: "pending",
       agentPeerIds: [],
       // Parent-side nondeterminism is fine; the sandbox child only ever sees
@@ -60,10 +67,18 @@ export function spawnWorkflowRun(options: SpawnWorkflowRunOptions): PeerRecord {
       seed: Math.floor(Math.random() * 0xffffffff),
       startTimeMs: Date.now(),
     },
-    lastEvent: `workflow queued: ${scriptPath}${options.timeoutMs ? ` (timeoutMs=${options.timeoutMs})` : ""}`,
+    lastEvent: `workflow queued: ${scriptPath}${guardSummary(options)}`,
   };
   upsertPeer(peer);
   return peer;
+}
+
+function guardSummary(options: SpawnWorkflowRunOptions): string {
+  const parts: string[] = [];
+  if (options.timeoutMs) parts.push(`timeoutMs=${options.timeoutMs}`);
+  if (options.maxAgents) parts.push(`maxAgents=${options.maxAgents}`);
+  if (options.budgetTokens) parts.push(`budgetTokens=${options.budgetTokens}`);
+  return parts.length ? ` (${parts.join(", ")})` : "";
 }
 
 export type WorkflowRunnerSpawnArgs = { workflowId: string };
@@ -164,6 +179,14 @@ function buildRealDeps(): WorkflowEngineDeps {
     resumePeer,
     killPeer: (peerId) => {
       killPeer(peerId);
+    },
+    tokensForPeer: (peer) => {
+      try {
+        const cost = readPeerCost(peer);
+        return cost.totals ? cost.totals.input + cost.totals.output : 0;
+      } catch {
+        return 0;
+      }
     },
     readAgentResultFile: (peer) => {
       try {
