@@ -27,6 +27,8 @@ function run(scriptPath, { onCall, seed = 7, startTimeMs = 1_700_000_000_000 } =
     scriptPath,
     seed,
     startTimeMs,
+    budgetTotal: null,
+    getBudgetSpent: () => 0,
     onCall: onCall ?? (async () => null),
   });
 }
