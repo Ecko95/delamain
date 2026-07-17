@@ -16,9 +16,29 @@ export type WorkflowMeta = {
   description?: string;
 };
 
-/** Options accepted by ctx.agent(prompt, opts). Wave 1: codex engine only. */
+/** Cursor-engine-only leaf options (SP1 wave 4). */
+export type WorkflowCursorOptions = {
+  cloud?: boolean;
+  approveMcps?: boolean;
+  force?: boolean;
+};
+
+/**
+ * Opt-in codex multi_agent for a single leaf (§9). Enables codex's stable
+ * multi_agent inside that one leaf; off by default (token-runaway blast
+ * radius). delamain still owns the hard wall-clock timeout on the leaf.
+ */
+export type WorkflowMultiAgent = {
+  /** agents.max_threads=N */
+  maxThreads: number;
+  /** When set, prefer spawn_agents_on_csv (it terminates). */
+  csv?: string;
+};
+
+/** Options accepted by ctx.agent(prompt, opts). */
 export type WorkflowAgentOpts = {
-  engine?: "codex";
+  /** "codex" (default) or "cursor". "pi" is reserved for SP2 and rejected. */
+  engine?: "codex" | "cursor" | "pi";
   model?: string;
   /** JSON Schema the agent's structured result must validate against. */
   schema?: Record<string, unknown>;
@@ -26,6 +46,10 @@ export type WorkflowAgentOpts = {
   label?: string;
   /** Progress-group label (defaults to the current ctx.phase()). */
   phase?: string;
+  /** Cursor-engine-only options (ignored for other engines). */
+  cursorOptions?: WorkflowCursorOptions;
+  /** Codex-engine-only: opt-in bounded multi_agent for this leaf. */
+  multiAgent?: WorkflowMultiAgent;
 };
 
 /** Token budget view exposed to the script (SP1 wave 2). */

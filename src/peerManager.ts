@@ -111,6 +111,7 @@ export function spawnPeer(options: SpawnPeerOptions & SpawnSizingArgs): PeerReco
     reasoningEffort: options.reasoningEffort,
     developerInstructions: options.developerInstructions,
     codexConfig: options.codexConfig,
+    disableHooks: options.disableHooks,
     dependsOn,
     claims,
     integrate: options.integrate,
@@ -136,6 +137,7 @@ export function spawnPeer(options: SpawnPeerOptions & SpawnSizingArgs): PeerReco
     reasoningEffort: peer.reasoningEffort,
     developerInstructions: peer.developerInstructions,
     codexConfig: peer.codexConfig,
+    disableHooks: peer.disableHooks,
     integrate: peer.integrate,
   });
 
@@ -238,6 +240,7 @@ export function resumePeer(options: ResumePeerOptions): PeerRecord {
     reasoningEffort: peer.reasoningEffort,
     developerInstructions: peer.developerInstructions,
     codexConfig: peer.codexConfig,
+    disableHooks: peer.disableHooks,
     // An integrate:false leaf must stay push-free across schema-retry resumes.
     integrate: peer.integrate,
   });
@@ -483,6 +486,7 @@ export type RunnerSpawnArgs = {
   reasoningEffort?: string;
   developerInstructions?: string;
   codexConfig?: string[];
+  disableHooks?: boolean;
   integrate?: boolean;
 };
 
@@ -541,6 +545,9 @@ export function buildRunnerArgv(args: RunnerSpawnArgs): string[] {
   }
   if (args.integrate === false) {
     runnerArgs.push("--no-integrate");
+  }
+  if (args.disableHooks === false) {
+    runnerArgs.push("--keep-hooks");
   }
   return runnerArgs;
 }

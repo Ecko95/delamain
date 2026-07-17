@@ -194,3 +194,20 @@ test("round trip: integrate omitted/true leaves argv untouched (legacy push-on-d
   const explicitTrue = buildRunnerArgv({ peerId: "p1", repo: "/r", promptFile: "/p", logPath: "/l", integrate: true });
   assert.ok(!explicitTrue.includes("--no-integrate"));
 });
+
+// --- SP1 wave 4: conditional codex hooks (multi_agent leaf) ---
+
+test("round trip: disableHooks:false serializes to --keep-hooks and parses back", () => {
+  const argv = buildRunnerArgv({ peerId: "p", repo: "/r", promptFile: "/p", logPath: "/l", disableHooks: false });
+  assert.ok(argv.includes("--keep-hooks"));
+  assert.equal(parseArgs(argv.slice(2)).disableHooks, false);
+});
+
+test("buildCodexArgs: default disables hooks; --keep-hooks (disableHooks:false) keeps them", () => {
+  const off = buildCodexArgs({ peerId: "p", repo: "/r", promptFile: "/f", logPath: "/l", model: "gpt-5" });
+  const disableIdx = off.indexOf("--disable");
+  assert.ok(disableIdx !== -1 && off[disableIdx + 1] === "hooks", "default should --disable hooks");
+
+  const on = buildCodexArgs({ peerId: "p", repo: "/r", promptFile: "/f", logPath: "/l", model: "gpt-5", disableHooks: false });
+  assert.ok(!(on.includes("--disable") && on[on.indexOf("--disable") + 1] === "hooks"), "keep-hooks must not --disable hooks");
+});

@@ -30,6 +30,8 @@ type RunnerArgs = {
   codexConfig?: string[];
   /** false (--no-integrate) skips the on-done branch push (workflow leaves). */
   integrate?: boolean;
+  /** false (--keep-hooks) keeps codex hooks enabled for a multi_agent leaf. */
+  disableHooks?: boolean;
 };
 
 export async function runPeer(argv: string[]): Promise<void> {
@@ -333,7 +335,12 @@ export function buildCodexArgs(args: RunnerArgs): string[] {
   }
 
   const promptArgIndex = codexArgs.lastIndexOf("-");
-  const configArgs = ["--disable", "hooks", ...reasoningEffortArgs(args.model, args.reasoningEffort)];
+  // Hooks are disabled by default; a multi_agent leaf (--keep-hooks →
+  // disableHooks:false) keeps them so SubagentStart/Stop observability returns.
+  const configArgs = [
+    ...(args.disableHooks === false ? [] : ["--disable", "hooks"]),
+    ...reasoningEffortArgs(args.model, args.reasoningEffort),
+  ];
   if (args.developerInstructions) {
     // JSON.stringify produces a valid TOML basic string (same quoting/escaping rules).
     configArgs.push("-c", `developer_instructions=${JSON.stringify(args.developerInstructions)}`);
@@ -426,6 +433,7 @@ export function parseArgs(argv: string[]): RunnerArgs {
     developerInstructions: stringValue(values, "developer-instructions"),
     codexConfig: codexConfig.length > 0 ? codexConfig : undefined,
     integrate: values["no-integrate"] ? false : undefined,
+    disableHooks: values["keep-hooks"] ? false : undefined,
   };
 }
 

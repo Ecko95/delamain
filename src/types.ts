@@ -82,6 +82,9 @@ export type PeerRecord = {
   reasoningEffort?: ReasoningEffort;
   developerInstructions?: string;
   codexConfig?: string[];
+  // SP1 wave 4: false keeps codex hooks enabled (SubagentStart/Stop) for a
+  // multi_agent leaf. Omitted/true = the legacy `--disable hooks`.
+  disableHooks?: boolean;
   threadId?: string;
   startedAt: string;
   updatedAt: string;
@@ -170,6 +173,8 @@ export type SpawnPeerOptions = {
   reasoningEffort?: ReasoningEffort;
   developerInstructions?: string;
   codexConfig?: string[];
+  /** SP1 wave 4: false keeps codex hooks enabled (multi_agent observability). */
+  disableHooks?: boolean;
   dependsOn?: string[];
   claims?: string[];
   claimsOverride?: boolean;

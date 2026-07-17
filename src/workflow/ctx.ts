@@ -75,13 +75,40 @@ export async function runAgentCall(
   if (typeof prompt !== "string" || !prompt.trim()) {
     throw new WorkflowAgentError("ctx.agent requires a non-empty prompt string");
   }
-  if (opts.engine !== undefined && opts.engine !== "codex") {
-    throw new WorkflowAgentError(`ctx.agent engine ${JSON.stringify(opts.engine)} is not supported in wave 1 (codex only)`);
+  const engine = opts.engine ?? "codex";
+  if (engine === "pi") {
+    throw new WorkflowAgentError("ctx.agent engine 'pi' arrives in SP2 (Pi engine); use 'codex' or 'cursor'");
+  }
+  if (engine !== "codex" && engine !== "cursor") {
+    throw new WorkflowAgentError(`ctx.agent engine ${JSON.stringify(opts.engine)} is not supported (use 'codex' or 'cursor')`);
+  }
+  if (opts.multiAgent && engine !== "codex") {
+    throw new WorkflowAgentError("ctx.agent multiAgent is codex-engine-only");
   }
   const schema = opts.schema;
   const fullPrompt = schema ? `${prompt}\n${schemaInstruction(schema)}` : prompt;
   const waitTimeoutMs = config.waitTimeoutMs ?? DEFAULT_AGENT_WAIT_TIMEOUT_MS;
   const label = opts.phase ? (opts.label ? `${opts.phase}:${opts.label}` : opts.phase) : opts.label;
+
+  // Opt-in codex multi_agent (§9): enable it for THIS leaf via the existing -c
+  // passthrough, and keep hooks enabled so SubagentStart/Stop observability
+  // returns. delamain's hard wall-clock timeout (waitTimeoutMs = workflow
+  // timeoutMs) still bounds the leaf — the token-runaway blast radius is why
+  // this is off by default.
+  let codexConfig: string[] | undefined;
+  let disableHooks: boolean | undefined;
+  if (opts.multiAgent) {
+    const { maxThreads, csv } = opts.multiAgent;
+    if (!Number.isInteger(maxThreads) || maxThreads < 1) {
+      throw new WorkflowAgentError("ctx.agent multiAgent.maxThreads must be a positive integer");
+    }
+    codexConfig = ["features.multi_agent=true", "agents.max_depth=1", `agents.max_threads=${maxThreads}`];
+    if (csv) {
+      // spawn_agents_on_csv terminates (preferred over open-ended spawning).
+      codexConfig.push(`agents.spawn_agents_on_csv=${JSON.stringify(csv)}`);
+    }
+    disableHooks = false;
+  }
 
   // Two-pool gate: block on a semaphore slot + guard check before spawning.
   // A halted run makes this throw, aborting just this leaf (parallel/pipeline
@@ -96,8 +123,11 @@ export async function runAgentCall(
       repo: config.repo,
       prompt: fullPrompt,
       name: label,
-      engine: "codex",
+      engine,
       model: opts.model,
+      cursorOptions: engine === "cursor" ? opts.cursorOptions : undefined,
+      codexConfig,
+      disableHooks,
       integrate: false,
     });
     lastPeer = spawned;
