@@ -55,3 +55,7 @@ export function promptsDir(): string {
 export function worktreesDir(): string {
 	return join(peersHome(), "worktrees");
 }
+
+export function workflowsDir(): string {
+	return join(peersHome(), "workflows");
+}

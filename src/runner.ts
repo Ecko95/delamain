@@ -28,6 +28,8 @@ type RunnerArgs = {
   reasoningEffort?: string;
   developerInstructions?: string;
   codexConfig?: string[];
+  /** false (--no-integrate) skips the on-done branch push (workflow leaves). */
+  integrate?: boolean;
 };
 
 export async function runPeer(argv: string[]): Promise<void> {
@@ -191,7 +193,11 @@ export async function runPeer(argv: string[]): Promise<void> {
       let integrationError: string | undefined;
       let integrationEvent: string | undefined;
 
-      if (status === "done") {
+      if (status === "done" && args.integrate === false) {
+        integrationStatus = "skipped";
+        integrationEvent = `codex exited code=${code}; branch push skipped (integrate:false)`;
+        append(log, `[delamain] integrate:false — leaving peer branch local (no push)\n`);
+      } else if (status === "done") {
         updatePeer(args.peerId, (peer) => ({
           ...peer,
           updatedAt: now(),
@@ -419,6 +425,7 @@ export function parseArgs(argv: string[]): RunnerArgs {
     reasoningEffort: stringValue(values, "reasoning-effort"),
     developerInstructions: stringValue(values, "developer-instructions"),
     codexConfig: codexConfig.length > 0 ? codexConfig : undefined,
+    integrate: values["no-integrate"] ? false : undefined,
   };
 }
 

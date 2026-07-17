@@ -195,6 +195,8 @@ test("default theme preserves the pre-theme dashboard palette exactly", () => {
     gsd_halted_on_gate_failure: "#c084fc",
     gsd_completed: "#34d399",
     gsd_failed: "#f87171",
+    // SP1 wave 1 — workflow_run halted-by-guard status.
+    halted: "#c084fc",
   });
 });
 
