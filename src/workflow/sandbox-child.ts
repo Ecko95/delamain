@@ -149,6 +149,53 @@ async function runWorkflow(init: InitMessage): Promise<void> {
     );
   };
 
+  // verify: adversarial jury built on parallel()+agent(). N read-only jurors
+  // each TRY TO REFUTE the claim (default to refuted when uncertain); the claim
+  // survives unless a strict majority refutes it. Jurors can be engine-diverse
+  // (rotate opts.engines) and perspective-diverse (rotate opts.lens). It's a
+  // library helper over the primitives — no new bridge method.
+  const VERDICT_SCHEMA = {
+    type: "object",
+    required: ["refuted", "reason"],
+    properties: { refuted: { type: "boolean" }, reason: { type: "string" } },
+  };
+  const verify = async (claim: unknown, opts: unknown) => {
+    const o = (opts && typeof opts === "object" ? (opts as Record<string, unknown>) : {}) as {
+      jurors?: number;
+      lens?: unknown;
+      engines?: unknown;
+      model?: string;
+    };
+    const jurorCount = Math.max(1, Math.floor(typeof o.jurors === "number" ? o.jurors : 3));
+    const lenses = Array.isArray(o.lens) ? (o.lens as unknown[]).map(String) : undefined;
+    const engines = Array.isArray(o.engines) ? (o.engines as unknown[]).map(String) : undefined;
+    const claimText = typeof claim === "string" ? claim : String(claim);
+
+    const tasks = Array.from({ length: jurorCount }, (_, i) => async () => {
+      const lens = lenses && lenses.length ? lenses[i % lenses.length] : undefined;
+      const engine = engines && engines.length ? engines[i % engines.length] : undefined;
+      const prompt =
+        `You are an adversarial reviewer. Try to REFUTE the following claim` +
+        `${lens ? ` from the ${lens} perspective` : ""}:\n\n"${claimText}"\n\n` +
+        `Investigate read-only. If the claim does not clearly hold, set refuted=true; ` +
+        `default to refuted=true when uncertain. Output JSON only.`;
+      const verdict = (await agent(prompt, {
+        schema: VERDICT_SCHEMA,
+        engine,
+        model: o.model,
+        label: `juror-${i + 1}${lens ? `:${lens}` : ""}`,
+      })) as { refuted?: unknown; reason?: unknown };
+      return { refuted: verdict?.refuted === true, reason: String(verdict?.reason ?? ""), lens: lens ?? null, engine: engine ?? "codex" };
+    });
+
+    // parallel() degrades a dead/erroring juror to null — a juror that couldn't
+    // vote simply doesn't count toward the tally.
+    const verdicts = (await parallel(tasks)).filter((v): v is { refuted: boolean; reason: string; lens: string | null; engine: string } => v != null);
+    const refutedCount = verdicts.filter((v) => v.refuted).length;
+    const survived = refutedCount * 2 <= verdicts.length; // strict-majority refute kills; ties survive
+    return { claim: claimText, survived, refutedCount, jurors: verdicts.length, verdicts };
+  };
+
   const ctx = Object.freeze({
     agent,
     parallel,
@@ -156,6 +203,7 @@ async function runWorkflow(init: InitMessage): Promise<void> {
     phase: (title: unknown) => {
       currentPhase = title === undefined || title === null ? undefined : String(title);
     },
+    verify,
     log: (message: unknown) => {
       void bridgeCall("log", [typeof message === "string" ? message : String(message)]);
     },
