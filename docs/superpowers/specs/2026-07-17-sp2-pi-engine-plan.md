@@ -1,5 +1,7 @@
 # SP2 — Pi Engine (piRunner + piEvents + `PeerEngine += "pi"`) — Plan
 
+> **⚠️ Corrected by step-0 verification (2026-07-17).** This plan was drafted from the pi **0.57.1** research doc; installed pi is **0.73.1**. The NDJSON schema, resume semantics, and auth model were re-verified against the installed `dist/*.d.ts` in `2026-07-17-sp2-pi-ndjson-step0.md`, which **supersedes** the details below where they conflict. The two load-bearing corrections: (1) `parsePiJsonLine` must be a fresh top-level `switch(type)`, **NOT** a clone of `cursorEvents.ts`'s `collectText`/`findThreadId` walkers (they fail on pi's session-id, streamed text, and WAITING sentinel); (2) pi **does** have a `CODEX_HOME` analog — `PI_CODING_AGENT_DIR` — so the "no per-peer isolation" claim in §3/Risks is wrong. See the step-0 doc's "PLAN DELTA" for all 14 corrections before implementing.
+
 ## Context
 
 delamain drives headless coding peers through a single **engine abstraction**: `PeerEngine = "codex" | "cursor"` (`src/types.ts:40`), threaded through the `PeerRecord` and dispatched at exactly **one runtime fork** (`src/runner.ts:40`, `if engine==="cursor"`). Cursor was the 2nd engine; **Pi is the 3rd** — the design doc and `docs/research/2026-07-16-delamain-extension-map.md §1` mark it as "you are now the 3rd engine," and SP1 wave 4 already **reserved the slot**: `WorkflowAgentOpts.engine` accepts `"pi"` but `ctx.agent` rejects it today with an "arrives in SP2" message (`src/workflow/ctx.ts`).
