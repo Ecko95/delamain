@@ -412,3 +412,20 @@ No provider key is configured (`auth.json` empty; `pi --list-models` → "No mod
 8. **`--no-session` header presence** `[open question]` — confirm whether the `session` header line is still emitted under `--no-session` (`print-mode.js` guards `if (header)`), since `piRunner` depends on line 1 for `threadId`. The plan uses `--session-dir` (sessions kept), so this is a fallback check only.
 
 Relevant files for implementation: `/srv/gits/repos/delamain/src/piEvents.ts` (new), `/srv/gits/repos/delamain/src/piRunner.ts` (new), `/srv/gits/repos/delamain/src/piAuth.ts` (new, model on `/srv/gits/repos/delamain/src/codexAuth.ts`), and edits to `/srv/gits/repos/delamain/src/types.ts`, `/srv/gits/repos/delamain/src/runner.ts`, `/srv/gits/repos/delamain/src/peerManager.ts`, `/srv/gits/repos/delamain/src/mcpServer.ts`, `/srv/gits/repos/delamain/src/cli.ts`, `/srv/gits/repos/delamain/src/workflow/ctx.ts`.
+
+---
+
+## 7. LIVE-CONFIRMED on pi 0.73.1 (2026-07-17, `openai-codex` OAuth via `pi /login`)
+
+Captured with `openai-codex/gpt-5.4-mini`, default agent dir (holds the OAuth) + scratch `--session-dir`. Golden fixtures committed at `tests/fixtures/pi/0.73.1-{text,tools,resume}.ndjson` (secret-scanned; `partial`/`message` snapshots slimmed on `message_update` lines). Live coverage: **11 of 18** top-level events (`session, agent_start, turn_start, message_start, message_update, message_end, turn_end, agent_end, tool_execution_start/update/end`) and **9 of 12** `assistantMessageEvent` variants (`text_*`, `thinking_*`, `toolcall_*`); the rest (`queue_update`, `compaction_*`, `*_changed`, `auto_retry_*`, `done/error/start`) are situational and stand on the `.d.ts`.
+
+**Confirmed exactly as §1–§4:**
+- `session` line 1 real: `{"type":"session","version":3,"id":"019f711f-…","timestamp":"…","cwd":"…"}`; `id` is a uuidv7, only on line 1.
+- `message_end` fires for the **`user` message too** (echoed prompt) → the `role==="assistant"` guard is essential; assistant `content:[thinking, text]`, `stopReason:"stop"`, final text from `content[].text`.
+- `assistantMessageEvent` order is `thinking_start/delta/end` then `text_start/delta/end` → keying on `type==="text_delta"` (not any `.delta`) is required so reasoning doesn't leak into text.
+- Tools: `tool_execution_start {toolName, toolCallId:"call_…|fc_…", args}` with `args` keys `read→path`, `write→content,path`, `bash→command`; `_end {toolName, isError, result:object}`; assistant blocks are `{type:"toolCall", name}` (camelCase). `WRITE_TOOL_HINTS` on `toolName` (`write`/`edit`) works.
+- **Resume (the load-bearing decision) — validated as specced:** `--session <id>` from the **same cwd + same `--session-dir`** re-opened the exact session (same `id`, `parentSession:null` = continuation, context retained → answered "hello"), no fork prompt, exit 0. On-disk file `<ts>_<uuid>.jsonl`, **flat under an explicit `--session-dir`** (the `--<cwd>--` subdir only applies to the default dir — simplifies per-peer isolation).
+
+**⚠️ One PARSER REFINEMENT to §2 (confirmed live):** the `text_delta` token *and* the final `message_end` both carry the full answer, so a runner that accumulates both double-counts. **Change the `message_update`/`text_delta` case to NOT set `text`** — return `{ type, label: trim(delta, 180) }` for live progress only — and emit `text` **only** from `message_end` (assistant). `piRunner` then takes `finalResult` from `message_end`, never the delta stream.
+
+**Still open (low-risk, non-blocking):** the WAITING-sentinel *verbatim* round-trip (trust `parseWaitingQuestion` on `message_end` text) and the `stopReason∈{error,aborted}` → exit-0 path (confirmed from `print-mode.js:99-104`, not re-triggered live). `--no-session` still emits the `session` line (confirmed earlier). Model used differs from the doc's `anthropic/claude-opus-4-7` example — this host authed `openai-codex`, so implementation/tests should default to an `openai-codex/*` model here.
