@@ -15,6 +15,7 @@
 // unit tests drive this loop with fake peers and a fake executor.
 
 import { runAgentCall, type AgentCallDeps } from "./ctx.js";
+import { RunController, resolveMaxConcurrency, type RunControllerDeps } from "./pool.js";
 import type { PeerRecord } from "../types.js";
 import type { WorkflowRunConfig } from "./types.js";
 
@@ -24,6 +25,14 @@ export class WorkflowTimeoutError extends Error {
   constructor(timeoutMs: number) {
     super(`workflow exceeded timeoutMs=${timeoutMs}`);
     this.name = "WorkflowTimeoutError";
+  }
+}
+
+/** Thrown internally to route a guard-halted run to the `halted` status. */
+export class WorkflowHaltedError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = "WorkflowHaltedError";
   }
 }
 
@@ -39,22 +48,29 @@ export type ExecuteScriptRequest = {
   scriptPath: string;
   seed: number;
   startTimeMs: number;
+  /** Total token budget the child mirrors via ctx.budget (null = uncapped). */
+  budgetTotal: number | null;
+  /** Live token spend the executor stamps on each reply to the child. */
+  getBudgetSpent: () => number;
+  /** Loud degraded-mode / jail-status notices routed to the run log. */
+  onWarning?: (message: string) => void;
   onCall: (method: string, args: unknown[]) => Promise<unknown>;
 };
 
-export type WorkflowEngineDeps = AgentCallDeps & {
-  updatePeer: (id: string, patch: Partial<PeerRecord>) => PeerRecord;
-  appendLog: (peer: PeerRecord, line: string) => Promise<void>;
-  /** Kill a still-active leaf peer when the run is halted. Best-effort. */
-  killPeer: (peerId: string) => void;
-  executeScript: (request: ExecuteScriptRequest) => ScriptExecution;
-  now: () => number;
-};
+export type WorkflowEngineDeps = AgentCallDeps &
+  RunControllerDeps & {
+    updatePeer: (id: string, patch: Partial<PeerRecord>) => PeerRecord;
+    appendLog: (peer: PeerRecord, line: string) => Promise<void>;
+    /** Kill a still-active leaf peer when the run is halted. Best-effort. */
+    killPeer: (peerId: string) => void;
+    executeScript: (request: ExecuteScriptRequest) => ScriptExecution;
+    now: () => number;
+  };
 
 export async function runWorkflowRun(
   peer: PeerRecord,
   deps: WorkflowEngineDeps,
-  opts?: { heartbeatMs?: number },
+  opts?: { heartbeatMs?: number; maxConcurrency?: number },
 ): Promise<PeerRecord> {
   const workflow = peer.workflow;
   if (peer.kind !== "workflow_run" || !workflow) {
@@ -69,6 +85,18 @@ export async function runWorkflowRun(
     workflowPatch: { status: "running" },
   });
 
+  const log = (line: string) => {
+    void deps.appendLog(current, `[workflow] ${line}\n`);
+  };
+
+  // The agent pool: ONE semaphore + the maxAgents/budgetTokens guards. Every
+  // ctx.agent leaf passes through controller.acquire before spawnPeer.
+  const controller = new RunController({
+    maxConcurrency: opts?.maxConcurrency ?? resolveMaxConcurrency(),
+    guards: { maxAgents: workflow.maxAgents, budgetTokens: workflow.budgetTokens },
+    deps: { tokensForPeer: deps.tokensForPeer, killPeer: deps.killPeer, log },
+  });
+
   const heartbeat = setInterval(() => {
     try {
       current = patch(deps, peer.id, currentWorkflow(current, workflow), {
@@ -79,10 +107,6 @@ export async function runWorkflowRun(
       /* best-effort */
     }
   }, opts?.heartbeatMs ?? WORKFLOW_HEARTBEAT_MS);
-
-  const log = (line: string) => {
-    void deps.appendLog(current, `[workflow] ${line}\n`);
-  };
 
   const onCall = async (method: string, args: unknown[]): Promise<unknown> => {
     if (method === "log") {
@@ -97,7 +121,17 @@ export async function runWorkflowRun(
     if (method === "agent") {
       const [prompt, agentOpts] = args as [string, Record<string, unknown> | undefined];
       return runAgentCall(
-        { ...deps, onAgentSpawned: (leaf) => trackAgent(leaf), log },
+        {
+          ...deps,
+          onAgentSpawned: (leaf) => {
+            controller.markSpawned(leaf);
+            trackAgent(leaf);
+          },
+          acquire: controller.acquire,
+          release: controller.release,
+          recordUsage: controller.recordUsage,
+          log,
+        },
         { repo: workflow.repo, waitTimeoutMs: workflow.timeoutMs },
         prompt,
         agentOpts,
@@ -114,63 +148,86 @@ export async function runWorkflowRun(
     });
   };
 
-  const execution = deps.executeScript({
+  // A guard trip (maxAgents/budgetTokens/timeout) halts the run: kill the
+  // child AND settle the awaited result immediately via haltSignal, so a child
+  // that ignores kill can't keep the run alive. Registered BEFORE executeScript
+  // so a guard that trips synchronously (e.g. an agent spawned during startup)
+  // is still handled.
+  let execution: ScriptExecution | undefined;
+  let haltReject: ((err: Error) => void) | undefined;
+  const haltSignal = new Promise<never>((_, reject) => {
+    haltReject = reject;
+  });
+  controller.onHalt((reason) => {
+    execution?.kill("guard tripped");
+    haltReject?.(new WorkflowHaltedError(reason));
+  });
+
+  execution = deps.executeScript({
     scriptPath: workflow.scriptPath,
     seed: workflow.seed,
     startTimeMs: workflow.startTimeMs,
+    budgetTotal: workflow.budgetTokens ?? null,
+    getBudgetSpent: () => controller.budgetSnapshot().spent,
+    onWarning: (message) => log(message),
     onCall,
   });
+  // If a guard tripped synchronously while the executor started, the child was
+  // spawned after the onHalt kill ran — stop it now.
+  if (controller.haltReason) {
+    execution.kill("guard tripped");
+  }
 
   let timeoutTimer: NodeJS.Timeout | undefined;
-  const guarded =
-    workflow.timeoutMs && workflow.timeoutMs > 0
-      ? Promise.race([
-          execution.result,
-          new Promise<never>((_, reject) => {
-            timeoutTimer = setTimeout(() => {
-              execution.kill(`timeoutMs=${workflow.timeoutMs}`);
-              reject(new WorkflowTimeoutError(workflow.timeoutMs as number));
-            }, workflow.timeoutMs);
-          }),
-        ])
-      : execution.result;
+  if (workflow.timeoutMs && workflow.timeoutMs > 0) {
+    timeoutTimer = setTimeout(() => {
+      controller.halt(`timeoutMs=${workflow.timeoutMs}`);
+    }, workflow.timeoutMs);
+  }
 
   try {
-    const result = await guarded;
+    const result = await Promise.race([execution.result, haltSignal]);
+    // The child can resolve after a halt if it caught the abort; honor the halt.
+    if (controller.haltReason) {
+      throw new WorkflowHaltedError(controller.haltReason);
+    }
     log(`workflow returned after ${deps.now() - startedAt}ms`);
     current = patch(deps, peer.id, currentWorkflow(current, workflow), {
       status: "done",
       finished: true,
       lastEvent: "workflow done (script returned)",
-      workflowPatch: { status: "done", result: toJsonSafe(result), agentPeerIds: [...agentPeerIds] },
+      workflowPatch: {
+        status: "done",
+        result: toJsonSafe(result),
+        agentPeerIds: [...agentPeerIds],
+        tokensSpent: controller.budgetSnapshot().spent,
+      },
     });
     return current;
   } catch (error) {
-    const isTimeout = error instanceof WorkflowTimeoutError;
-    const message = error instanceof Error ? error.message : String(error);
-    if (isTimeout) {
-      execution.kill("timeout");
-      for (const id of agentPeerIds) {
-        try {
-          deps.killPeer(id);
-        } catch {
-          /* already terminal */
-        }
-      }
-    }
-    log(`workflow ${isTimeout ? "halted" : "failed"}: ${message}`);
+    const haltReason = controller.haltReason;
+    const isHalt = haltReason !== undefined || error instanceof WorkflowHaltedError || error instanceof WorkflowTimeoutError;
+    const message = haltReason ?? (error instanceof Error ? error.message : String(error));
+    // Ensure no leaf outlives the run, whatever the exit path.
+    controller.killAllLeaves();
+    log(`workflow ${isHalt ? "halted" : "failed"}: ${message}`);
     current = patch(deps, peer.id, currentWorkflow(current, workflow), {
-      status: isTimeout ? "halted" : "failed",
+      status: isHalt ? "halted" : "failed",
       finished: true,
       error: message,
-      lastEvent: isTimeout ? `workflow halted: ${message}` : `workflow failed: ${trimEvent(message)}`,
-      workflowPatch: { status: isTimeout ? "halted" : "failed", error: message, agentPeerIds: [...agentPeerIds] },
+      lastEvent: isHalt ? `workflow halted: ${message}` : `workflow failed: ${trimEvent(message)}`,
+      workflowPatch: {
+        status: isHalt ? "halted" : "failed",
+        error: message,
+        agentPeerIds: [...agentPeerIds],
+        tokensSpent: controller.budgetSnapshot().spent,
+      },
     });
     return current;
   } finally {
     clearInterval(heartbeat);
     if (timeoutTimer) clearTimeout(timeoutTimer);
-    execution.kill("run finished");
+    execution?.kill("run finished");
   }
 }
 
