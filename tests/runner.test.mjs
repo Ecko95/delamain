@@ -211,3 +211,31 @@ test("buildCodexArgs: default disables hooks; --keep-hooks (disableHooks:false) 
   const on = buildCodexArgs({ peerId: "p", repo: "/r", promptFile: "/f", logPath: "/l", model: "gpt-5", disableHooks: false });
   assert.ok(!(on.includes("--disable") && on[on.indexOf("--disable") + 1] === "hooks"), "keep-hooks must not --disable hooks");
 });
+
+// --- SP2: pi engine argv round-trip ---
+
+test("round trip: engine=pi with piOptions + resumeThread -> --pi-* / --session mapping", () => {
+  const argv = buildRunnerArgv({
+    peerId: "p1",
+    repo: "/repo",
+    promptFile: "/prompt.txt",
+    logPath: "/log.txt",
+    engine: "pi",
+    model: "openai-codex/gpt-5.4-mini",
+    piOptions: { tools: ["read", "bash"], thinking: "low" },
+    resumeThread: "019f711f-uuid",
+    integrate: false,
+  });
+  assert.ok(argv.includes("--engine"));
+  assert.equal(argv[argv.indexOf("--engine") + 1], "pi");
+  assert.equal(argv[argv.indexOf("--pi-tools") + 1], "read,bash");
+  assert.equal(argv[argv.indexOf("--pi-thinking") + 1], "low");
+  assert.equal(argv[argv.indexOf("--resume-thread") + 1], "019f711f-uuid");
+  assert.ok(argv.includes("--no-integrate"));
+  const parsed = parseArgs(argv.slice(2));
+  assert.equal(parsed.engine, "pi");
+  assert.deepEqual(parsed.piTools, ["read", "bash"]);
+  assert.equal(parsed.piThinking, "low");
+  assert.equal(parsed.resumeThread, "019f711f-uuid");
+  assert.equal(parsed.integrate, false);
+});

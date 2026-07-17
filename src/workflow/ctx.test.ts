@@ -140,10 +140,25 @@ describe("runAgentCall", () => {
     expect(calls.spawns[0].codexConfig).toBeUndefined();
   });
 
-  it("rejects engine 'pi' with an SP2 message (reserved)", async () => {
-    const { deps, calls } = makeFakeDeps([{ status: "done" }]);
-    await expect(runAgentCall(deps, { repo: "/repo" }, "p", { engine: "pi" })).rejects.toThrow(/SP2/);
-    expect(calls.spawns).toHaveLength(0);
+  it("spawns a pi leaf and forwards piOptions (SP2); requires an explicit model", async () => {
+    // pi without a model is refused (nondeterministic default).
+    const noModel = makeFakeDeps([{ status: "done" }]);
+    await expect(runAgentCall(noModel.deps, { repo: "/repo" }, "p", { engine: "pi" })).rejects.toThrow(/requires an explicit model/);
+    expect(noModel.calls.spawns).toHaveLength(0);
+
+    // pi with a model spawns a pi leaf and forwards piOptions.
+    const { deps, calls } = makeFakeDeps([{ status: "done", finalResult: "ok" }]);
+    await runAgentCall(deps, { repo: "/repo" }, "p", {
+      engine: "pi",
+      model: "openai-codex/gpt-5.4-mini",
+      piOptions: { tools: ["read", "bash"], thinking: "low" },
+    });
+    expect(calls.spawns).toHaveLength(1);
+    expect(calls.spawns[0].engine).toBe("pi");
+    expect(calls.spawns[0].model).toBe("openai-codex/gpt-5.4-mini");
+    expect(calls.spawns[0].piOptions).toEqual({ tools: ["read", "bash"], thinking: "low" });
+    expect(calls.spawns[0].cursorOptions).toBeUndefined();
+    expect(calls.spawns[0].integrate).toBe(false);
   });
 
   it("multiAgent translates to codex -c flags and keeps hooks enabled", async () => {

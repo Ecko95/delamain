@@ -108,6 +108,7 @@ export function spawnPeer(options: SpawnPeerOptions & SpawnSizingArgs): PeerReco
     integrationStatus: "pending",
     engine: options.engine || "codex",
     cursorOptions: options.engine === "cursor" ? options.cursorOptions : undefined,
+    piOptions: options.engine === "pi" ? options.piOptions : undefined,
     reasoningEffort: options.reasoningEffort,
     developerInstructions: options.developerInstructions,
     codexConfig: options.codexConfig,
@@ -134,6 +135,7 @@ export function spawnPeer(options: SpawnPeerOptions & SpawnSizingArgs): PeerReco
     yolo: options.yolo,
     engine: peer.engine,
     cursorOptions: peer.cursorOptions,
+    piOptions: peer.piOptions,
     reasoningEffort: peer.reasoningEffort,
     developerInstructions: peer.developerInstructions,
     codexConfig: peer.codexConfig,
@@ -235,6 +237,7 @@ export function resumePeer(options: ResumePeerOptions): PeerRecord {
     yolo: options.yolo,
     engine: peer.engine,
     cursorOptions: peer.cursorOptions,
+    piOptions: peer.piOptions,
     // Resume keeps the tuning knobs pinned at spawn time; there is no
     // send_peer_reply param to override them mid-flight (not requested).
     reasoningEffort: peer.reasoningEffort,
@@ -484,8 +487,9 @@ export type RunnerSpawnArgs = {
   model?: string;
   sandbox?: string;
   yolo?: boolean;
-  engine?: "codex" | "cursor";
+  engine?: "codex" | "cursor" | "pi";
   cursorOptions?: { cloud?: boolean; approveMcps?: boolean; force?: boolean };
+  piOptions?: { tools?: string[]; thinking?: string };
   reasoningEffort?: string;
   developerInstructions?: string;
   codexConfig?: string[];
@@ -534,6 +538,10 @@ export function buildRunnerArgv(args: RunnerSpawnArgs): string[] {
     if (args.cursorOptions?.cloud) runnerArgs.push("--cursor-cloud");
     if (args.cursorOptions?.approveMcps) runnerArgs.push("--cursor-approve-mcps");
     if (args.cursorOptions?.force === false) runnerArgs.push("--no-cursor-force");
+  }
+  if (args.engine === "pi") {
+    if (args.piOptions?.tools?.length) runnerArgs.push("--pi-tools", args.piOptions.tools.join(","));
+    if (args.piOptions?.thinking) runnerArgs.push("--pi-thinking", args.piOptions.thinking);
   }
   if (args.reasoningEffort) {
     runnerArgs.push("--reasoning-effort", args.reasoningEffort);

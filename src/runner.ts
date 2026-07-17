@@ -6,6 +6,7 @@ import { checkCodexPeerAuth, codexAuthReloginMessage, isCodexAuthRefreshFailure 
 import { parseCodexJsonLine, trim } from "./codexEvents.js";
 import { readPeerContext, contextTransitionNote, type CodexContextLevel } from "./codexContext.js";
 import { runCursorPeer } from "./cursorRunner.js";
+import { runPiPeer } from "./piRunner.js";
 import { pushPeerBranch } from "./git.js";
 import { deliverPending } from "./peerManager.js";
 import { initialTerminalResponseState, updateTerminalResponseState } from "./lifecycle.js";
@@ -21,10 +22,12 @@ type RunnerArgs = {
   model?: string;
   sandbox?: string;
   yolo?: boolean;
-  engine?: "codex" | "cursor";
+  engine?: "codex" | "cursor" | "pi";
   cursorCloud?: boolean;
   cursorApproveMcps?: boolean;
   cursorForce?: boolean;
+  piTools?: string[];
+  piThinking?: string;
   reasoningEffort?: string;
   developerInstructions?: string;
   codexConfig?: string[];
@@ -49,6 +52,21 @@ export async function runPeer(argv: string[]): Promise<void> {
       cloud: args.cursorCloud,
       approveMcps: args.cursorApproveMcps,
       force: args.cursorForce,
+    });
+    return;
+  }
+
+  if (args.engine === "pi") {
+    await runPiPeer({
+      peerId: args.peerId,
+      repo: args.repo,
+      promptFile: args.promptFile,
+      logPath: args.logPath,
+      resumeThread: args.resumeThread, // pi: buildPiArgs maps this to --session <id>
+      mergeBranch: args.mergeBranch,
+      model: args.model,
+      integrate: args.integrate,
+      piOptions: { tools: args.piTools, thinking: args.piThinking },
     });
     return;
   }
@@ -413,8 +431,9 @@ export function parseArgs(argv: string[]): RunnerArgs {
     throw new Error("run-peer requires --peer-id, --repo, --prompt-file, and --log-path");
   }
   const engineRaw = stringValue(values, "engine");
-  const engine: "codex" | "cursor" | undefined =
-    engineRaw === "cursor" ? "cursor" : engineRaw === "codex" ? "codex" : undefined;
+  const engine: "codex" | "cursor" | "pi" | undefined =
+    engineRaw === "cursor" ? "cursor" : engineRaw === "pi" ? "pi" : engineRaw === "codex" ? "codex" : undefined;
+  const piToolsRaw = stringValue(values, "pi-tools");
   return {
     peerId,
     repo,
@@ -429,6 +448,8 @@ export function parseArgs(argv: string[]): RunnerArgs {
     cursorCloud: Boolean(values["cursor-cloud"]),
     cursorApproveMcps: Boolean(values["cursor-approve-mcps"]),
     cursorForce: Boolean(values["no-cursor-force"]) ? false : undefined,
+    piTools: piToolsRaw ? piToolsRaw.split(",").map((t) => t.trim()).filter(Boolean) : undefined,
+    piThinking: stringValue(values, "pi-thinking"),
     reasoningEffort: stringValue(values, "reasoning-effort"),
     developerInstructions: stringValue(values, "developer-instructions"),
     codexConfig: codexConfig.length > 0 ? codexConfig : undefined,
