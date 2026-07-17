@@ -68,6 +68,14 @@ function db(): DatabaseSync {
       created_at  TEXT,
       PRIMARY KEY (workflow_id, call_index)
     );
+    CREATE TABLE IF NOT EXISTS events (
+      workflow_id TEXT NOT NULL,
+      seq         INTEGER NOT NULL,
+      ts          TEXT NOT NULL,
+      type        TEXT NOT NULL,
+      json        TEXT NOT NULL,
+      PRIMARY KEY (workflow_id, seq)
+    );
   `);
   handle.prepare("INSERT OR IGNORE INTO meta(key, value) VALUES('version', ?)").run(String(STATE_VERSION));
   cached = { path, handle };
@@ -261,6 +269,65 @@ export function journalAgentCall(row: AgentJournalRow): void {
       row.status,
       row.createdAt ?? new Date().toISOString(),
     );
+}
+
+// --- SP1 wave 4: workflow event stream (durable, replayable — §11) ---
+
+export type WorkflowEventRow = {
+  workflowId: string;
+  seq: number;
+  ts: string;
+  type: string;
+  payload: unknown;
+};
+
+/**
+ * Append one workflow lifecycle event and return its per-workflow seq. The
+ * seq allocation + insert run in one IMMEDIATE transaction so concurrent
+ * emitters (engine + leaf paths) can't collide on a seq.
+ */
+export function appendWorkflowEvent(workflowId: string, type: string, payload: unknown): WorkflowEventRow {
+  const handle = db();
+  handle.exec("BEGIN IMMEDIATE");
+  try {
+    const row = handle
+      .prepare("SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM events WHERE workflow_id = ?")
+      .get(workflowId) as { n: number };
+    const seq = row.n;
+    const ts = new Date().toISOString();
+    const json = JSON.stringify(payload ?? null);
+    handle
+      .prepare("INSERT INTO events(workflow_id, seq, ts, type, json) VALUES(?, ?, ?, ?, ?)")
+      .run(workflowId, seq, ts, type, json);
+    handle.exec("COMMIT");
+    return { workflowId, seq, ts, type, payload: payload ?? null };
+  } catch (err) {
+    handle.exec("ROLLBACK");
+    throw err;
+  }
+}
+
+/** Events for a workflow with seq > sinceSeq (default all), oldest first. */
+export function readWorkflowEvents(workflowId: string, sinceSeq = 0): WorkflowEventRow[] {
+  const handle = db();
+  const rows = handle
+    .prepare("SELECT workflow_id, seq, ts, type, json FROM events WHERE workflow_id = ? AND seq > ? ORDER BY seq ASC")
+    .all(workflowId, sinceSeq) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    workflowId: r.workflow_id as string,
+    seq: r.seq as number,
+    ts: r.ts as string,
+    type: r.type as string,
+    payload: safeParse(r.json as string),
+  }));
+}
+
+function safeParse(json: string): unknown {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return json;
+  }
 }
 
 /** All journaled calls for a workflow, ordered by call index. */

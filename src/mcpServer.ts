@@ -18,7 +18,7 @@ import { inspectGsdMilestone } from "./gsdMilestone.js";
 import { integratePeer, IntegratePeerRefusedError } from "./peerIntegration.js";
 import { classifyFrozenBatch } from "./frozen-eligibility/index.js";
 import { readPeerInbox } from "./peerInbox.js";
-import { resumeWorkflowRun, spawnWorkflowRun, spawnWorkflowRunner, workflowStatus } from "./workflow/manager.js";
+import { listWorkflows, resumeWorkflowRun, spawnWorkflowRun, spawnWorkflowRunner, workflowEvents, workflowStatus } from "./workflow/manager.js";
 import { validateWorkflowSource } from "./workflow/sandbox.js";
 import { workflowsDir } from "./paths.js";
 import type { SpawnSizingArgs, TaskScope } from "./taskSizing.js";
@@ -428,6 +428,23 @@ export const TOOLS = [
     },
   },
   {
+    name: "list_workflows",
+    description: "List all workflow runs (kind=workflow_run) with their workflow-level status, newest first.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "workflow_events",
+    description: "Read a workflow's lifecycle event stream (workflow_start/phase_start/agent_spawn/agent_done/agent_failed/workflow_end), oldest first. Pass `since` (a seq) to tail only newer events.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workflow_id: { type: "string", description: "Workflow id (or id prefix)." },
+        since: { type: "number", description: "Return only events with seq greater than this. Defaults to 0 (all)." },
+      },
+      required: ["workflow_id"],
+    },
+  },
+  {
     name: "integrate_peer",
     description:
       "Integrate a completed peer via pull request: commit and push the peer's own branch to origin, then open a PR into the target branch (main/master by default) and enable GitHub auto-merge so it lands once checks pass. Never advances the target branch directly. Refuses peers in running/halted/failed states. Requires gh authenticated for the repo's owner. Returns pr_number/pr_url/auto_merge_enabled.",
@@ -685,6 +702,25 @@ export async function callTool(name: unknown, rawArgs: unknown): Promise<unknown
       });
       spawnWorkflowRunner(run.id);
       return json({ workflow_id: run.id, status: run.status, workflow: run.workflow });
+    }
+    case "list_workflows":
+      return json(
+        listWorkflows().map((p) => ({
+          workflow_id: p.id,
+          name: p.name ?? null,
+          status: p.status,
+          workflow_status: p.workflow?.status ?? null,
+          agent_count: p.workflow?.agentPeerIds?.length ?? 0,
+          replayed_agents: p.workflow?.replayedAgents ?? 0,
+          tokens_spent: p.workflow?.tokensSpent ?? 0,
+          started_at: p.startedAt,
+          finished_at: p.finishedAt ?? null,
+        })),
+      );
+    case "workflow_events": {
+      const wf = workflowStatus(requiredString(args, "workflow_id"));
+      const since = optionalNumber(args, "since") ?? 0;
+      return json({ workflow_id: wf.id, events: workflowEvents(wf.id, since) });
     }
     case "workflow_status": {
       const peer = workflowStatus(requiredString(args, "workflow_id"));

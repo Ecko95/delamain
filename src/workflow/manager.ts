@@ -17,9 +17,10 @@ import { killPeer, resumePeer, spawnPeer, waitForPeer } from "../peerManager.js"
 import { readPeerCost } from "../peerCost.js";
 import { peersHome, runsDir } from "../paths.js";
 import { pidAlive } from "../processes.js";
-import { getPeer, journalAgentCall, readAgentJournal, updatePeer, upsertPeer } from "../store.js";
+import { getPeer, journalAgentCall, readAgentJournal, readState, readWorkflowEvents, updatePeer, upsertPeer } from "../store.js";
 import type { PeerRecord } from "../types.js";
 import { runWorkflowRun, type WorkflowEngineDeps } from "./engine.js";
+import { emitWorkflowEvent, type WorkflowEventType } from "./events.js";
 import { executeWorkflowScript } from "./sandbox.js";
 import { isWorkflowRunRecord } from "./types.js";
 
@@ -153,6 +154,16 @@ export function _awaitWorkflowRun(workflowId: string): Promise<PeerRecord> | und
   return workflowRunners.get(workflowId);
 }
 
+/** All workflow_run records, newest first (mirrors listPeers ordering). */
+export function listWorkflows(): PeerRecord[] {
+  return readState().peers.filter((p) => p.kind === "workflow_run");
+}
+
+/** Lifecycle events for a workflow with seq > since (default all). */
+export function workflowEvents(workflowId: string, since = 0) {
+  return readWorkflowEvents(workflowId, since);
+}
+
 export function workflowStatus(workflowId: string): PeerRecord {
   const peer = getPeer(workflowId);
   if (!peer) {
@@ -240,6 +251,7 @@ function buildRealDeps(): WorkflowEngineDeps {
     executeScript: executeWorkflowScript,
     readJournal: (workflowId) => readAgentJournal(workflowId),
     writeJournal: (row) => journalAgentCall(row),
+    emitEvent: (workflowId, type, payload) => emitWorkflowEvent(workflowId, type as WorkflowEventType, payload),
     now: () => Date.now(),
   };
 }
