@@ -55,10 +55,26 @@ export type CodexExecResult = {
   signal: NodeJS.Signals | null;
 };
 
+/**
+ * SP1 wave 7 — opt-in "autonomous GSD on the engine" hardening. All default to
+ * today's exact behavior (existing tests pass no opts):
+ *   - stuckRetry: on a phase that runs clean but doesn't advance STATE.md, do
+ *     ONE diagnostic retry before halting (gsd-pi's stuck-detection).
+ *   - hardTimeoutMs: wall-clock ceiling on the whole batch → gsd_failed.
+ *   - onEvent: lifecycle hook wired to the workflow event stream by gsd.ts.
+ */
+export type GsdRunOpts = {
+  codexBin?: string;
+  stuckRetry?: boolean;
+  hardTimeoutMs?: number;
+  onEvent?: (type: string, payload: Record<string, unknown>) => void;
+  now?: () => number;
+};
+
 export async function runGsdPhaseBatch(
   peer: PeerRecord,
   deps: GsdRunnerDeps,
-  opts?: { codexBin?: string },
+  opts?: GsdRunOpts,
 ): Promise<PeerRecord> {
   const initialBatch: GsdBatchSpawnConfig | undefined = peer.gsdBatch;
   if (!initialBatch) {
@@ -70,9 +86,34 @@ export async function runGsdPhaseBatch(
   const selectedPhases = initialBatch.selected_phases;
   const startCursor = initialBatch.cursor;
   const codexBin = opts?.codexBin ?? "codex";
+  const now = opts?.now ?? (() => Date.now());
+  const batchStart = now();
+  const emit = (type: string, payload: Record<string, unknown>) => {
+    try {
+      opts?.onEvent?.(type, payload);
+    } catch {
+      /* telemetry must never fail the batch */
+    }
+  };
+  emit("workflow_start", { name: `gsd:${planningMode}`, phases: selectedPhases, cursor: startCursor });
 
   for (let i = startCursor; i < selectedPhases.length; i++) {
     const phaseId = selectedPhases[i];
+
+    // Hard wall-clock ceiling (opt-in): stop before starting a new phase.
+    if (opts?.hardTimeoutMs && now() - batchStart > opts.hardTimeoutMs) {
+      const reason = `hard timeout (${opts.hardTimeoutMs}ms) exceeded before phase ${phaseId}`;
+      current = await deps.updatePeer(current.id, {
+        status: "gsd_failed",
+        lastEvent: reason,
+        error: reason,
+        updatedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+      });
+      emit("workflow_end", { status: "gsd_failed", reason, phase: phaseId });
+      return current;
+    }
+    emit("phase_start", { phase: phaseId, mode: planningMode, index: i });
     // The runner is the only mutator of gsdBatch after dispatch; fall back to
     // the caller-supplied shape if a deps.updatePeer fake drops the field.
     const batch: GsdBatchSpawnConfig = current.gsdBatch ?? initialBatch;
@@ -105,6 +146,7 @@ export async function runGsdPhaseBatch(
           updatedAt: new Date().toISOString(),
           finishedAt: new Date().toISOString(),
         });
+        emit("workflow_end", { status: "gsd_failed", phase: phaseId, reason });
         return current;
       }
       if (!gateResult.pass) {
@@ -134,6 +176,7 @@ export async function runGsdPhaseBatch(
           updatedAt: new Date().toISOString(),
           finishedAt: new Date().toISOString(),
         });
+        emit("workflow_end", { status: "gsd_halted_on_gate_failure", phase: phaseId, mismatches: gateResult.all_mismatches.length });
         return current;
       }
       await deps.appendLog(
@@ -143,96 +186,119 @@ export async function runGsdPhaseBatch(
     }
 
     // --- Phase invocation (shared by dynamic and frozen) ---
-    current = await deps.updatePeer(current.id, {
-      status: "gsd_running_phase",
-      lastEvent:
-        planningMode === "frozen"
-          ? `phase ${phaseId}: invoking /gsd-execute-phase ${phaseId} --no-transition`
-          : `phase ${phaseId}: invoking /gsd-autonomous --only ${phaseId} via codex exec`,
-      gsdBatch: { ...batch, cursor: i },
-      updatedAt: new Date().toISOString(),
-    });
-    await deps.appendLog(current, `\n=== phase ${phaseId} (${planningMode}) ===\n`);
+    // gsd-pi stuck-detection (opt-in): a phase that runs clean but doesn't
+    // advance STATE.md gets ONE diagnostic retry before halting. maxAttempts=1
+    // (default) preserves today's fail-fast behavior exactly.
+    const maxAttempts = opts?.stuckRetry ? 2 : 1;
+    let advanced = false;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const retrySuffix = attempt > 1 ? ` (diagnostic retry ${attempt}/${maxAttempts})` : "";
+      current = await deps.updatePeer(current.id, {
+        status: "gsd_running_phase",
+        lastEvent:
+          (planningMode === "frozen"
+            ? `phase ${phaseId}: invoking /gsd-execute-phase ${phaseId} --no-transition`
+            : `phase ${phaseId}: invoking /gsd-autonomous --only ${phaseId} via codex exec`) + retrySuffix,
+        gsdBatch: { ...batch, cursor: i },
+        updatedAt: new Date().toISOString(),
+      });
+      await deps.appendLog(current, `\n=== phase ${phaseId} (${planningMode})${retrySuffix} ===\n`);
 
-    let result: CodexExecResult;
-    try {
-      result = await invokeCodexExec(
-        current.repo,
-        codexBin,
-        phaseId,
-        planningMode,
-        current.model,
-        current.reasoningEffort,
-        async (chunk) => {
-          await deps.appendLog(current, chunk);
-        },
-      );
-    } catch (err) {
-      const reason = (err as Error).message;
+      let result: CodexExecResult;
+      try {
+        result = await invokeCodexExec(
+          current.repo,
+          codexBin,
+          phaseId,
+          planningMode,
+          current.model,
+          current.reasoningEffort,
+          async (chunk) => {
+            await deps.appendLog(current, chunk);
+          },
+        );
+      } catch (err) {
+        const reason = (err as Error).message;
+        current = await deps.updatePeer(current.id, {
+          status: "gsd_failed",
+          lastEvent: `phase ${phaseId}: codex exec spawn error: ${reason}`,
+          error: reason,
+          updatedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+        });
+        emit("workflow_end", { status: "gsd_failed", phase: phaseId, reason: `spawn error: ${reason}` });
+        return current;
+      }
+
+      if (result.exitCode !== 0) {
+        current = await deps.updatePeer(current.id, {
+          status: "gsd_failed",
+          lastEvent: `phase ${phaseId}: codex exec exited with code ${result.exitCode} (signal=${result.signal})`,
+          exitCode: result.exitCode,
+          signal: result.signal,
+          updatedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+        });
+        emit("workflow_end", { status: "gsd_failed", phase: phaseId, reason: `exit ${result.exitCode}` });
+        return current;
+      }
+
+      // Step 4: transition to gsd_polling_state.
+      current = await deps.updatePeer(current.id, {
+        status: "gsd_polling_state",
+        lastEvent: `phase ${phaseId}: codex exited 0; reading STATE.md`,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Step 5: read STATE.md.
+      let state;
+      try {
+        state = await readStateDocument(current.repo);
+      } catch (err) {
+        const reason =
+          err instanceof GsdStateMissingError
+            ? "STATE.md missing after codex exec"
+            : err instanceof GsdStateMalformedError
+              ? `STATE.md malformed: ${(err as Error).message}`
+              : `STATE.md read error: ${(err as Error).message}`;
+        current = await deps.updatePeer(current.id, {
+          status: "gsd_failed",
+          lastEvent: `phase ${phaseId}: ${reason}`,
+          error: reason,
+          updatedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+        });
+        emit("workflow_end", { status: "gsd_failed", phase: phaseId, reason });
+        return current;
+      }
+
+      // Step 6: advance, or (stuck) retry / halt.
+      if (isPhaseComplete(state, phaseId)) {
+        advanced = true;
+        break;
+      }
+      if (attempt < maxAttempts) {
+        emit("phase_retry", { phase: phaseId, attempt });
+        await deps.appendLog(
+          current,
+          `phase ${phaseId}: STATE.md did not advance; diagnostic retry ${attempt + 1}/${maxAttempts}\n`,
+        );
+        continue;
+      }
+      const attemptsNote = maxAttempts > 1 ? ` after ${maxAttempts} attempts` : "";
       current = await deps.updatePeer(current.id, {
         status: "gsd_failed",
-        lastEvent: `phase ${phaseId}: codex exec spawn error: ${reason}`,
-        error: reason,
+        lastEvent: `phase ${phaseId}: STATE.md did not show completion after codex exit${attemptsNote} (current_phase=${state.current_phase ?? state.phase ?? "?"}, complete=${state.complete})`,
         updatedAt: new Date().toISOString(),
         finishedAt: new Date().toISOString(),
       });
+      emit("workflow_end", { status: "gsd_failed", phase: phaseId, reason: "did not advance" });
       return current;
     }
-
-    if (result.exitCode !== 0) {
-      current = await deps.updatePeer(current.id, {
-        status: "gsd_failed",
-        lastEvent: `phase ${phaseId}: codex exec exited with code ${result.exitCode} (signal=${result.signal})`,
-        exitCode: result.exitCode,
-        signal: result.signal,
-        updatedAt: new Date().toISOString(),
-        finishedAt: new Date().toISOString(),
-      });
-      return current;
+    if (advanced) {
+      await deps.appendLog(current, `phase ${phaseId}: STATE.md confirms completion; advancing cursor.\n`);
+      emit("phase_done", { phase: phaseId, index: i });
     }
-
-    // Step 4: transition to gsd_polling_state.
-    current = await deps.updatePeer(current.id, {
-      status: "gsd_polling_state",
-      lastEvent: `phase ${phaseId}: codex exited 0; reading STATE.md`,
-      updatedAt: new Date().toISOString(),
-    });
-
-    // Step 5: read STATE.md.
-    let state;
-    try {
-      state = await readStateDocument(current.repo);
-    } catch (err) {
-      const reason =
-        err instanceof GsdStateMissingError
-          ? "STATE.md missing after codex exec"
-          : err instanceof GsdStateMalformedError
-            ? `STATE.md malformed: ${(err as Error).message}`
-            : `STATE.md read error: ${(err as Error).message}`;
-      current = await deps.updatePeer(current.id, {
-        status: "gsd_failed",
-        lastEvent: `phase ${phaseId}: ${reason}`,
-        error: reason,
-        updatedAt: new Date().toISOString(),
-        finishedAt: new Date().toISOString(),
-      });
-      return current;
-    }
-
-    // Step 6: decide advance vs halt.
-    if (!isPhaseComplete(state, phaseId)) {
-      current = await deps.updatePeer(current.id, {
-        status: "gsd_failed",
-        lastEvent: `phase ${phaseId}: STATE.md did not show completion after codex exit (current_phase=${state.current_phase ?? state.phase ?? "?"}, complete=${state.complete})`,
-        updatedAt: new Date().toISOString(),
-        finishedAt: new Date().toISOString(),
-      });
-      return current;
-    }
-    await deps.appendLog(
-      current,
-      `phase ${phaseId}: STATE.md confirms completion; advancing cursor.\n`,
-    );
   }
 
   // Step 7: cursor exhausted.
@@ -244,6 +310,7 @@ export async function runGsdPhaseBatch(
     updatedAt: new Date().toISOString(),
     finishedAt: new Date().toISOString(),
   });
+  emit("workflow_end", { status: "gsd_completed", phases: selectedPhases.length });
   return current;
 }
 
