@@ -69,6 +69,9 @@ export type WorkflowEngineDeps = AgentCallDeps &
     // SP1 wave 3 — resume/journaling (§14). Injected so replay is testable.
     readJournal: (workflowId: string) => AgentJournalRow[];
     writeJournal: (row: AgentJournalRow) => void;
+    // SP1 wave 4 — event stream (§11). Injected so emission is testable; a
+    // no-op default keeps unit tests that don't care about events simple.
+    emitEvent?: (workflowId: string, type: string, payload: Record<string, unknown>) => void;
     now: () => number;
   };
 
@@ -84,6 +87,14 @@ export async function runWorkflowRun(
 
   const startedAt = deps.now();
   const agentPeerIds: string[] = [];
+  const emit = (type: string, payload: Record<string, unknown>) => {
+    try {
+      deps.emitEvent?.(peer.id, type, payload);
+    } catch {
+      /* telemetry must never fail the run */
+    }
+  };
+  const seenPhases = new Set<string>();
   // Resume: replay the longest unchanged prefix of ctx.agent() calls from the
   // journal (empty for a fresh run → every call runs live and is journaled).
   const replayPlan = new ReplayPlan(deps.readJournal(peer.id));
@@ -91,6 +102,12 @@ export async function runWorkflowRun(
     status: "working",
     lastEvent: `workflow running: ${workflow.scriptPath}`,
     workflowPatch: { status: "running" },
+  });
+  emit("workflow_start", {
+    name: peer.name ?? workflow.scriptPath,
+    scriptPath: workflow.scriptPath,
+    maxAgents: workflow.maxAgents ?? null,
+    budgetTokens: workflow.budgetTokens ?? null,
   });
 
   const log = (line: string) => {
@@ -146,43 +163,58 @@ export async function runWorkflowRun(
         }
       }
 
-      const result = await runAgentCall(
-        {
-          ...deps,
-          onAgentSpawned: (leaf) => {
-            controller.markSpawned(leaf);
-            trackAgent(leaf);
-          },
-          acquire: controller.acquire,
-          release: controller.release,
-          recordUsage: controller.recordUsage,
-          log,
-        },
-        { repo: workflow.repo, waitTimeoutMs: workflow.timeoutMs },
-        prompt,
-        agentOpts,
-      );
-
-      // Durably journal the completed call BEFORE returning it to the script,
-      // so a crash immediately after can still replay this call on resume.
-      if (callIndex >= 0) {
-        try {
-          deps.writeJournal({
-            workflowId: peer.id,
-            callIndex,
-            promptHash,
-            optsHash,
-            engine: (agentOpts?.engine as string) ?? "codex",
-            model: agentOpts?.model as string | undefined,
-            phase: agentOpts?.phase as string | undefined,
-            resultJson: JSON.stringify(result ?? null),
-            status: "done",
-          });
-        } catch {
-          /* journaling is best-effort; a failed write just means a re-run here on resume */
-        }
+      const phase = agentOpts?.phase as string | undefined;
+      if (phase && !seenPhases.has(phase)) {
+        seenPhases.add(phase);
+        emit("phase_start", { phase });
       }
-      return result;
+      const agentStart = deps.now();
+      let leafId: string | undefined;
+      try {
+        const result = await runAgentCall(
+          {
+            ...deps,
+            onAgentSpawned: (leaf) => {
+              leafId = leaf.id;
+              controller.markSpawned(leaf);
+              trackAgent(leaf);
+              emit("agent_spawn", { node: leaf.id, engine: agentOpts?.engine ?? "codex", model: agentOpts?.model ?? null, phase: phase ?? null, callIndex });
+            },
+            acquire: controller.acquire,
+            release: controller.release,
+            recordUsage: controller.recordUsage,
+            log,
+          },
+          { repo: workflow.repo, waitTimeoutMs: workflow.timeoutMs },
+          prompt,
+          agentOpts,
+        );
+
+        // Durably journal the completed call BEFORE returning it to the script,
+        // so a crash immediately after can still replay this call on resume.
+        if (callIndex >= 0) {
+          try {
+            deps.writeJournal({
+              workflowId: peer.id,
+              callIndex,
+              promptHash,
+              optsHash,
+              engine: (agentOpts?.engine as string) ?? "codex",
+              model: agentOpts?.model as string | undefined,
+              phase,
+              resultJson: JSON.stringify(result ?? null),
+              status: "done",
+            });
+          } catch {
+            /* journaling is best-effort; a failed write just means a re-run here on resume */
+          }
+        }
+        emit("agent_done", { node: leafId ?? null, status: "done", phase: phase ?? null, callIndex, elapsedMs: deps.now() - agentStart, tokensSpent: controller.budgetSnapshot().spent });
+        return result;
+      } catch (err) {
+        emit("agent_failed", { node: leafId ?? null, phase: phase ?? null, callIndex, elapsedMs: deps.now() - agentStart, err: err instanceof Error ? err.message : String(err) });
+        throw err;
+      }
     }
     throw new Error(`unknown ctx method: ${method}`);
   };
@@ -251,6 +283,13 @@ export async function runWorkflowRun(
         replayedAgents: replayPlan.replayedCount,
       },
     });
+    emit("workflow_end", {
+      status: "done",
+      elapsedMs: deps.now() - startedAt,
+      totalAgents: agentPeerIds.length,
+      replayedAgents: replayPlan.replayedCount,
+      tokensSpent: controller.budgetSnapshot().spent,
+    });
     return current;
   } catch (error) {
     const haltReason = controller.haltReason;
@@ -271,6 +310,14 @@ export async function runWorkflowRun(
         tokensSpent: controller.budgetSnapshot().spent,
         replayedAgents: replayPlan.replayedCount,
       },
+    });
+    emit("workflow_end", {
+      status: isHalt ? "halted" : "failed",
+      error: message,
+      elapsedMs: deps.now() - startedAt,
+      totalAgents: agentPeerIds.length,
+      replayedAgents: replayPlan.replayedCount,
+      tokensSpent: controller.budgetSnapshot().spent,
     });
     return current;
   } finally {

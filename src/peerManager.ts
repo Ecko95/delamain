@@ -468,7 +468,10 @@ export function tmuxStatusLine(): string {
   const waiting = counts.get("waiting") || 0;
   const cleanup = counts.get("cleanup") || 0;
   const frozen = counts.get("frozen") || 0;
-  return `Codex peers: ${peers.length} | working ${active} | waiting ${waiting} | cleanup ${cleanup} | frozen ${frozen}`;
+  // SP1 wave 4: surface running workflows in the status line.
+  const workflowsRunning = peers.filter((p) => p.kind === "workflow_run" && p.workflow?.status === "running").length;
+  const workflowSuffix = workflowsRunning > 0 ? ` | ❊ ${workflowsRunning} workflow${workflowsRunning === 1 ? "" : "s"}` : "";
+  return `Codex peers: ${peers.length} | working ${active} | waiting ${waiting} | cleanup ${cleanup} | frozen ${frozen}${workflowSuffix}`;
 }
 
 export type RunnerSpawnArgs = {

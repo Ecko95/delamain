@@ -64,3 +64,10 @@ export function worktreesDir(): string {
 export function workflowsDir(): string {
 	return join(peersHome(), "workflows");
 }
+
+// SP1 wave 4: tailable append-only event log for external subscribers
+// (SP3 T3 bridge, SP4 Pi extension). The durable/queryable copy is the SQLite
+// `events` table; this jsonl is the line-delimited fallback transport.
+export function eventsJsonlPath(): string {
+	return join(peersHome(), "events.jsonl");
+}

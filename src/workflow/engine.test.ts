@@ -35,6 +35,7 @@ function makeDeps(executor: ExecutorImpl) {
   const records = new Map<string, PeerRecord>();
   const killed: string[] = [];
   const logLines: string[] = [];
+  const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
   let leafCounter = 0;
   const deps: WorkflowEngineDeps = {
     spawnPeer: (options) => {
@@ -84,10 +85,11 @@ function makeDeps(executor: ExecutorImpl) {
     tokensForPeer: () => 0,
     readJournal: () => [],
     writeJournal: () => {},
+    emitEvent: (_id, type, payload) => events.push({ type, payload }),
     executeScript: (request) => executor(request),
     now: () => Date.now(),
   };
-  return { deps, records, killed, logLines };
+  return { deps, records, killed, logLines, events };
 }
 
 describe("runWorkflowRun", () => {
@@ -101,6 +103,34 @@ describe("runWorkflowRun", () => {
     expect(final.workflow?.status).toBe("done");
     expect(final.workflow?.result).toEqual({ topRisk: "state races", severity: "high" });
     expect(records.get("wf-1")?.finishedAt).toBeTruthy();
+  });
+
+  it("emits the workflow_start → phase_start → agent_spawn/agent_done → workflow_end event stream", async () => {
+    const { deps, events } = makeDeps(({ onCall }) => ({
+      result: (async () => {
+        await onCall("agent", ["do a thing", { schema: { type: "object" }, phase: "review" }, 0]);
+        return { ok: true };
+      })(),
+      kill: () => {},
+    }));
+    const final = await runWorkflowRun(makeRunRecord(), deps);
+    expect(final.status).toBe("done");
+    const types = events.map((e) => e.type);
+    expect(types).toEqual(["workflow_start", "phase_start", "agent_spawn", "agent_done", "workflow_end"]);
+    expect(events.find((e) => e.type === "phase_start")?.payload.phase).toBe("review");
+    expect(events.find((e) => e.type === "agent_spawn")?.payload.node).toBe("leaf-1");
+    expect(events.find((e) => e.type === "workflow_end")?.payload.status).toBe("done");
+  });
+
+  it("emits agent_failed and a halted/failed workflow_end when the script throws", async () => {
+    const { deps, events } = makeDeps(() => ({
+      result: Promise.reject(new Error("boom")),
+      kill: () => {},
+    }));
+    const final = await runWorkflowRun(makeRunRecord(), deps);
+    expect(final.status).toBe("failed");
+    const end = events.find((e) => e.type === "workflow_end");
+    expect(end?.payload.status).toBe("failed");
   });
 
   it("routes ctx.agent bridge calls through the peer deps and records leaf ids", async () => {

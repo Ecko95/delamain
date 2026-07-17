@@ -9,7 +9,7 @@ import { readPeerInbox } from "./peerInbox.js";
 import { sweepPeers } from "./sweep.js";
 import { runWaitCommand, WAIT_USAGE } from "./wait.js";
 import { wavesView } from "./waves.js";
-import { resumeWorkflowRun, spawnWorkflowRun, spawnWorkflowRunner, workflowStatus } from "./workflow/manager.js";
+import { listWorkflows, resumeWorkflowRun, spawnWorkflowRun, spawnWorkflowRunner, workflowEvents, workflowStatus } from "./workflow/manager.js";
 import { validateWorkflowSource } from "./workflow/sandbox.js";
 import { TERMINAL_PEER_STATUSES } from "./types.js";
 
@@ -234,10 +234,35 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       }
       return;
     }
+    case "workflows": {
+      console.log(
+        JSON.stringify(
+          listWorkflows().map((p) => ({
+            workflow_id: p.id,
+            name: p.name ?? null,
+            status: p.status,
+            workflow_status: p.workflow?.status ?? null,
+            agents: p.workflow?.agentPeerIds?.length ?? 0,
+            replayed: p.workflow?.replayedAgents ?? 0,
+            tokens: p.workflow?.tokensSpent ?? 0,
+          })),
+          null,
+          2,
+        ),
+      );
+      return;
+    }
     case "workflow": {
       const workflowId = argv[0];
       if (!workflowId) {
-        throw new Error("Usage: delamain workflow <workflow-id>");
+        throw new Error("Usage: delamain workflow <workflow-id> [--events [--since <seq>]]");
+      }
+      const wargs = parseFlags(argv.slice(1));
+      if (wargs.events) {
+        const since = flagString(wargs, "since");
+        const wf = workflowStatus(workflowId);
+        console.log(JSON.stringify(workflowEvents(wf.id, since ? Number(since) : 0), null, 2));
+        return;
       }
       console.log(JSON.stringify(workflowStatus(workflowId), null, 2));
       return;
@@ -433,7 +458,9 @@ Commands:
                                  Run a sandboxed workflow (ctx.agent/parallel/pipeline leaves, integrate:false, OS-jailed)
   run-workflow --resume <workflow-id>
                                  Resume a workflow: replay its journaled agent prefix, run the rest live
-  workflow <workflow-id>         Print a workflow run record as JSON
+  workflows                      List all workflow runs (id, status, agent/replay/token counts)
+  workflow <workflow-id> [--events [--since <seq>]]
+                                 Print a workflow run record, or its lifecycle event stream
   send --to <peer-id> --message <text> [--from <peer-id>] [--expect-reply] [--response-id <id>]
   inbox [<peer-id>] [--all]
   sweep [--dry-run] [--older-than <days>]  Archive stale terminal peers; mark dead-pid stale peers failed
