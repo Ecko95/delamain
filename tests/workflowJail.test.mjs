@@ -100,3 +100,25 @@ test("probeJail reports the layers active on this host", () => {
   assert.ok(probe.layers && typeof probe.layers.landlock === "boolean");
   assert.ok(Array.isArray(probe.degraded));
 });
+
+test("jail plan resolves node's real ELF interpreter and grants it EXECUTE", async (t) => {
+  if (process.platform !== "linux" || !jail.resolveJailBinary()) {
+    t.skip("no jail on this host");
+    return;
+  }
+  const dir = await mkdtemp(join(tmpdir(), "wf-jail-plan-"));
+  try {
+    const plan = jail.buildJailPlan({ childPath: process.execPath, scratchDir: dir });
+    assert.equal(plan.available, true, `plan should be available on a capable host: ${plan.reason ?? ""}`);
+    const execList = plan.env.DELAMAIN_JAIL_EXEC.split(":");
+    // node itself is always exec-granted; on a dynamically-linked node the ELF
+    // loader is resolved from PT_INTERP and included (not a hard-coded guess).
+    assert.ok(execList.some((p) => p.includes("node")), "node binary must be exec-granted");
+    assert.ok(
+      execList.some((p) => /ld-|ld\.so|ld-linux/.test(p)),
+      `dynamic loader should be resolved into the exec list, got: ${plan.env.DELAMAIN_JAIL_EXEC}`,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

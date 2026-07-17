@@ -163,19 +163,22 @@ export function executeWorkflowScript(request: SandboxExecuteRequest): ScriptExe
       const message = raw as ChildMessage;
       if (!message || typeof message !== "object") return;
       if (message.type === "call") {
+        // Reply exactly once. The budget is read HERE (after onCall settled, so
+        // it reflects this call's spend), guarded so a throw can't leave the
+        // child's bridge call hanging forever.
+        const reply = (payload: Record<string, unknown>) => {
+          let budgetSpent = 0;
+          try {
+            budgetSpent = request.getBudgetSpent();
+          } catch {
+            /* stamp 0 rather than drop the reply */
+          }
+          if (child.connected) child.send({ ...payload, id: message.id, budgetSpent });
+        };
         void request
           .onCall(message.method, message.args ?? [])
-          .then((value) => {
-            if (child.connected) {
-              child.send({ type: "result", id: message.id, result: value ?? null, budgetSpent: request.getBudgetSpent() });
-            }
-          })
-          .catch((error: unknown) => {
-            const text = error instanceof Error ? error.message : String(error);
-            if (child.connected) {
-              child.send({ type: "error", id: message.id, error: text, budgetSpent: request.getBudgetSpent() });
-            }
-          });
+          .then((value) => reply({ type: "result", result: value ?? null }))
+          .catch((error: unknown) => reply({ type: "error", error: error instanceof Error ? error.message : String(error) }));
         return;
       }
       if (message.type === "done") {
