@@ -128,11 +128,46 @@ describe("runAgentCall", () => {
     await expect(runAgentCall(deps, { repo: "/repo" }, "p")).rejects.toThrow(/waiting for orchestrator input/);
   });
 
-  it("rejects non-codex engines in wave 1", async () => {
+  it("spawns a cursor leaf and forwards cursorOptions (SP1 wave 4)", async () => {
+    const { deps, calls } = makeFakeDeps([{ status: "done", finalResult: "ok" }]);
+    await runAgentCall(deps, { repo: "/repo" }, "p", {
+      engine: "cursor",
+      cursorOptions: { cloud: true, approveMcps: true },
+    });
+    expect(calls.spawns).toHaveLength(1);
+    expect(calls.spawns[0].engine).toBe("cursor");
+    expect(calls.spawns[0].cursorOptions).toEqual({ cloud: true, approveMcps: true });
+    expect(calls.spawns[0].codexConfig).toBeUndefined();
+  });
+
+  it("rejects engine 'pi' with an SP2 message (reserved)", async () => {
+    const { deps, calls } = makeFakeDeps([{ status: "done" }]);
+    await expect(runAgentCall(deps, { repo: "/repo" }, "p", { engine: "pi" })).rejects.toThrow(/SP2/);
+    expect(calls.spawns).toHaveLength(0);
+  });
+
+  it("multiAgent translates to codex -c flags and keeps hooks enabled", async () => {
+    const { deps, calls } = makeFakeDeps([{ status: "done", finalResult: "ok" }]);
+    await runAgentCall(deps, { repo: "/repo" }, "p", { multiAgent: { maxThreads: 4 } });
+    const spawn = calls.spawns[0];
+    expect(spawn.codexConfig).toEqual(["features.multi_agent=true", "agents.max_depth=1", "agents.max_threads=4"]);
+    expect(spawn.disableHooks).toBe(false);
+  });
+
+  it("multiAgent with a csv adds spawn_agents_on_csv (terminating variant)", async () => {
+    const { deps, calls } = makeFakeDeps([{ status: "done", finalResult: "ok" }]);
+    await runAgentCall(deps, { repo: "/repo" }, "p", { multiAgent: { maxThreads: 2, csv: "a,b,c" } });
+    expect(calls.spawns[0].codexConfig).toContain('agents.spawn_agents_on_csv="a,b,c"');
+  });
+
+  it("rejects multiAgent on a non-codex engine and a bad maxThreads", async () => {
     const { deps, calls } = makeFakeDeps([{ status: "done" }]);
     await expect(
-      runAgentCall(deps, { repo: "/repo" }, "p", { engine: "cursor" as unknown as "codex" }),
-    ).rejects.toThrow(WorkflowAgentError);
+      runAgentCall(deps, { repo: "/repo" }, "p", { engine: "cursor", multiAgent: { maxThreads: 2 } }),
+    ).rejects.toThrow(/codex-engine-only/);
+    await expect(
+      runAgentCall(deps, { repo: "/repo" }, "p", { multiAgent: { maxThreads: 0 } }),
+    ).rejects.toThrow(/positive integer/);
     expect(calls.spawns).toHaveLength(0);
   });
 });
