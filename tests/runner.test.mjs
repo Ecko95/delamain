@@ -171,3 +171,26 @@ test("round trip: knobs absent from options are absent from argv and parsed outp
   assert.equal(parsed.developerInstructions, undefined);
   assert.equal(parsed.codexConfig, undefined);
 });
+
+// --- SP1 wave 1: integrate:false (workflow leaf peers must never push) ---
+
+test("round trip: integrate:false serializes to --no-integrate and parses back to false", () => {
+  const argv = buildRunnerArgv({
+    peerId: "p1",
+    repo: "/repo",
+    promptFile: "/prompt.txt",
+    logPath: "/log.txt",
+    integrate: false,
+  });
+  assert.ok(argv.includes("--no-integrate"));
+  const parsed = parseArgs(argv.slice(2));
+  assert.equal(parsed.integrate, false);
+});
+
+test("round trip: integrate omitted/true leaves argv untouched (legacy push-on-done)", () => {
+  const omitted = buildRunnerArgv({ peerId: "p1", repo: "/r", promptFile: "/p", logPath: "/l" });
+  assert.ok(!omitted.includes("--no-integrate"));
+  assert.equal(parseArgs(omitted.slice(2)).integrate, undefined);
+  const explicitTrue = buildRunnerArgv({ peerId: "p1", repo: "/r", promptFile: "/p", logPath: "/l", integrate: true });
+  assert.ok(!explicitTrue.includes("--no-integrate"));
+});

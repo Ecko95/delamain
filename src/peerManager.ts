@@ -113,6 +113,7 @@ export function spawnPeer(options: SpawnPeerOptions & SpawnSizingArgs): PeerReco
     codexConfig: options.codexConfig,
     dependsOn,
     claims,
+    integrate: options.integrate,
     startedAt: now(),
     updatedAt: now(),
     lastHeartbeatAt: now(),
@@ -135,6 +136,7 @@ export function spawnPeer(options: SpawnPeerOptions & SpawnSizingArgs): PeerReco
     reasoningEffort: peer.reasoningEffort,
     developerInstructions: peer.developerInstructions,
     codexConfig: peer.codexConfig,
+    integrate: peer.integrate,
   });
 
   updatePeer(id, (current) => ({
@@ -236,6 +238,8 @@ export function resumePeer(options: ResumePeerOptions): PeerRecord {
     reasoningEffort: peer.reasoningEffort,
     developerInstructions: peer.developerInstructions,
     codexConfig: peer.codexConfig,
+    // An integrate:false leaf must stay push-free across schema-retry resumes.
+    integrate: peer.integrate,
   });
 
   const updated = updatePeer(peer.id, (current) => ({
@@ -479,6 +483,7 @@ export type RunnerSpawnArgs = {
   reasoningEffort?: string;
   developerInstructions?: string;
   codexConfig?: string[];
+  integrate?: boolean;
 };
 
 /**
@@ -534,6 +539,9 @@ export function buildRunnerArgv(args: RunnerSpawnArgs): string[] {
       runnerArgs.push("--codex-config", pair);
     }
   }
+  if (args.integrate === false) {
+    runnerArgs.push("--no-integrate");
+  }
   return runnerArgs;
 }
 
@@ -553,6 +561,12 @@ function reconciledPeer(peer: PeerRecord): PeerRecord {
   // runner in plans 33-02/03). They don't carry runnerPid/codexPid during
   // the schema-only 33-01 step, so skip generic-peer reconciliation entirely.
   if (peer.kind === "gsd_phase_batch") {
+    return peer;
+  }
+  // SP1 wave 1: workflow_run records carry no single engine pid; the workflow
+  // engine emits its own heartbeat and enforces its own timeoutMs, so the
+  // generic frozen detection would only false-positive here (same as GSD).
+  if (peer.kind === "workflow_run") {
     return peer;
   }
   const enriched = reconcileFinishedWaitingPeer(withWorktreeInfo(peer));

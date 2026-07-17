@@ -95,6 +95,8 @@ const STATIC_ACTIVITY: Record<Exclude<DashboardStatus, "starting" | "working">, 
   gsd_halted_on_gate_failure: "HALT",
   gsd_completed: "GSDC",
   gsd_failed: "GFAIL",
+  // SP1 wave 1 — workflow_run terminated by an engine guard (timeoutMs).
+  halted: "HALT",
 };
 
 export function createDashboardViewModel(

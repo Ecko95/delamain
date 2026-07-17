@@ -17,7 +17,10 @@ export type PeerStatus =
   | "gsd_running_gate_check"
   | "gsd_halted_on_gate_failure"
   | "gsd_completed"
-  | "gsd_failed";
+  | "gsd_failed"
+  // SP1 wave 1 — workflow_run records reuse the generic statuses plus this
+  // one: the run was stopped by an engine-level termination guard (timeoutMs).
+  | "halted";
 
 // Statuses that mean the peer's run is over. Shared by the sweep and the
 // dashboards (see dashboard/v3Input.ts) so membership has one source of truth.
@@ -27,11 +30,12 @@ export const TERMINAL_PEER_STATUSES: ReadonlySet<PeerStatus> = new Set<PeerStatu
   "killed",
   "gsd_completed",
   "gsd_failed",
+  "halted",
 ]);
 
 export type PeerIntegrationStatus = "pending" | "skipped" | "pushed" | "failed" | "merged";
 
-export type PeerKind = "generic" | "gsd_phase_batch";
+export type PeerKind = "generic" | "gsd_phase_batch" | "workflow_run";
 
 export type PeerEngine = "codex" | "cursor";
 
@@ -108,9 +112,15 @@ export type PeerRecord = {
   contextPercent?: number; // current-turn input_tokens as % of the context window
   contextLevel?: CodexContextLevel; // green/yellow/red/skull, thresholds in codexContext.ts
   compacted?: boolean; // codex auto-compacted (lossy) at least once during the run
+  // SP1 wave 1 — false means the runner must NOT push the peer branch on
+  // done (ephemeral workflow leaf). Persisted so resume (schema-retry) keeps
+  // the same behavior. Missing → legacy push-on-done.
+  integrate?: boolean;
   // Phase 33 additions:
   kind?: PeerKind; // missing → treat as "generic"
   gsdBatch?: GsdBatchSpawnConfig; // present only when kind === "gsd_phase_batch"
+  // SP1 wave 1: present only when kind === "workflow_run".
+  workflow?: import("./workflow/types.js").WorkflowRunConfig;
   // ponytail: PROVISIONAL T1 field — a2a peer inbox. Additive/optional, follows
   // the `kind` migration precedent (state.json without it still loads). Reconcile
   // with T1's own types.ts addition at merge. PeerMessage lives in peerInbox.ts.
@@ -163,6 +173,11 @@ export type SpawnPeerOptions = {
   dependsOn?: string[];
   claims?: string[];
   claimsOverride?: boolean;
+  /**
+   * SP1 wave 1: false spawns an ephemeral leaf whose branch is never pushed
+   * on done (workflow agents). Omitted/true keeps the legacy push-on-done.
+   */
+  integrate?: boolean;
 };
 
 export type ResumePeerOptions = {
