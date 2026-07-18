@@ -71,7 +71,10 @@ export function mapEventToCommands(ev: Record<string, unknown>, cfg: T3BridgeCon
           worktreePath: null,
           createdAt: now,
         },
-        activity("info", "info", `workflow started: ${String(ev.name ?? "")}`, { scriptPath: ev.scriptPath }),
+        // Distinct-but-deterministic commandId: thread.create already claims
+        // cmd-<wf>-1, and T3 dedupes by commandId, so the companion activity
+        // needs its own stable id or it gets dropped on ingest.
+        { ...activity("info", "info", `workflow started: ${String(ev.name ?? "")}`, { scriptPath: ev.scriptPath }), commandId: `${cmdId}-started` },
       ];
     case "phase_start":
       return [activity("phase", "info", `phase ${String(ev.phase ?? "")}`)];

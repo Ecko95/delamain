@@ -37,6 +37,18 @@ describe("mapEventToCommands", () => {
     expect(create.modelSelection).toEqual({ instanceId: "delamain", model: "workflow" });
   });
 
+  it("workflow_start's two commands have DISTINCT deterministic commandIds (T3 dedupes by commandId)", () => {
+    const ev = { workflowId: "wf1", seq: 1, ts: "T", type: "workflow_start", name: "demo" };
+    const [create, activity]: any = mapEventToCommands(ev, cfg);
+    expect(create.commandId).toBe("cmd-wf1-1");
+    expect(activity.commandId).toBe("cmd-wf1-1-started");
+    expect(activity.commandId).not.toBe(create.commandId); // else the info activity is dropped on ingest
+    // deterministic across invocations → bridge restart re-read stays idempotent
+    const [c2, a2]: any = mapEventToCommands(ev, cfg);
+    expect(c2.commandId).toBe(create.commandId);
+    expect(a2.commandId).toBe(activity.commandId);
+  });
+
   it("agent_spawn -> task.started subagent activity (drives SubagentTaskSurface)", () => {
     const [a]: any = mapEventToCommands({ workflowId: "wf1", seq: 2, ts: "T", type: "agent_spawn", node: "leaf-1", engine: "pi", model: "gpt-5.4-mini" }, cfg);
     expect(a.type).toBe("thread.activity.append");
