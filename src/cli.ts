@@ -11,6 +11,7 @@ import { runWaitCommand, WAIT_USAGE } from "./wait.js";
 import { wavesView } from "./waves.js";
 import { listWorkflows, resumeWorkflowRun, spawnWorkflowRun, spawnWorkflowRunner, workflowEvents, workflowStatus } from "./workflow/manager.js";
 import { validateWorkflowSource } from "./workflow/sandbox.js";
+import { startT3Bridge, t3BridgeConfigFromEnv } from "./workflow/t3Bridge.js";
 import { TERMINAL_PEER_STATUSES } from "./types.js";
 
 export async function runCliCommand(command: string, argv: string[]): Promise<void> {
@@ -268,10 +269,24 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       console.log(JSON.stringify(workflowStatus(workflowId), null, 2));
       return;
     }
+    case "t3-bridge":
+      await runT3Bridge();
+      return;
     case "help":
     default:
       printHelp();
   }
+}
+
+// Exported so the env-gate wiring is unit-testable without a CLI harness.
+export async function runT3Bridge(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const cfg = t3BridgeConfigFromEnv(env);
+  if (!cfg) {
+    console.error("t3-bridge is disabled: set T3_BASE_URL, T3_TOKEN, and T3_PROJECT_ID to enable it.");
+    process.exitCode = 1;
+    return;
+  }
+  await startT3Bridge(cfg);
 }
 
 function positiveFlag(args: Record<string, string | boolean>, key: string, unit: string): number | undefined {
@@ -476,6 +491,7 @@ Commands:
   sweep [--dry-run] [--older-than <days>]  Archive stale terminal peers; mark dead-pid stale peers failed
   waves                          Fleet readiness: running / merge-ready / merge-blocked / conflicts
   cost [peer-id]                 Notional token cost per peer from codex rollout logs
+  t3-bridge                      Mirror workflow events into T3 threads (needs T3_BASE_URL, T3_TOKEN, T3_PROJECT_ID)
 
 Peer-to-peer messaging:
   send/inbox move freeform messages between peers via a per-peer inbox
