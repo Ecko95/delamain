@@ -9,6 +9,10 @@
 //
 // Best-effort and OPT-IN: disabled unless T3_BASE_URL/T3_TOKEN/T3_PROJECT_ID
 // are set; a T3 outage never affects a workflow.
+//
+// Layer-1 observability: dispatch is edge-triggered — it logs only on ok<->fail
+// transitions (via DispatchState threaded from the bridge run), so a dead T3 or
+// expired token logs once, not once per event. Return values are unchanged.
 
 import { readFileSync, statSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
@@ -122,23 +126,38 @@ export function mapEventToCommands(ev: Record<string, unknown>, cfg: T3BridgeCon
   }
 }
 
+/** Last dispatch outcome, so we only log on ok<->fail transitions. */
+export type DispatchState = { lastOk: boolean };
+export const newDispatchState = (): DispatchState => ({ lastOk: true });
+
 /** POST one command to the T3 ingress. Best-effort; resolves false on failure. */
-async function dispatch(cfg: T3BridgeConfig, cmd: T3Command): Promise<boolean> {
+async function dispatch(cfg: T3BridgeConfig, cmd: T3Command, state: DispatchState): Promise<boolean> {
   const f = cfg.fetchImpl ?? fetch;
+  let ok = false;
+  let reason = "";
   try {
     const res = await f(`${cfg.baseUrl}/api/delamain/ingest`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${cfg.token}` },
       body: JSON.stringify(cmd),
     });
-    return res.ok;
-  } catch {
-    return false;
+    ok = res.ok;
+    if (!ok) reason = `HTTP ${res.status}`;
+  } catch (err: any) {
+    // network failure: prefer a code (ECONNREFUSED, etc.) then message.
+    reason = String(err?.code ?? err?.message ?? err);
   }
+  // Edge-triggered: one line per transition, never the token or full config.
+  if (ok !== state.lastOk) {
+    if (ok) console.error(`[t3Bridge] dispatch recovered: ${cmd.type} ${String(cmd.commandId)}`);
+    else console.error(`[t3Bridge] dispatch failed: ${cmd.type} ${String(cmd.commandId)} — ${reason}`);
+  }
+  state.lastOk = ok;
+  return ok;
 }
 
 /** Map + dispatch every command for one jsonl line. Returns commands attempted. */
-export async function ingestLine(cfg: T3BridgeConfig, line: string): Promise<T3Command[]> {
+export async function ingestLine(cfg: T3BridgeConfig, line: string, state: DispatchState = newDispatchState()): Promise<T3Command[]> {
   const trimmed = line.trim();
   if (!trimmed) return [];
   let ev: Record<string, unknown>;
@@ -148,7 +167,7 @@ export async function ingestLine(cfg: T3BridgeConfig, line: string): Promise<T3C
     return [];
   }
   const cmds = mapEventToCommands(ev, cfg);
-  for (const cmd of cmds) await dispatch(cfg, cmd);
+  for (const cmd of cmds) await dispatch(cfg, cmd, state);
   return cmds;
 }
 
@@ -162,13 +181,14 @@ export async function startT3Bridge(cfg: T3BridgeConfig, opts: { pollMs?: number
   const path = eventsJsonlPath();
   const pollMs = opts.pollMs ?? 1000;
   let processed = 0;
+  const state = newDispatchState(); // per-run, so a second startT3Bridge is independent
   while (!opts.signal?.aborted) {
     try {
       if (statSync(path, { throwIfNoEntry: false })) {
         const lines = readFileSync(path, "utf8").split("\n");
         // last element is a trailing "" from the final newline; ignore it.
         const complete = lines.slice(0, -1);
-        for (let i = processed; i < complete.length; i += 1) await ingestLine(cfg, complete[i]);
+        for (let i = processed; i < complete.length; i += 1) await ingestLine(cfg, complete[i], state);
         processed = complete.length;
       }
     } catch {
