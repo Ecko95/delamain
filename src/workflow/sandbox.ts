@@ -213,6 +213,7 @@ export function executeWorkflowScript(request: SandboxExecuteRequest): ScriptExe
       seed: request.seed,
       startTimeMs: request.startTimeMs,
       budgetTotal: request.budgetTotal,
+      args: request.args ?? null,
     });
   });
 

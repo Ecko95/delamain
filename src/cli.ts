@@ -200,11 +200,12 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       } else {
         const scriptPath = positional || flagString(args, "script");
         if (!scriptPath) {
-          throw new Error("Usage: delamain run-workflow <file> [--timeout-ms <ms>] [--max-agents <n>] [--budget-tokens <n>] [--repo <git-repo>] [--name <name>] [--detach]  |  delamain run-workflow --resume <workflow-id>");
+          throw new Error("Usage: delamain run-workflow <file> [--timeout-ms <ms>] [--max-agents <n>] [--budget-tokens <n>] [--repo <git-repo>] [--name <name>] [--args-json <json-object>] [--detach]  |  delamain run-workflow --resume <workflow-id>");
         }
         const timeoutMs = positiveFlag(args, "timeout-ms", "milliseconds");
         const maxAgents = positiveFlag(args, "max-agents", "leaves");
         const budgetTokens = positiveFlag(args, "budget-tokens", "tokens");
+        const workflowArgs = parseArgsJson(flagString(args, "args-json"));
         // Fail fast on a rejected script before persisting the run record; the
         // sandbox re-validates the same source at execution time.
         validateWorkflowSource(readFileSync(scriptPath, "utf8"), scriptPath);
@@ -215,6 +216,7 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
           maxAgents,
           budgetTokens,
           name: flagString(args, "name"),
+          args: workflowArgs,
         });
         spawnWorkflowRunner(run.id);
       }
@@ -437,6 +439,23 @@ function parseFlags(argv: string[]): Record<string, string | boolean> {
 function flagString(args: Record<string, string | boolean>, key: string): string | undefined {
   const value = args[key];
   return typeof value === "string" ? value : undefined;
+}
+
+// --args-json: a JSON object passed verbatim to the script as its `args` global
+// (persisted so --resume replays it identically). Anything but a JSON object is
+// rejected loudly — arrays/scalars/null are not a valid args payload.
+function parseArgsJson(raw: string | undefined): Record<string, unknown> | undefined {
+  if (raw === undefined) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`--args-json is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("--args-json must be a JSON object");
+  }
+  return parsed as Record<string, unknown>;
 }
 
 function bypassEnabled(args: Record<string, string | boolean>): boolean {

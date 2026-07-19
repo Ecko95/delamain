@@ -52,6 +52,8 @@ export type ExecuteScriptRequest = {
   startTimeMs: number;
   /** Total token budget the child mirrors via ctx.budget (null = uncapped). */
   budgetTotal: number | null;
+  /** Opaque object exposed to the script as the `args` global (undefined when absent). */
+  args?: Record<string, unknown>;
   /** Live token spend the executor stamps on each reply to the child. */
   getBudgetSpent: () => number;
   /** Loud degraded-mode / jail-status notices routed to the run log. */
@@ -247,6 +249,7 @@ export async function runWorkflowRun(
     seed: workflow.seed,
     startTimeMs: workflow.startTimeMs,
     budgetTotal: workflow.budgetTokens ?? null,
+    args: workflow.args,
     getBudgetSpent: () => controller.budgetSnapshot().spent,
     onWarning: (message) => log(message),
     onCall,
