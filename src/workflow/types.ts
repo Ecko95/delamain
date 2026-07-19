@@ -52,6 +52,15 @@ export type WorkflowAgentOpts = {
   piOptions?: WorkflowPiOptions;
   /** Codex-engine-only: opt-in bounded multi_agent for this leaf. */
   multiAgent?: WorkflowMultiAgent;
+  /** Create the leaf's worktree from this origin ref (defaults to origin default branch). */
+  startRef?: string;
+  /** Push/merge the leaf's changes to this origin branch on done (defaults to origin default branch). */
+  mergeBranch?: string;
+  /**
+   * true restores the legacy push-on-done leaf (automode goals); default/false
+   * keeps the ephemeral, push-free workflow leaf every other ctx.agent spawns.
+   */
+  integrate?: boolean;
 };
 
 /** Pi-engine-only options for ctx.agent (SP2). */
@@ -158,6 +167,11 @@ export type WorkflowRunConfig = {
   maxAgents?: number;
   /** Cumulative leaf-token budget (guard → halted). */
   budgetTokens?: number;
+  /**
+   * Opaque JSON object exposed to the script as the `args` global. Persisted on
+   * the run record so --resume replays the identical value (§14 determinism).
+   */
+  args?: Record<string, unknown>;
   status: WorkflowStatus;
   /** JSON-serializable value the script returned (status "done"). */
   result?: unknown;

@@ -21,6 +21,7 @@ type InitMessage = {
   seed: number;
   startTimeMs: number;
   budgetTotal: number | null;
+  args?: Record<string, unknown> | null;
 };
 
 type ParentReply =
@@ -222,6 +223,9 @@ async function runWorkflow(init: InitMessage): Promise<void> {
   const sandbox: Record<string, unknown> = Object.create(null);
   sandbox.ctx = ctx;
   sandbox.console = consoleShim;
+  // Slice D: the run's --args-json payload, frozen so the script can't mutate
+  // shared state; undefined when the run was launched without args.
+  sandbox.args = init.args == null ? undefined : Object.freeze(init.args);
   const context = vm.createContext(sandbox);
 
   vm.runInContext(

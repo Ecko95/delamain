@@ -129,7 +129,12 @@ export async function runAgentCall(
       piOptions: engine === "pi" ? opts.piOptions : undefined,
       codexConfig,
       disableHooks,
-      integrate: false,
+      // Rails (Slice D): a leaf can opt into standalone-automode semantics —
+      // start from startRef, push/merge to mergeBranch, integrate-ON push-on-
+      // done. Default false keeps every existing workflow leaf push-free.
+      startRef: opts.startRef,
+      mergeBranch: opts.mergeBranch,
+      integrate: opts.integrate ?? false,
     });
     lastPeer = spawned;
     deps.onAgentSpawned?.(spawned);

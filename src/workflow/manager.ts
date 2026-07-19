@@ -34,6 +34,8 @@ export type SpawnWorkflowRunOptions = {
   /** Cumulative leaf-token budget (termination guard). */
   budgetTokens?: number;
   name?: string;
+  /** Opaque JSON object exposed to the script as the `args` global. */
+  args?: Record<string, unknown>;
 };
 
 /** Persist a workflow_run record. No worktree, no process (dispatch is separate). */
@@ -62,6 +64,7 @@ export function spawnWorkflowRun(options: SpawnWorkflowRunOptions): PeerRecord {
       timeoutMs: options.timeoutMs,
       maxAgents: options.maxAgents,
       budgetTokens: options.budgetTokens,
+      ...(options.args !== undefined ? { args: options.args } : {}),
       status: "pending",
       agentPeerIds: [],
       // Parent-side nondeterminism is fine; the sandbox child only ever sees
