@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { ingestLine, mapEventToCommands, t3BridgeConfigFromEnv, type T3BridgeConfig } from "./t3Bridge.js";
+import { describe, expect, it, vi } from "vitest";
+import { ingestLine, mapEventToCommands, newDispatchState, t3BridgeConfigFromEnv, type T3BridgeConfig } from "./t3Bridge.js";
 
 function stubBridge() {
   const calls: Array<{ url: string; auth: string | null; body: any }> = [];
@@ -89,6 +89,42 @@ describe("ingestLine (stub fetch)", () => {
     expect(calls[0].auth).toBe("Bearer owner-tok");
     // all target the same deterministic thread
     expect(calls.every((c) => (c.body.threadId ?? c.body.threadId) === "thread-wf1")).toBe(true);
+  });
+
+  it("edge-triggers the failure log: one line per ok<->fail transition, naming type/commandId/reason", async () => {
+    let ok = false; // start failing
+    const fetchImpl = (async () => {
+      if (!ok) throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+      return { ok: true } as Response;
+    }) as unknown as typeof fetch;
+    const cfg: T3BridgeConfig = { baseUrl: "http://t3", token: "owner-tok", projectId: "p", fetchImpl };
+    const state = newDispatchState();
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const evt = (seq: number) => line({ workflowId: "wf1", seq, ts: "T", type: "agent_done", node: "leaf-1" });
+
+    // (a) repeated failing dispatches -> exactly one error log for the ok->fail edge
+    await ingestLine(cfg, evt(1), state);
+    await ingestLine(cfg, evt(2), state);
+    await ingestLine(cfg, evt(3), state);
+    expect(err).toHaveBeenCalledTimes(1);
+    expect(err.mock.calls[0][0]).toContain("thread.activity.append"); // command type
+    expect(err.mock.calls[0][0]).toContain("cmd-wf1-1"); // commandId
+    expect(err.mock.calls[0][0]).toContain("ECONNREFUSED"); // reason (network code)
+
+    // (b) a subsequent success logs the recovery transition (once)
+    ok = true;
+    await ingestLine(cfg, evt(4), state);
+    await ingestLine(cfg, evt(5), state);
+    expect(err).toHaveBeenCalledTimes(2);
+    expect(err.mock.calls[1][0]).toContain("recovered");
+
+    // (c) a later failure logs again
+    ok = false;
+    await ingestLine(cfg, evt(6), state);
+    expect(err).toHaveBeenCalledTimes(3);
+    expect(err.mock.calls[2][0]).toContain("failed");
+
+    err.mockRestore();
   });
 
   it("ignores blank/garbage lines without throwing", async () => {
