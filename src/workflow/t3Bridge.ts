@@ -71,7 +71,7 @@ export function mapEventToCommands(ev: Record<string, unknown>, cfg: T3BridgeCon
           modelSelection: { instanceId: cfg.instanceId ?? "delamain", model: "workflow" },
           interactionMode: "default",
           runtimeMode: "approval-required",
-          branch: null,
+          branch: `delamain/wf-${workflowId}`,
           worktreePath: null,
           createdAt: now,
         },

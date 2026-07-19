@@ -1,6 +1,7 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { killPeer, listPeers, peerStatus, readPeerLog, resumePeer, sendPeerMessage, spawnPeer } from "./peerManager.js";
+import { buildParsedLog } from "./parsedLog.js";
 import { refreshAllMergeStates, refreshMergeState } from "./mergeState.js";
 import { getPeer } from "./store.js";
 import { pidAlive } from "./processes.js";
@@ -9,7 +10,7 @@ import { readPeerInbox } from "./peerInbox.js";
 import { sweepPeers } from "./sweep.js";
 import { runWaitCommand, WAIT_USAGE } from "./wait.js";
 import { wavesView } from "./waves.js";
-import { listWorkflows, resumeWorkflowRun, spawnWorkflowRun, spawnWorkflowRunner, workflowEvents, workflowStatus } from "./workflow/manager.js";
+import { killWorkflowRun, listWorkflows, resumeWorkflowRun, spawnWorkflowRun, spawnWorkflowRunner, workflowEvents, workflowStatus } from "./workflow/manager.js";
 import { validateWorkflowSource } from "./workflow/sandbox.js";
 import { startT3Bridge, t3BridgeConfigFromEnv } from "./workflow/t3Bridge.js";
 import { TERMINAL_PEER_STATUSES } from "./types.js";
@@ -78,9 +79,16 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
     case "log": {
       const peerId = argv[0];
       if (!peerId) {
-        throw new Error("Usage: delamain log <peer-id> [lines]");
+        throw new Error("Usage: delamain log <peer-id> [lines] [--parsed]");
       }
-      console.log(readPeerLog(peerId, Number(argv[1]) || 120));
+      const lines = Number(argv[1]) || 120;
+      const raw = readPeerLog(peerId, lines);
+      if (argv.includes("--parsed")) {
+        const engine = peerStatus(peerId).engine ?? "codex";
+        console.log(JSON.stringify(buildParsedLog(peerId, engine, raw)));
+        return;
+      }
+      console.log(raw);
       return;
     }
     case "kill": {
@@ -255,9 +263,17 @@ export async function runCliCommand(command: string, argv: string[]): Promise<vo
       return;
     }
     case "workflow": {
+      if (argv[0] === "kill") {
+        const killId = argv[1];
+        if (!killId) {
+          throw new Error("Usage: delamain workflow kill <workflow-id>");
+        }
+        console.log(JSON.stringify(killWorkflowRun(killId), null, 2));
+        return;
+      }
       const workflowId = argv[0];
       if (!workflowId) {
-        throw new Error("Usage: delamain workflow <workflow-id> [--events [--since <seq>]]");
+        throw new Error("Usage: delamain workflow <workflow-id> [--events [--since <seq>]] | workflow kill <workflow-id>");
       }
       const wargs = parseFlags(argv.slice(1));
       if (wargs.events) {
@@ -476,7 +492,7 @@ Commands:
   list
   status <peer-id>
   merge-state [peer-id]          Refresh merged/closed state of pushed PRs via gh
-  log <peer-id> [lines]
+  log <peer-id> [lines] [--parsed]
   kill <peer-id> [SIGTERM|SIGKILL]
   wait <peer-id...> [--interval <seconds>] [--timeout <seconds>] [--any]
   run-workflow <file> [--timeout-ms <ms>] [--max-agents <n>] [--budget-tokens <n>] [--repo <git-repo>] [--name <name>] [--detach]
@@ -486,6 +502,7 @@ Commands:
   workflows                      List all workflow runs (id, status, agent/replay/token counts)
   workflow <workflow-id> [--events [--since <seq>]]
                                  Print a workflow run record, or its lifecycle event stream
+  workflow kill <workflow-id>    Stop a running workflow (SIGTERM runner + leaves, emit workflow_end)
   send --to <peer-id> --message <text> [--from <peer-id>] [--expect-reply] [--response-id <id>]
   inbox [<peer-id>] [--all]
   sweep [--dry-run] [--older-than <days>]  Archive stale terminal peers; mark dead-pid stale peers failed
