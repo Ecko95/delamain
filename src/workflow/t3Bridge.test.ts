@@ -33,7 +33,7 @@ describe("mapEventToCommands", () => {
     expect(create.projectId).toBe("proj-delamain");
     expect(create.title).toBe("demo");
     expect(create.runtimeMode).toBe("approval-required");
-    expect(create.branch).toBeNull();
+    expect(create.branch).toBe("delamain/wf-wf1");
     expect(create.modelSelection).toEqual({ instanceId: "delamain", model: "workflow" });
   });
 

@@ -16,9 +16,9 @@ import { fileURLToPath } from "node:url";
 import { killPeer, resumePeer, spawnPeer, waitForPeer } from "../peerManager.js";
 import { readPeerCost } from "../peerCost.js";
 import { peersHome, runsDir } from "../paths.js";
-import { pidAlive } from "../processes.js";
+import { killPid, pidAlive } from "../processes.js";
 import { getPeer, journalAgentCall, readAgentJournal, readState, readWorkflowEvents, updatePeer, upsertPeer } from "../store.js";
-import type { PeerRecord } from "../types.js";
+import { TERMINAL_PEER_STATUSES, type PeerRecord } from "../types.js";
 import { runWorkflowRun, type WorkflowEngineDeps } from "./engine.js";
 import { emitWorkflowEvent, type WorkflowEventType } from "./events.js";
 import { executeWorkflowScript } from "./sandbox.js";
@@ -173,6 +173,62 @@ export function workflowStatus(workflowId: string): PeerRecord {
     throw new Error(`Peer ${peer.id} is not a workflow_run (kind=${peer.kind ?? "generic"})`);
   }
   return peer;
+}
+
+export type WorkflowKillResult = { workflowId: string; status: string; peersKilled: string[] };
+
+/**
+ * Cockpit contract 2: stop a running workflow. Idempotent — an already-terminal
+ * workflow returns its current status and kills nothing. Otherwise: SIGTERM the
+ * detached runner, kill each still-live leaf agent peer, persist "killed", and
+ * emit a durable workflow_end so the T3 mirror closes the thread.
+ *
+ * deps are injected so the store transition + emitted event are testable without
+ * spawning real processes.
+ */
+export function killWorkflowRun(
+  workflowId: string,
+  deps: {
+    killPid?: (pid: number | undefined, signal?: NodeJS.Signals) => boolean;
+    killPeer?: (peerId: string, signal?: NodeJS.Signals) => unknown;
+    emit?: (workflowId: string, type: WorkflowEventType, payload: Record<string, unknown>) => void;
+  } = {},
+): WorkflowKillResult {
+  const kPid = deps.killPid ?? killPid;
+  const kPeer = deps.killPeer ?? killPeer;
+  const emit = deps.emit ?? emitWorkflowEvent;
+
+  const peer = workflowStatus(workflowId);
+  if (TERMINAL_PEER_STATUSES.has(peer.status)) {
+    return { workflowId: peer.id, status: peer.status, peersKilled: [] };
+  }
+
+  // SIGTERM the runner if it's still alive.
+  if (peer.runnerPid && pidAlive(peer.runnerPid)) {
+    kPid(peer.runnerPid, "SIGTERM");
+  }
+
+  // Kill still-live leaf agent peers spawned by this run.
+  const peersKilled: string[] = [];
+  for (const agentId of peer.workflow?.agentPeerIds ?? []) {
+    const agent = getPeer(agentId);
+    if (!agent || TERMINAL_PEER_STATUSES.has(agent.status)) continue;
+    kPeer(agent.id, "SIGTERM");
+    peersKilled.push(agent.id);
+  }
+
+  updatePeer(peer.id, (current) => ({
+    ...current,
+    status: "killed",
+    finishedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    lastEvent: "workflow killed",
+    workflow: current.workflow ? { ...current.workflow, status: "halted" } : current.workflow,
+  }));
+
+  emit(peer.id, "workflow_end", { status: "killed", peersKilled });
+
+  return { workflowId: peer.id, status: "killed", peersKilled };
 }
 
 /** Child entrypoint for `delamain run-workflow-runner --workflow-id <id>`. */
