@@ -1,6 +1,6 @@
 # Claude Code Installation Guide
 
-This guide installs `codex-mcp-peers-server` as an MCP server available inside **Claude Code** sessions, and installs the bundled `codex-peers-autopilot` Claude Code skill that lets Claude drive multi-slice Codex peer chains autonomously.
+This guide installs **Delamain** as an MCP server available inside **Claude Code** sessions, and installs the bundled `codex-peers-autopilot` Claude Code skill that lets Claude drive multi-slice Codex peer chains autonomously.
 
 ---
 
@@ -19,8 +19,8 @@ This guide installs `codex-mcp-peers-server` as an MCP server available inside *
 ## Step 1 — Clone and build
 
 ```bash
-git clone https://github.com/<your-org>/codex-mcp-peers-server.git ~/dev/codex-mcp-peers-server
-cd ~/dev/codex-mcp-peers-server
+git clone https://github.com/Ecko95/delamain.git ~/dev/delamain
+cd ~/dev/delamain
 npm install
 npm run build
 ```
@@ -32,31 +32,31 @@ npm run build
 Codex peers run headlessly (from cron or MCP). They need their own `CODEX_HOME` so they can always find credentials, independent of how the process was started.
 
 ```bash
-CODEX_HOME=~/.codex-peers/peer-codex-home codex login
+CODEX_HOME=~/.delamain/peer-codex-home codex login
 ```
 
-This writes `~/.codex-peers/peer-codex-home/auth.json`. Every peer spawned by `codex-mcp-peers-server` forwards this path automatically.
+This writes `~/.delamain/peer-codex-home/auth.json`. Every peer spawned by Delamain forwards this path automatically.
 
 ---
 
 ## Step 3 — Register the MCP server with Codex
 
-`codex-peers` tools (`spawn_peer`, `list_peers`, etc.) must be available inside Codex sessions. Register them once:
+Delamain tools (`spawn_peer`, `list_peers`, etc.) must be available inside Codex sessions. Register them once:
 
 ```bash
-codex mcp add codex-peers -- node ~/dev/codex-mcp-peers-server/dist/index.js server
+codex mcp add delamain -- node ~/dev/delamain/dist/index.js server
 ```
 
 Verify:
 
 ```bash
-codex mcp list   # should show codex-peers
+codex mcp list   # should show delamain
 ```
 
 After pulling updates, one command rebuilds and re-registers:
 
 ```bash
-cd ~/dev/codex-mcp-peers-server && npm run mcp:restart
+cd ~/dev/delamain && npm run mcp:restart
 ```
 
 ---
@@ -77,13 +77,13 @@ Restart Claude Code. Run `/mcp` or `claude mcp list` — you should see:
 
 ```
 codex:       codex mcp-server                                          ✓ Connected
-codex-peers: node /…/codex-mcp-peers-server/dist/index.js server      ✓ Connected
+delamain:    node /…/delamain/dist/index.js server                    ✓ Connected
 ```
 
 > **Alternative (direct registration):** If you prefer not to use the Codex plugin, register the server directly with Claude Code at user scope:
 >
 > ```bash
-> claude mcp add --scope user codex-peers -- node ~/dev/codex-mcp-peers-server/dist/index.js server
+> claude mcp add --scope user delamain -- node ~/dev/delamain/dist/index.js server
 > ```
 
 ---
@@ -94,7 +94,7 @@ The `claude-skill/` directory in this repo is a ready-to-install Claude Code ski
 
 ```bash
 mkdir -p ~/.claude/skills
-cp -r ~/dev/codex-mcp-peers-server/claude-skill ~/.claude/skills/codex-peers-autopilot
+cp -r ~/dev/delamain/claude-skill ~/.claude/skills/codex-peers-autopilot
 ```
 
 The skill is now available in every Claude Code session. Invoke it by typing:
@@ -130,7 +130,7 @@ trust_level = "trusted"
 Add a live peer summary to your tmux status bar:
 
 ```tmux
-set -g status-right '#(node ~/dev/codex-mcp-peers-server/dist/index.js tmux-status)'
+set -g status-right '#(node ~/dev/delamain/dist/index.js tmux-status)'
 ```
 
 ---
@@ -139,16 +139,16 @@ set -g status-right '#(node ~/dev/codex-mcp-peers-server/dist/index.js tmux-stat
 
 ```bash
 # 1. MCP server responds
-node ~/dev/codex-mcp-peers-server/dist/index.js server --help
+node ~/dev/delamain/dist/index.js help
 
 # 2. Claude Code sees the tools
-claude mcp list | grep codex-peers
+claude mcp list | grep delamain
 
 # 3. Skill is importable
 ls ~/.claude/skills/codex-peers-autopilot/SKILL.md
 
 # 4. Peer auth works
-CODEX_HOME=~/.codex-peers/peer-codex-home codex --version
+CODEX_HOME=~/.delamain/peer-codex-home codex --version
 ```
 
 ---
@@ -156,7 +156,7 @@ CODEX_HOME=~/.codex-peers/peer-codex-home codex --version
 ## Updating
 
 ```bash
-cd ~/dev/codex-mcp-peers-server
+cd ~/dev/delamain
 git pull
 npm run mcp:restart        # rebuilds + re-registers with Codex
 cp -r claude-skill ~/.claude/skills/codex-peers-autopilot   # update skill
