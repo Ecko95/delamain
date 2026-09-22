@@ -25,7 +25,9 @@ fi
 
 if command -v bun >/dev/null 2>&1; then
   echo "[delamain] smoke testing Bun dashboard runtime"
-  DELAMAIN_DASHBOARD_SMOKE=1 node "$ENTRY" --d >/dev/null
+  if ! CODEX_PEERS_DASHBOARD_SMOKE=1 node "$ENTRY" --d >/dev/null; then
+    echo "[delamain] dashboard smoke failed; MCP server remains registered" >&2
+  fi
 else
   echo "[delamain] bun not found; MCP server is registered, dashboard will need Bun installed"
 fi
