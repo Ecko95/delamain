@@ -76,7 +76,7 @@ export const TOOLS = [
         model: {
           type: "string",
           description:
-            "Optional model override. For codex: any Codex model id. For cursor: composer-2-fast (default), sonnet, opus, gpt/codex, grok, gemini, or any cursor-agent model id.",
+            "Optional model override. For codex: any Codex model id (e.g. gpt-6-sol for coding/agentic work, gpt-6-astra for the hardest tasks, gpt-6-luna for cheap leaves). For cursor: composer-2-fast (default), sonnet, opus, gpt/codex, grok, gemini, or any cursor-agent model id.",
         },
         sandbox: {
           type: "string",
