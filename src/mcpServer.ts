@@ -48,7 +48,7 @@ const SIZING_SCHEMA_PROPS = {
 
 // Codex peer tuning knobs (reasoning_effort, developer_instructions, codex_config).
 // Declared before TOOLS since its schema literals reference them at module load.
-export const REASONING_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const;
+export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
 type ReasoningEffortValue = (typeof REASONING_EFFORTS)[number];
 
 export const DEVELOPER_INSTRUCTIONS_MAX = 32_768; // codex's own project_doc default bound
@@ -117,7 +117,7 @@ export const TOOLS = [
           type: "string",
           enum: REASONING_EFFORTS,
           description:
-            "Codex engine only. Overrides Codex's model_reasoning_effort for any model (including gpt-5.5). Omit to keep today's default (high, except gpt-5.5).",
+            "Codex engine only. Overrides Codex's model_reasoning_effort for any model (including gpt-5.5 and gpt-6-*). Omit to keep today's default (high, except gpt-5.5 and gpt-6-*, which use their own default).",
         },
         developer_instructions: {
           type: "string",
@@ -376,7 +376,7 @@ export const TOOLS = [
         reasoning_effort: {
           type: "string",
           enum: REASONING_EFFORTS,
-          description: "Overrides Codex's model_reasoning_effort for any model. Omit to keep today's default (high, except gpt-5.5). See spawn_peer.",
+          description: "Overrides Codex's model_reasoning_effort for any model. Omit to keep today's default (high, except gpt-5.5 and gpt-6-*). See spawn_peer.",
         },
       },
       required: ["repo_url", "planning_mode", "selected_phases"],

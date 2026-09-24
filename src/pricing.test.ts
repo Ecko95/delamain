@@ -16,7 +16,7 @@ describe("priceFor", () => {
   });
 
   it("prices gpt-5.6-terra at official Terra tier rates", () => {
-    expect(priceFor("gpt-5.6-terra")).toEqual({ inputPerM: 2.5, cachedPerM: 0.25, outputPerM: 15 });
+    expect(priceFor("gpt-5.6-terra")).toEqual({ inputPerM: 2, cachedPerM: 0.2, outputPerM: 12 });
   });
 
   it("resolves an existing exact match", () => {

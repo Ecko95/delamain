@@ -15,6 +15,10 @@ import { buildRunnerArgv } from "../dist/peerManager.js";
 test("reasoningEffortArgs: absent effort preserves legacy default (high unless gpt-5.5)", () => {
   assert.deepEqual(reasoningEffortArgs("gpt-5", undefined), ["-c", 'model_reasoning_effort="high"']);
   assert.deepEqual(reasoningEffortArgs("gpt-5.5", undefined), []);
+  assert.deepEqual(reasoningEffortArgs("gpt-6-astra", undefined), []);
+  assert.deepEqual(reasoningEffortArgs("gpt-6-sol", undefined), []);
+  assert.deepEqual(reasoningEffortArgs("gpt-6-luna", undefined), []);
+  assert.deepEqual(reasoningEffortArgs("gpt-6-sol", "max"), ["-c", 'model_reasoning_effort="max"']);
   assert.deepEqual(reasoningEffortArgs(undefined, undefined), []);
 });
 
