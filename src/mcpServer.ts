@@ -48,7 +48,7 @@ const SIZING_SCHEMA_PROPS = {
 
 // Codex peer tuning knobs (reasoning_effort, developer_instructions, codex_config).
 // Declared before TOOLS since its schema literals reference them at module load.
-export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
 type ReasoningEffortValue = (typeof REASONING_EFFORTS)[number];
 
 export const DEVELOPER_INSTRUCTIONS_MAX = 32_768; // codex's own project_doc default bound

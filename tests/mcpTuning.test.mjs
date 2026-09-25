@@ -23,7 +23,7 @@ test("reasoningEffortValue: absent is undefined", () => {
 });
 
 test("reasoningEffortValue: accepts all enum values, both snake_case and camelCase keys", () => {
-  for (const v of ["none", "minimal", "low", "medium", "high", "xhigh", "max"]) {
+  for (const v of ["none", "minimal", "low", "medium", "high", "xhigh"]) {
     assert.equal(reasoningEffortValue({ reasoning_effort: v }), v);
     assert.equal(reasoningEffortValue({ reasoningEffort: v }), v);
   }

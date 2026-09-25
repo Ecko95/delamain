@@ -39,7 +39,7 @@ export type PeerKind = "generic" | "gsd_phase_batch" | "workflow_run";
 
 export type PeerEngine = "codex" | "cursor" | "pi";
 
-export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export type CursorRunOptions = {
 	cloud?: boolean;

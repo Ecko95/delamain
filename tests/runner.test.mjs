@@ -18,7 +18,6 @@ test("reasoningEffortArgs: absent effort preserves legacy default (high unless g
   assert.deepEqual(reasoningEffortArgs("gpt-6-astra", undefined), []);
   assert.deepEqual(reasoningEffortArgs("gpt-6-sol", undefined), []);
   assert.deepEqual(reasoningEffortArgs("gpt-6-luna", undefined), []);
-  assert.deepEqual(reasoningEffortArgs("gpt-6-sol", "max"), ["-c", 'model_reasoning_effort="max"']);
   assert.deepEqual(reasoningEffortArgs(undefined, undefined), []);
 });
 
