@@ -420,6 +420,10 @@ export const TOOLS = [
         max_agents: { type: "number", description: "Hard cap on total leaf agents spawned over the run; exceeding it halts the run." },
         budget_tokens: { type: "number", description: "Cumulative leaf-token budget; exhausting it halts the run." },
         name: { type: "string", description: "Optional display name for the workflow run." },
+        args: {
+          type: "object",
+          description: "Optional JSON object exposed to the script as the `args` global (same as the CLI's --args-json). Persisted on the run so --resume replays the identical value.",
+        },
         resume: { type: "string", description: "Resume an existing workflow id: replay its journaled agent prefix and run only the remainder live (ignores script/script_path)." },
       },
     },
@@ -702,6 +706,10 @@ export async function callTool(name: unknown, rawArgs: unknown): Promise<unknown
       } else {
         validateWorkflowSource(readFileSync(scriptPath as string, "utf8"), scriptPath);
       }
+      const workflowArgs = args.args;
+      if (workflowArgs !== undefined && (workflowArgs === null || typeof workflowArgs !== "object" || Array.isArray(workflowArgs))) {
+        throw new Error("run_workflow 'args' must be a JSON object");
+      }
       const run = spawnWorkflowRun({
         repo: optionalString(args, "repo") ?? process.cwd(),
         scriptPath: scriptPath as string,
@@ -709,6 +717,7 @@ export async function callTool(name: unknown, rawArgs: unknown): Promise<unknown
         maxAgents: optionalNumber(args, "max_agents") ?? optionalNumber(args, "maxAgents"),
         budgetTokens: optionalNumber(args, "budget_tokens") ?? optionalNumber(args, "budgetTokens"),
         name: optionalString(args, "name"),
+        args: workflowArgs as Record<string, unknown> | undefined,
       });
       spawnWorkflowRunner(run.id);
       return json({ workflow_id: run.id, status: run.status, workflow: run.workflow });

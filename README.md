@@ -235,6 +235,23 @@ When a peer exits successfully, the runner integrates that worktree by:
 If the merge or push fails, the peer is marked `failed` and its linked worktree
 is left in place for inspection.
 
+### Orchestrating a roadmap (branch per slice)
+
+`workflows/gsd-slices.ts` runs an OpenGSD roadmap — or any slice plan — as
+parallel leaves, one worktree, branch, and PR per slice, with dependency waves,
+an optional adversarial jury, and a `finalize` stage that reconciles
+`.planning/` after the PRs merge. The Codex skill in
+`.codex/skills/delamain-orchestrate/` walks an orchestrator through writing the
+plan file, confirming guards, launching, and integrating:
+
+```bash
+delamain run-workflow workflows/gsd-slices.ts --repo /path/to/repo \
+  --name "roadmap-m1" --args-json "$(cat .delamain/orchestrate/roadmap-m1.plan.json)" \
+  --max-agents 8 --budget-tokens 2000000 --timeout-ms 2700000 --detach
+```
+
+Plan schema and an example live in the skill's `references/` and `templates/`.
+
 ## Peer-to-peer messaging
 
 Peers exchange freeform prose through a per-peer inbox stored on each
