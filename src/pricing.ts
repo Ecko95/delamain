@@ -4,17 +4,23 @@ export type ModelPricing = {
   outputPerM: number;  // USD per 1M output tokens
 };
 
-export const PRICING_VERSION = "2026-07-13";
+export const PRICING_VERSION = "2026-09-24";
 export const PRICING_NOTE =
-  "Notional GPT-5-class API-equivalent rates for subscription-billed codex peers. Update deliberately; dollars here are comparative, not invoiced.";
+  "Notional GPT-5/GPT-6-class API-equivalent rates for subscription-billed codex peers. Update deliberately; dollars here are comparative, not invoiced.";
 
 const TABLE: Record<string, ModelPricing> = {
-  "gpt-5.5": { inputPerM: 1.25, cachedPerM: 0.125, outputPerM: 10 },
-  "gpt-5.4": { inputPerM: 1.25, cachedPerM: 0.125, outputPerM: 10 },
+  // GPT-6 family at official OpenAI standard (short-context) API rates.
+  "gpt-6-astra": { inputPerM: 10, cachedPerM: 1, outputPerM: 50 },
+  "gpt-6-sol": { inputPerM: 2, cachedPerM: 0.2, outputPerM: 10 },
+  "gpt-6-luna": { inputPerM: 0.1, cachedPerM: 0.01, outputPerM: 0.5 },
+  "gpt-5.6-sol": { inputPerM: 4, cachedPerM: 0.4, outputPerM: 20 },
+  "gpt-5.6-luna": { inputPerM: 0.2, cachedPerM: 0.02, outputPerM: 1.2 },
+  "gpt-5.5": { inputPerM: 5, cachedPerM: 0.5, outputPerM: 30 },
+  "gpt-5.4": { inputPerM: 2.5, cachedPerM: 0.25, outputPerM: 15 },
   "gpt-5.4-mini": { inputPerM: 0.25, cachedPerM: 0.025, outputPerM: 2 },
   // Covers -spark/-fast/-high variants via prefix match; spark runs at base gpt-5.3-codex API rates.
   "gpt-5.3-codex": { inputPerM: 1.75, cachedPerM: 0.175, outputPerM: 14 },
-  "gpt-5.6-terra": { inputPerM: 2.5, cachedPerM: 0.25, outputPerM: 15 },
+  "gpt-5.6-terra": { inputPerM: 2, cachedPerM: 0.2, outputPerM: 12 },
 };
 
 // Longest-first so "gpt-5.4-mini-high" prefix-matches "gpt-5.4-mini", not "gpt-5.4".

@@ -3,6 +3,7 @@ import type { CodexUsage } from "../codexUsage.js";
 import type { CodexContextLevel } from "../codexContext.js";
 import { formatLogEvent, parseLogChunk, type LogEvent } from "./logEvents.js";
 import { defaultTheme, type Theme } from "./theme.js";
+import { usesOwnReasoningDefault } from "../modelDefaults.js";
 
 export type DashboardStatus = PeerStatus | "cleanup";
 export type WorktreeRisk = "shared-checkout" | "shared-branch";
@@ -570,7 +571,7 @@ function integrationLabel(peer: PeerRecord): string {
 
 function modelWithEffort(model?: string): string {
   const m = model || "default";
-  const effort = model && model !== "gpt-5.5" ? "high" : "default";
+  const effort = usesOwnReasoningDefault(model) ? "default" : "high";
   return `${m}  effort:${effort}`;
 }
 

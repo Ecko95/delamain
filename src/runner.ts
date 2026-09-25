@@ -11,6 +11,7 @@ import { pushPeerBranch } from "./git.js";
 import { deliverPending } from "./peerManager.js";
 import { initialTerminalResponseState, updateTerminalResponseState } from "./lifecycle.js";
 import { updatePeer } from "./store.js";
+import { usesOwnReasoningDefault } from "./modelDefaults.js";
 
 type RunnerArgs = {
   peerId: string;
@@ -324,14 +325,14 @@ export async function runPeer(argv: string[]): Promise<void> {
  * Shared `-c model_reasoning_effort=...` logic for both the long-running peer
  * runner (this file) and the one-shot GSD phase runner (gsdRunner.ts).
  * Explicit `effort` wins for any model; absent `effort` preserves the legacy
- * default (`high` unless model is gpt-5.5, which already reasons well at
- * its own default).
+ * default (`high` unless the model reasons well at its own default — gpt-5.5
+ * and the GPT-6 family; see usesOwnReasoningDefault).
  */
 export function reasoningEffortArgs(model: string | undefined, effort: string | undefined): string[] {
   if (effort) {
     return ["-c", `model_reasoning_effort="${effort}"`];
   }
-  if (model && model !== "gpt-5.5") {
+  if (!usesOwnReasoningDefault(model)) {
     return ["-c", 'model_reasoning_effort="high"'];
   }
   return [];

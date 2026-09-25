@@ -9,8 +9,14 @@ describe("priceFor", () => {
     expect(priceFor("gpt-5.3-codex-high")).toEqual(priceFor("gpt-5.3-codex-spark"));
   });
 
+  it("prices the gpt-6 family at official API rates", () => {
+    expect(priceFor("gpt-6-astra")).toEqual({ inputPerM: 10, cachedPerM: 1, outputPerM: 50 });
+    expect(priceFor("gpt-6-sol")).toEqual({ inputPerM: 2, cachedPerM: 0.2, outputPerM: 10 });
+    expect(priceFor("gpt-6-luna")).toEqual({ inputPerM: 0.1, cachedPerM: 0.01, outputPerM: 0.5 });
+  });
+
   it("prices gpt-5.6-terra at official Terra tier rates", () => {
-    expect(priceFor("gpt-5.6-terra")).toEqual({ inputPerM: 2.5, cachedPerM: 0.25, outputPerM: 15 });
+    expect(priceFor("gpt-5.6-terra")).toEqual({ inputPerM: 2, cachedPerM: 0.2, outputPerM: 12 });
   });
 
   it("resolves an existing exact match", () => {
