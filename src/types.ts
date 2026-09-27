@@ -39,7 +39,9 @@ export type PeerKind = "generic" | "gsd_phase_batch" | "workflow_run";
 
 export type PeerEngine = "codex" | "cursor" | "pi";
 
-export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+/** Single source of truth for reasoning_effort; the MCP boundary validates against it. */
+export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 export type CursorRunOptions = {
 	cloud?: boolean;

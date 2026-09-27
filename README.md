@@ -161,7 +161,7 @@ delamain spawn --repo /path/to/repo --prompt "Review the auth routes and report 
 Choose a Codex model for a peer from the CLI or MCP tool call:
 
 ```bash
-delamain spawn --repo /path/to/repo --prompt "Fix the failing test." --model gpt-5.4
+delamain spawn --repo /path/to/repo --prompt "Fix the failing test." --model gpt-6-sol
 ```
 
 The MCP `spawn_peer`, `spawn_peer_and_wait`, and `send_peer_reply` tools also

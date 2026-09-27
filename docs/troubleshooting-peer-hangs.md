@@ -10,14 +10,14 @@ A spawned peer produces `{"type":"turn.started"}` in its log and then emits no f
 
 **What happens.** When a user has `model_reasoning_effort = "xhigh"` set in `~/.codex/config.toml`, every spawned peer inherits it. This puts the model into extended deep-reasoning mode — even a modest codebase prompt can take 30–60+ minutes before the first output token is emitted. The peer is not stuck; it is thinking, but too slowly to be useful.
 
-**Fixed in `src/runner.ts` and `src/gsdRunner.ts` (commit `fix/peer-codex-config-inheritance`).** The spawn now injects `-c model_reasoning_effort="high"` for any model other than `gpt-5.5`. `gpt-5.5` retains the user's configured effort level because it is the primary interactive model and the user may intentionally want `xhigh` there. All other models (e.g. `gpt-5.4`) are capped at `high`, which keeps peers responsive while still using strong reasoning.
+**Fixed in `src/runner.ts` and `src/gsdRunner.ts` (commit `fix/peer-codex-config-inheritance`).** The spawn now injects `-c model_reasoning_effort="high"` for any model outside the families listed in `src/modelDefaults.ts` (`usesOwnReasoningDefault`): `gpt-5.5` and `gpt-6-*` keep the user's configured effort because they reason well at their own default and the user may intentionally want `xhigh` there. All other models (e.g. `gpt-5.4`, `gpt-5.6-*`) are capped at `high`, which keeps peers responsive while still using strong reasoning. An explicit `reasoning_effort` on the spawn call overrides this for any model, and the dashboard's model row shows the effort that was actually applied.
 
 ```
-// What is now injected at spawn time for non-gpt-5.5 models:
+// What is now injected at spawn time for models outside the gpt-5.5 / gpt-6 families:
 -c model_reasoning_effort="high"
 ```
 
-**If you still see slow peers on `gpt-5.5`.** Either switch to `gpt-5.4` for background peer work, or set `model_reasoning_effort = "high"` globally in your `config.toml` for the duration of an autopilot run.
+**If you still see slow peers on `gpt-5.5` or `gpt-6-*`.** Pass `reasoning_effort: "high"` on the spawn, switch to a capped model for background peer work, or set `model_reasoning_effort = "high"` globally in your `config.toml` for the duration of an autopilot run.
 
 ---
 

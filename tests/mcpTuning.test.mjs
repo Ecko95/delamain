@@ -8,6 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  REASONING_EFFORTS,
   reasoningEffortValue,
   developerInstructionsValue,
   codexConfigValue,
@@ -22,8 +23,9 @@ test("reasoningEffortValue: absent is undefined", () => {
   assert.equal(reasoningEffortValue({}), undefined);
 });
 
-test("reasoningEffortValue: accepts all five enum values, both snake_case and camelCase keys", () => {
-  for (const v of ["minimal", "low", "medium", "high", "xhigh"]) {
+test("reasoningEffortValue: accepts all enum values, both snake_case and camelCase keys", () => {
+  assert.deepEqual([...REASONING_EFFORTS], ["none", "minimal", "low", "medium", "high", "xhigh"]);
+  for (const v of REASONING_EFFORTS) {
     assert.equal(reasoningEffortValue({ reasoning_effort: v }), v);
     assert.equal(reasoningEffortValue({ reasoningEffort: v }), v);
   }

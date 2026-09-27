@@ -26,10 +26,10 @@ describe("parseSessionTotals", () => {
 
 describe("costUsd", () => {
   it("prices uncached input, cached input, and output separately", () => {
-    // gpt-5.5 assumed rates: 1.25/M in, 0.125/M cached, 10/M out
+    // gpt-5.5 rates: 5/M in, 0.5/M cached, 30/M out
     const usd = costUsd({ input: 1_000_000 + 400_000, cached: 400_000, output: 100_000 }, "gpt-5.5");
-    // (1.0M uncached * 1.25) + (0.4M * 0.125) + (0.1M * 10) = 1.25 + 0.05 + 1.0
-    expect(usd).toBeCloseTo(2.3, 5);
+    // (1.0M uncached * 5) + (0.4M * 0.5) + (0.1M * 30) = 5 + 0.2 + 3
+    expect(usd).toBeCloseTo(8.2, 5);
   });
 
   it("falls back to default pricing for unknown models", () => {
