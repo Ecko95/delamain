@@ -31,7 +31,7 @@ Collect these before writing anything (ask only for what is not already explicit
 3. **Merge branch**: bare origin branch name every PR targets (default: origin default branch).
 4. **Start ref**: where wave-0 worktrees start (default `origin/<mergeBranch>`).
 5. **Engine/model** default for slices (e.g. `codex` + `gpt-6-sol`).
-6. **Concurrency**: max leaves alive at once (default 4; delamain peers are heavyweight).
+6. **Concurrency**: max leaves alive at once (default 4; delamain peers are heavyweight). This is not a `run-workflow` flag: it is the `DELAMAIN_MAX_AGENTS` environment variable of the process that launches the run (engine default 16).
 7. **Verification jury**: 0 (default) or 3 jurors with lenses.
 
 ## Step 1 — Inspect the roadmap
@@ -82,11 +82,14 @@ Guard formula: `max-agents = slices × (1 + jurors) + 2`; `budget-tokens ≈ 400
 ## Step 5 — Launch
 
 ```bash
+DELAMAIN_MAX_AGENTS=<max concurrent leaves> \
 delamain run-workflow <repo>/.delamain/orchestrate/<slug>.workflow.ts \
   --repo <repo> --name "<plan name>" \
   --args-json "$(cat <repo>/.delamain/orchestrate/<slug>.plan.json)" \
   --max-agents <n> --budget-tokens <n> --timeout-ms <ms> --detach
 ```
+
+(`--max-agents` is the hard cap on leaves spawned over the whole run; `DELAMAIN_MAX_AGENTS` is how many run at once. Via MCP, the server process's environment decides the latter.)
 
 Or via MCP: `run_workflow({ script_path, repo, name, args: <plan object>, max_agents, budget_tokens, timeout_ms })` — `args` is the plan object itself (not a string). Record the returned `workflow_id` in the plan file under `"runs"` (append `{ "stage": "implement", "workflow_id": "...", "startedAt": "<from workflow_status>" }`).
 
@@ -94,7 +97,9 @@ Or via MCP: `run_workflow({ script_path, repo, name, args: <plan object>, max_ag
 
 - `workflow_status({ workflow_id })` for status/result; `workflow_events({ workflow_id, since })` or `delamain workflow <id> --events` for the live stream (`phase_start`, `agent_spawn`, `agent_done`, `agent_failed`, `workflow_end`).
 - A leaf that ends `waiting` fails the slice (workflows are non-interactive). Re-run that slice alone with a tighter prompt rather than resuming the peer.
-- `halted` means a guard tripped (timeout / max-agents / budget). Inspect the events, raise the guard, and `delamain run-workflow --resume <workflow_id>` — finished leaves replay from the journal, only unfinished ones re-run.
+- `halted` means a guard tripped (timeout / max-agents / budget). Read the events to see which slices finished. Two ways forward:
+  - `delamain run-workflow --resume <workflow_id>` keeps the run's guards exactly as they were (resume accepts no new `--max-agents/--budget-tokens/--timeout-ms`; they are fixed on the run record) and replays the journal **prefix**: leaves are replayed in issue order up to the first one that never finished, and every leaf after that point re-runs live, including ones that already landed. Use it only when the halt hit the *last* slices of a wave.
+  - Otherwise write a new plan containing only the slices that did not land (keep their ids) and launch it as a fresh run with bigger guards. Landed slices already have their branches and are not touched.
 - `delamain workflow kill <id>` stops the runner and every leaf.
 
 Do not poll in a tight loop; check when the user asks or roughly every 10–15 minutes of expected leaf time.
@@ -104,8 +109,8 @@ Do not poll in a tight loop; check when the user asks or roughly every 10–15 m
 When the run is `done`, the result (`workflow_status` → `workflow.result`) has `slices[]` with each slice's `status`, `landed`, `branch` (`codex-peer/<peerId>`), `summary`, `verification`, `residualRisk`, and `verified` (jury verdict, if enabled), plus a ready-made `landed[]` — the slices that are done, actually committed files, and survived the jury. Only those get PRs:
 
 1. Find each slice's peer id. Peer ids are in `workflow.agentPeerIds` (MCP `workflow_status`) or the `delamain workflow <id>` record; the leaf's display name is `wave-<n>:<id> · <title>` (the engine prefixes the wave phase), so match on that in `delamain list` / `peer_status`.
-2. `integrate_peer({ peer_id })` → opens the PR into `<mergeBranch>` with auto-merge enabled.
-3. Merge in wave order; a dependent slice's PR must merge after its upstream's.
+2. `integrate_peer({ peer_id })` → opens the PR into `<mergeBranch>` **with auto-merge enabled**, so calling it is the merge decision.
+3. Because of that, integrate strictly in wave order: call `integrate_peer` for a dependent slice only after its upstream's PR has actually merged (`delamain merge-state <peer_id>` or the PR page). A dependent branch contains its upstream's commits; integrating both at once lets the dependent auto-merge first and leaves the upstream PR empty or conflicting.
 
 A slice can be `done` with `landed: false` — the leaf committed nothing, so delamain skipped the push and there is no branch; the workflow downgrades it to `blocked`. Report every `blocked`, `failed`, `skipped`, or jury-refuted slice (including `verified.jurors: 0`, which means nobody voted, not approval) to the user with the leaf's summary/error and propose a re-run plan for just those slices (a new plan file with only them; unchanged slices are not re-run). Never open a PR for a slice outside `landed[]` without the user's say-so.
 
@@ -116,7 +121,7 @@ After the slice PRs have merged, run the same workflow file once more with `"sta
 ```bash
 jq '. + {stage: "finalize", landed: <landed from result>}' <slug>.plan.json > <slug>.finalize.json
 delamain run-workflow <slug>.workflow.ts --repo <repo> --name "<plan name> · finalize" \
-  --args-json "$(cat <slug>.finalize.json)" --max-agents 2 --timeout-ms 1800000 --detach
+  --args-json "$(cat <slug>.finalize.json)" --max-agents 2 --budget-tokens 400000 --timeout-ms 1800000 --detach
 ```
 
 One leaf updates STATE.md and the phase SUMMARYs and pushes a branch; `integrate_peer` it like any other. The finalize leaf always starts from `origin/<mergeBranch>` (a pinned implement `startRef` is ignored) because it must see the merged PRs. Skip this stage in goal mode (no `.planning/`).

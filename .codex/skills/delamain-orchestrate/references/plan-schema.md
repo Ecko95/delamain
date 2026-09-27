@@ -6,7 +6,7 @@ The plan is passed verbatim as `--args-json` and becomes the `args` global insid
 
 | Field | Type | Required | Meaning |
 |---|---|---|---|
-| `name` | string | yes | Run name; becomes the workflow `--name` and each leaf label prefix. |
+| `name` | string | yes | Run name; becomes the workflow `--name` (and the finalize leaf's label). Slice leaves are not prefixed with it. |
 | `mergeBranch` | string | yes | Bare origin branch every slice PR targets (`main`, not `origin/main`). |
 | `startRef` | string | no | Origin ref wave-0 worktrees start from. Default `origin/<mergeBranch>`. Ignored by the `finalize` stage, which always starts from `origin/<mergeBranch>`. |
 | `slices` | Slice[] | yes | The work. Non-empty. |
@@ -22,7 +22,7 @@ The plan is passed verbatim as `--args-json` and becomes the `args` global insid
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `id` | string | yes | Unique, short (`P03`, `auth-middleware`). Used in labels and dependency references. |
-| `title` | string | yes | One line; the leaf's display name is `<id> · <title>`. |
+| `title` | string | yes | One line. The leaf's display name (in `delamain list` / `peer_status`) is `wave-<n>:<id> · <title>` — the engine prefixes the wave phase. |
 | `phase` | string | no | OpenGSD phase id when derived from `.planning/`. |
 | `prompt` | string | yes | What to build, in plain words. Not how. |
 | `planPaths` | string[] | no | Repo-relative paths to PLAN.md / frozen contract. Must be committed on the start ref. |
@@ -58,7 +58,8 @@ The plan is passed verbatim as `--args-json` and becomes the `args` global insid
 ```
 
 - `slices[]` is in plan order (not completion order).
-- `landed` (per slice) is true only when the leaf reported `done` **and** committed at least one file — delamain skips the push when nothing is ahead of `origin/<mergeBranch>`, so a no-change "done" has no branch and is downgraded to `blocked`.
+- `landed` (per slice) is true only when the leaf reported `done`, committed at least one file, **and** reported a `branch` of the form `codex-peer/<peerId>` (the name delamain gives every peer worktree branch; the leaf self-reports it, so `HEAD` or an `origin/...` ref is rejected). delamain skips the push when nothing is ahead of `origin/<mergeBranch>` (its own `.delamain/result.json` handoff file is excluded from the peer commit), so a no-change "done" has no branch and is downgraded to `blocked`.
+- A slice whose upstream landed but was refuted/unreviewed by the jury is `skipped` with a summary saying so — distinct from "did not land".
 - `verified.jurors: 0` (no juror voted) is reported as `survived: false` with a `note`; it is never treated as approval.
 - Top-level `landed[]` = slices that landed and were not refuted. It is exactly what the finalize stage expects in `args.landed`, and the only slices Step 7 should open PRs for.
 

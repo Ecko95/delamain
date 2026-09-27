@@ -165,14 +165,27 @@ export function planWaves(slices: Slice[]): Slice[][] {
   return waves;
 }
 
+/** delamain names every peer worktree branch codex-peer/<peerId> (src/git.ts). */
+const PEER_BRANCH_RE = /^codex-peer\/[A-Za-z0-9._-]+$/;
+
 /**
  * Did a leaf's result mean a branch actually got pushed? delamain's on-done
  * push is SKIPPED (peer still ends "done") when the worktree has no commits
  * ahead of origin/<mergeBranch>, and ctx.agent cannot see that. A leaf that
  * changed nothing therefore must not become an upstream or a PR candidate.
+ * The branch is self-reported by the leaf, so it must look like the branch
+ * delamain actually created — "HEAD" (detached) or a remote ref would make a
+ * dependent slice fail at spawn.
  */
 export function sliceLanded(result: SliceResult | null | undefined): boolean {
-  return Boolean(result && result.status === "done" && typeof result.branch === "string" && result.branch.trim() && Array.isArray(result.filesChanged) && result.filesChanged.length > 0);
+  return Boolean(
+    result &&
+      result.status === "done" &&
+      typeof result.branch === "string" &&
+      PEER_BRANCH_RE.test(result.branch.trim()) &&
+      Array.isArray(result.filesChanged) &&
+      result.filesChanged.length > 0,
+  );
 }
 
 /** A jury where nobody voted is NOT an approval. */
@@ -222,7 +235,7 @@ export function buildSlicePrompt(plan: Plan, slice: Slice, upstreamBranch: strin
   lines.push("");
   lines.push("## Report");
   lines.push("Return status \"done\" only if every acceptance criterion is met, verification passed, and you committed changes; otherwise \"blocked\" with the reason in summary.");
-  lines.push("`branch` must be the output of `git rev-parse --abbrev-ref HEAD` in your worktree; `filesChanged` must list every file you committed.");
+  lines.push("`branch` must be the output of `git rev-parse --abbrev-ref HEAD` in your worktree (it looks like `codex-peer/<id>`; never `HEAD` or an `origin/...` ref); `filesChanged` must list every file you committed.");
   return lines.join("\n");
 }
 
@@ -302,8 +315,11 @@ export default async function run(ctx) {
         const dep = (slice.dependsOn ?? []).filter(Boolean)[0];
         const upstream = dep ? branchOf.get(dep) ?? null : null;
         if (dep && !upstream) {
+          const up = outcomes.get(dep);
           out.status = "skipped";
-          out.summary = `dependency ${dep} did not land`;
+          out.summary = up?.landed
+            ? `dependency ${dep} landed but was ${up.verified?.jurors === 0 ? "left unreviewed" : "refuted"} by the jury`
+            : `dependency ${dep} did not land`;
           return null;
         }
         try {

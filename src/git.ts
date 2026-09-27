@@ -237,6 +237,9 @@ function gitPath(repo: string, args: string[]): string | undefined {
   return result.status === 0 && path ? resolve(repo, path) : undefined;
 }
 
+/** Where a schema'd workflow leaf writes its result (see workflow/schema.ts). */
+export const WORKFLOW_RESULT_FILE = ".delamain/result.json";
+
 function commitWorkingTree(repo: string, peerId: string): boolean {
   const status = runGit(repo, ["status", "--porcelain"]).stdout.trim();
   if (!status) {
@@ -244,6 +247,12 @@ function commitWorkingTree(repo: string, peerId: string): boolean {
   }
 
   runGit(repo, ["add", "-A"]);
+  // The workflow engine's structured-result handoff file is runtime state
+  // between leaf and parent, never part of the peer's change. Leave it on
+  // disk (ctx.agent still reads it) but keep it out of the commit so parallel
+  // slice branches don't all carry — and conflict on — the same path, and so
+  // a leaf that changed nothing else stays "nothing to push".
+  runGit(repo, ["reset", "-q", "--", WORKFLOW_RESULT_FILE], { allowFailure: true });
   const diff = runGit(repo, ["diff", "--cached", "--quiet"], { allowFailure: true });
   if (diff.status === 0) {
     return false;
