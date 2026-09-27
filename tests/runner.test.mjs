@@ -12,7 +12,12 @@ import { buildRunnerArgv } from "../dist/peerManager.js";
 
 // --- reasoningEffortArgs (shared by runner.ts and gsdRunner.ts) ---
 
-test("reasoningEffortArgs: absent effort preserves legacy default (high unless gpt-5.5)", () => {
+test("reasoningEffortArgs: absent effort forces high except for the gpt-5.5 / gpt-6 families", () => {
+  assert.deepEqual(reasoningEffortArgs("gpt-5.5-codex", undefined), []);
+  assert.deepEqual(reasoningEffortArgs("gpt-6", undefined), []);
+  assert.deepEqual(reasoningEffortArgs("gpt-6.1-sol", undefined), []);
+  assert.deepEqual(reasoningEffortArgs("gpt-60", undefined), ["-c", 'model_reasoning_effort="high"']);
+  assert.deepEqual(reasoningEffortArgs("gpt-5.6-terra", undefined), ["-c", 'model_reasoning_effort="high"']);
   assert.deepEqual(reasoningEffortArgs("gpt-5", undefined), ["-c", 'model_reasoning_effort="high"']);
   assert.deepEqual(reasoningEffortArgs("gpt-5.5", undefined), []);
   assert.deepEqual(reasoningEffortArgs("gpt-6-astra", undefined), []);

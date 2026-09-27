@@ -22,7 +22,7 @@ import { listWorkflows, resumeWorkflowRun, spawnWorkflowRun, spawnWorkflowRunner
 import { validateWorkflowSource } from "./workflow/sandbox.js";
 import { workflowsDir } from "./paths.js";
 import type { SpawnSizingArgs, TaskScope } from "./taskSizing.js";
-import type { GsdPlanningMode } from "./types.js";
+import { REASONING_EFFORTS, type GsdPlanningMode, type ReasoningEffort } from "./types.js";
 
 // S3 Tier 1 sizing args — shared by spawn_peer and spawn_peer_and_wait. Optional
 // and backward-compatible: omitting `scope` warns only on prompt length.
@@ -48,8 +48,8 @@ const SIZING_SCHEMA_PROPS = {
 
 // Codex peer tuning knobs (reasoning_effort, developer_instructions, codex_config).
 // Declared before TOOLS since its schema literals reference them at module load.
-export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
-type ReasoningEffortValue = (typeof REASONING_EFFORTS)[number];
+export { REASONING_EFFORTS };
+type ReasoningEffortValue = ReasoningEffort;
 
 export const DEVELOPER_INSTRUCTIONS_MAX = 32_768; // codex's own project_doc default bound
 export const CODEX_CONFIG_MAX_ENTRIES = 16;
@@ -117,7 +117,7 @@ export const TOOLS = [
           type: "string",
           enum: REASONING_EFFORTS,
           description:
-            "Codex engine only. Overrides Codex's model_reasoning_effort for any model (including gpt-5.5 and gpt-6-*). Omit to keep today's default (high, except gpt-5.5 and gpt-6-*, which use their own default).",
+            "Codex engine only. Overrides Codex's model_reasoning_effort for any model (including gpt-5.5 and gpt-6-*). Omit to keep today's default (high, except gpt-5.5 and gpt-6-*, which use their own default). Models accept different subsets of these values; an unsupported one fails when the peer's first turn hits the API, not here.",
         },
         developer_instructions: {
           type: "string",

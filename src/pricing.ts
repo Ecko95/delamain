@@ -26,7 +26,9 @@ const TABLE: Record<string, ModelPricing> = {
 // Longest-first so "gpt-5.4-mini-high" prefix-matches "gpt-5.4-mini", not "gpt-5.4".
 const PREFIX_KEYS = Object.keys(TABLE).sort((a, b) => b.length - a.length);
 
-const DEFAULT: ModelPricing = { inputPerM: 1.25, cachedPerM: 0.125, outputPerM: 10 };
+// Unknown ids are costed like gpt-6-sol, the coding default the docs point at.
+// Keep this in step with that row; it used to lag the table by a generation.
+const DEFAULT: ModelPricing = { inputPerM: 2, cachedPerM: 0.2, outputPerM: 10 };
 
 export function priceFor(model: string | undefined): ModelPricing {
   if (model && TABLE[model]) return TABLE[model];

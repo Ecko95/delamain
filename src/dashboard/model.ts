@@ -545,7 +545,7 @@ function detailRows(peer: PeerRecord, diffStat?: string): DashboardDetailRow[] {
   const rows: DashboardDetailRow[] = [
     { label: "id", value: peer.id },
     { label: "status", value: dashboardStatus(peer) },
-    { label: "model", value: modelWithEffort(peer.model) },
+    { label: "model", value: modelWithEffort(peer) },
     { label: "project", value: projectLabel(peer) },
     { label: "source", value: valueOrDash(peer.sourceRepo) },
     { label: "worktree", value: valueOrDash(peer.worktreePath || peer.repo) },
@@ -569,9 +569,15 @@ function integrationLabel(peer: PeerRecord): string {
   return peer.integrationError ? `${status} (${peer.integrationError})` : status;
 }
 
-function modelWithEffort(model?: string): string {
-  const m = model || "default";
-  const effort = usesOwnReasoningDefault(model) ? "default" : "high";
+/**
+ * Mirror what the runner actually passes: an explicit reasoningEffort wins,
+ * otherwise the codex default rule (reasoningEffortArgs). Cursor/pi peers get
+ * no effort flag at all, so none is shown.
+ */
+function modelWithEffort(peer: PeerRecord): string {
+  const m = peer.model || "default";
+  if (peer.engine && peer.engine !== "codex") return m;
+  const effort = peer.reasoningEffort ?? (usesOwnReasoningDefault(peer.model) ? "default" : "high");
   return `${m}  effort:${effort}`;
 }
 

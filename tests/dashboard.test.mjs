@@ -107,6 +107,15 @@ test("createDashboardViewModel includes integration detail and bounded logLines"
   assert.equal(view.logLines.length, 80);
 });
 
+test("createDashboardViewModel model row mirrors the effort the runner actually applies", () => {
+  const modelRow = (overrides) =>
+    createDashboardViewModel([peer({ id: "p1", status: "working", ...overrides })]).details.find((row) => row.label === "model").value;
+  assert.equal(modelRow({ model: "gpt-5.4", reasoningEffort: "low" }), "gpt-5.4  effort:low");
+  assert.equal(modelRow({ model: "gpt-6-sol" }), "gpt-6-sol  effort:default");
+  assert.equal(modelRow({ model: "gpt-6-sol", reasoningEffort: "xhigh" }), "gpt-6-sol  effort:xhigh");
+  assert.equal(modelRow({ engine: "cursor", model: "composer-2.5-fast" }), "composer-2.5-fast");
+});
+
 test("createDashboardViewModel keeps default collapsed status groups in view state", () => {
   const view = createDashboardViewModel([
     peer({ id: "done1", status: "done" }),
