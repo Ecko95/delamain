@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -135,6 +135,45 @@ test("pushPeerBranch pushes the peer branch to origin without advancing the base
     // ...and main is untouched.
     assert.equal(git(["rev-parse", "main"], fixture.origin).trim(), mainBefore);
     assert.throws(() => git(["show", "main:peer.txt"], fixture.origin));
+  } finally {
+    cleanupFixture(fixture.root);
+  }
+});
+
+test("pushPeerBranch keeps the workflow result.json handoff out of the peer commit", () => {
+  const fixture = createFixture("main");
+  try {
+    process.env.CODEX_PEERS_HOME = join(fixture.root, "home");
+    const created = createPeerWorktree(fixture.repo, "schema-peer");
+    writeFileSync(join(created.worktreePath, "peer.txt"), "peer change\n", "utf8");
+    mkdirSync(join(created.worktreePath, ".delamain"), { recursive: true });
+    writeFileSync(join(created.worktreePath, ".delamain", "result.json"), '{"status":"done"}', "utf8");
+
+    const result = pushPeerBranch(created.worktreePath, "schema-peer", "main");
+
+    assert.equal(result.status, "pushed");
+    assert.equal(git(["show", "codex-peer/schema-peer:peer.txt"], fixture.origin), "peer change\n");
+    // The handoff file stays on disk for the parent to read, but is not committed.
+    assert.throws(() => git(["show", "codex-peer/schema-peer:.delamain/result.json"], fixture.origin));
+    assert.equal(readFileSync(join(created.worktreePath, ".delamain", "result.json"), "utf8"), '{"status":"done"}');
+  } finally {
+    cleanupFixture(fixture.root);
+  }
+});
+
+test("pushPeerBranch skips the push when result.json is the only change", () => {
+  const fixture = createFixture("main");
+  try {
+    process.env.CODEX_PEERS_HOME = join(fixture.root, "home");
+    const created = createPeerWorktree(fixture.repo, "noop-peer");
+    mkdirSync(join(created.worktreePath, ".delamain"), { recursive: true });
+    writeFileSync(join(created.worktreePath, ".delamain", "result.json"), '{"status":"done"}', "utf8");
+
+    const result = pushPeerBranch(created.worktreePath, "noop-peer", "main");
+
+    assert.equal(result.status, "skipped");
+    assert.equal(result.committed, false);
+    assert.equal(git(["branch", "--list", "codex-peer/noop-peer"], fixture.origin).trim(), "");
   } finally {
     cleanupFixture(fixture.root);
   }

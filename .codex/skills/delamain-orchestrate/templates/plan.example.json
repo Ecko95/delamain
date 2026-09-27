@@ -1,0 +1,42 @@
+{
+  "name": "roadmap-m1",
+  "mergeBranch": "main",
+  "startRef": "origin/main",
+  "engine": "codex",
+  "model": "gpt-6-sol",
+  "verify": { "jurors": 0 },
+  "slices": [
+    {
+      "id": "P03",
+      "phase": "03",
+      "title": "Auth middleware",
+      "prompt": "Implement phase 03 (auth middleware) exactly as specified in its PLAN.md.",
+      "planPaths": [".planning/phases/03-auth-middleware/PLAN.md"],
+      "acceptance": [
+        "Requests without a valid session cookie get 401 from every /api route",
+        "Existing /api tests still pass"
+      ],
+      "verification": ["npx tsc -p tsconfig.json --noEmit", "npx vitest run src/api"]
+    },
+    {
+      "id": "P04",
+      "phase": "04",
+      "title": "Rate limiting",
+      "prompt": "Implement phase 04 (per-user rate limiting) as specified in its PLAN.md.",
+      "planPaths": [".planning/phases/04-rate-limiting/PLAN.md"],
+      "acceptance": ["The 101st request in a minute from one user returns 429"],
+      "verification": ["npx vitest run src/api/rateLimit"]
+    },
+    {
+      "id": "P05",
+      "phase": "05",
+      "title": "Admin audit log",
+      "prompt": "Implement phase 05 (admin audit log) as specified in its PLAN.md. It builds on the auth middleware from P03.",
+      "planPaths": [".planning/phases/05-audit-log/PLAN.md"],
+      "dependsOn": ["P03"],
+      "acceptance": ["Every admin mutation writes one audit row with the acting user id"],
+      "verification": ["npx vitest run src/audit"]
+    }
+  ],
+  "runs": []
+}
